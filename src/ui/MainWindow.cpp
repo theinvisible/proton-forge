@@ -108,7 +108,7 @@ void MainWindow::setupMenuBar()
         QMessageBox::about(this, "About NVIDIA App Linux",
             "NVIDIA App Linux - DLSS Manager\n\n"
             "Manage DLSS settings for Steam games running under Proton.\n\n"
-            "Version 1.0.0");
+            "Version 1.0.1");
     });
 }
 
