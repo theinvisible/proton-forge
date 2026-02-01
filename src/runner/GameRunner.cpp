@@ -180,7 +180,12 @@ QStringList GameRunner::findExecutables(const QString& installPath) const
             filename.contains("redist") ||
             filename.contains("vcredist") ||
             filename.contains("directx") ||
-            filename.contains("dotnet")) {
+            filename.contains("dotnet") ||
+            filename.contains("easyanticheat") ||
+            filename.contains("battleye") ||
+            filename.contains("regroup") ||  // Log utilities
+            filename.contains("tts") ||  // Text-to-speech utilities
+            filename.contains("voice")) {
             continue;
         }
 
@@ -203,11 +208,36 @@ QString GameRunner::findGameExecutable(const Game& game)
     }
 
     QStringList executables = findExecutables(game.installPath());
-    if (!executables.isEmpty()) {
-        return executables.first();
+    if (executables.isEmpty()) {
+        return QString();
     }
 
-    return QString();
+    // Prefer executables that match the game name
+    QString gameName = game.name().toLower();
+    QString installDirName = QFileInfo(game.installPath()).fileName().toLower();
+
+    for (const QString& exe : executables) {
+        QString exeName = QFileInfo(exe).baseName().toLower();
+
+        // Check if executable name matches game name or install directory name
+        if (exeName == gameName || exeName == installDirName) {
+            return exe;
+        }
+    }
+
+    // Check for partial matches (e.g., "GameName.exe" vs "Game Name")
+    for (const QString& exe : executables) {
+        QString exeName = QFileInfo(exe).baseName().toLower();
+        QString gameNameNoSpaces = gameName;
+        gameNameNoSpaces.remove(' ');
+
+        if (exeName == gameNameNoSpaces || gameNameNoSpaces.contains(exeName)) {
+            return exe;
+        }
+    }
+
+    // Fall back to first executable (already sorted by path depth)
+    return executables.first();
 }
 
 bool GameRunner::isSteamRunning() const
