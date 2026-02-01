@@ -6,6 +6,7 @@
 #include <QUrl>
 #include <QDir>
 #include <QFileInfo>
+#include <QScrollBar>
 
 GameListWidget::GameListWidget(QWidget* parent)
     : QWidget(parent)
@@ -26,6 +27,11 @@ GameListWidget::GameListWidget(QWidget* parent)
     m_listWidget->setSpacing(2);
     m_listWidget->setAlternatingRowColors(true);
     m_listWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    // Enable smooth scrolling
+    m_listWidget->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_listWidget->verticalScrollBar()->setSingleStep(20);
+
     layout->addWidget(m_listWidget);
 
     // Connections
