@@ -24,6 +24,7 @@ private slots:
     void onSearchTextChanged(const QString& text);
     void onItemClicked(QListWidgetItem* item);
     void onImageReady(const QString& url);
+    void showContextMenu(const QPoint& pos);
 
 private:
     void updateFilter();
