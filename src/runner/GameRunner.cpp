@@ -45,6 +45,8 @@ QString GameRunner::findDefaultProton() const
 
     // Build list of directories to check for Proton
     QStringList protonDirs;
+    // First check compatibilitytools.d in main Steam directory
+    protonDirs << steam + "/compatibilitytools.d";
 
     // Add common folders from all libraries
     for (const QString& libPath : libraryPaths) {
@@ -55,9 +57,6 @@ QString GameRunner::findDefaultProton() const
         }
         protonDirs << libPath + "/common";
     }
-
-    // Also check compatibilitytools.d in main Steam directory
-    protonDirs << steam + "/compatibilitytools.d";
 
     // Preferred Proton versions (newest first)
     QStringList preferredVersions = {
