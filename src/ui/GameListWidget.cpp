@@ -31,6 +31,7 @@ GameListWidget::GameListWidget(QWidget* parent)
     // Connections
     connect(m_searchBox, &QLineEdit::textChanged, this, &GameListWidget::onSearchTextChanged);
     connect(m_listWidget, &QListWidget::itemClicked, this, &GameListWidget::onItemClicked);
+    connect(m_listWidget, &QListWidget::currentItemChanged, this, &GameListWidget::onCurrentItemChanged);
     connect(&ImageCache::instance(), &ImageCache::imageReady, this, &GameListWidget::onImageReady);
     connect(m_listWidget, &QListWidget::customContextMenuRequested, this, &GameListWidget::showContextMenu);
 }
@@ -103,6 +104,15 @@ void GameListWidget::onItemClicked(QListWidgetItem* item)
     if (!item) return;
 
     Game game = item->data(Qt::UserRole).value<Game>();
+    emit gameSelected(game);
+}
+
+void GameListWidget::onCurrentItemChanged(QListWidgetItem* current, QListWidgetItem* previous)
+{
+    Q_UNUSED(previous);
+    if (!current) return;
+
+    Game game = current->data(Qt::UserRole).value<Game>();
     emit gameSelected(game);
 }
 

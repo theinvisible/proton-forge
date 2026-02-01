@@ -48,6 +48,7 @@ private:
     // Header
     QLabel* m_gameNameLabel;
     QLabel* m_gameImageLabel;
+    QLabel* m_platformBadge;
     QLabel* m_protonVersionLabel;
 
     // General settings

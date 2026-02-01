@@ -23,6 +23,7 @@ signals:
 private slots:
     void onSearchTextChanged(const QString& text);
     void onItemClicked(QListWidgetItem* item);
+    void onCurrentItemChanged(QListWidgetItem* current, QListWidgetItem* previous);
     void onImageReady(const QString& url);
     void showContextMenu(const QPoint& pos);
 

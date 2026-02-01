@@ -33,6 +33,14 @@ void DLSSSettingsWidget::setupUI()
     m_gameNameLabel->setWordWrap(true);
     gameInfoLayout->addWidget(m_gameNameLabel);
 
+    m_platformBadge = new QLabel("", this);
+    m_platformBadge->setStyleSheet(
+        "font-size: 11px; font-weight: bold; padding: 4px 8px; "
+        "border-radius: 3px; background-color: #555; color: white;");
+    m_platformBadge->setMaximumWidth(120);
+    m_platformBadge->hide();  // Hidden until a game is selected
+    gameInfoLayout->addWidget(m_platformBadge);
+
     m_protonVersionLabel = new QLabel("", this);
     m_protonVersionLabel->setStyleSheet("font-size: 12px; color: #888;");
     m_protonVersionLabel->setWordWrap(true);
@@ -434,6 +442,21 @@ void DLSSSettingsWidget::setGame(const Game& game)
 {
     m_currentGame = game;
     m_gameNameLabel->setText(game.name());
+
+    // Platform badge
+    if (game.isNativeLinux()) {
+        m_platformBadge->setText("🐧 Native Linux");
+        m_platformBadge->setStyleSheet(
+            "font-size: 11px; font-weight: bold; padding: 4px 8px; "
+            "border-radius: 3px; background-color: #28a745; color: white;");
+        m_platformBadge->show();
+    } else {
+        m_platformBadge->setText("🪟 Windows");
+        m_platformBadge->setStyleSheet(
+            "font-size: 11px; font-weight: bold; padding: 4px 8px; "
+            "border-radius: 3px; background-color: #0078d4; color: white;");
+        m_platformBadge->show();
+    }
 
     // Detect Proton version
     GameRunner runner;
