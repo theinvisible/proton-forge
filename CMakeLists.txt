@@ -18,6 +18,7 @@ set(SOURCES
     src/launchers/LauncherManager.cpp
     src/launchers/SteamLauncher.cpp
     src/utils/EnvBuilder.cpp
+    src/utils/ProtonManager.cpp
     src/network/ImageCache.cpp
     src/runner/GameRunner.cpp
     src/ui/MainWindow.cpp
@@ -34,6 +35,7 @@ set(HEADERS
     src/launchers/LauncherManager.h
     src/launchers/SteamLauncher.h
     src/utils/EnvBuilder.h
+    src/utils/ProtonManager.h
     src/network/ImageCache.h
     src/runner/GameRunner.h
     src/ui/MainWindow.h

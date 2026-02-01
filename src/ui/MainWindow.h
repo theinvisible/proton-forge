@@ -22,12 +22,18 @@ private slots:
     void onCopyToClipboard();
     void onWriteToSteam();
     void refreshGameList();
+    void checkProtonCachyOS();
+    void installProtonCachyOS();
+    void onProtonUpdateCheck(bool updateAvailable, const QString& version);
+    void onProtonInstallProgress(qint64 received, qint64 total);
+    void onProtonInstallComplete(bool success, const QString& message);
 
 private:
     void setupUI();
     void setupMenuBar();
     void setupToolBar();
     void loadGames();
+    void checkProtonOnStartup();
 
     QSplitter* m_splitter;
     GameListWidget* m_gameList;

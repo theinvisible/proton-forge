@@ -2,12 +2,15 @@
 #include "launchers/LauncherManager.h"
 #include "core/SettingsManager.h"
 #include "utils/EnvBuilder.h"
+#include "utils/ProtonManager.h"
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QClipboard>
 #include <QApplication>
 #include <QMessageBox>
+#include <QProgressDialog>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -34,6 +37,17 @@ MainWindow::MainWindow(QWidget* parent)
         QMessageBox::warning(this, "Launch Error",
             QString("Failed to launch %1:\n%2").arg(game.name(), error));
     });
+
+    // Connect Proton manager signals
+    connect(&ProtonManager::instance(), &ProtonManager::updateCheckComplete,
+            this, &MainWindow::onProtonUpdateCheck);
+    connect(&ProtonManager::instance(), &ProtonManager::downloadProgress,
+            this, &MainWindow::onProtonInstallProgress);
+    connect(&ProtonManager::instance(), &ProtonManager::installationComplete,
+            this, &MainWindow::onProtonInstallComplete);
+
+    // Check for Proton-CachyOS on startup
+    QTimer::singleShot(1000, this, &MainWindow::checkProtonOnStartup);
 }
 
 void MainWindow::setupUI()
@@ -77,6 +91,14 @@ void MainWindow::setupMenuBar()
     QAction* quitAction = fileMenu->addAction("&Quit");
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QMainWindow::close);
+
+    QMenu* toolsMenu = menuBar()->addMenu("&Tools");
+
+    QAction* checkProtonAction = toolsMenu->addAction("Check for Proton-CachyOS Updates");
+    connect(checkProtonAction, &QAction::triggered, this, &MainWindow::checkProtonCachyOS);
+
+    QAction* installProtonAction = toolsMenu->addAction("Install/Update Proton-CachyOS");
+    connect(installProtonAction, &QAction::triggered, this, &MainWindow::installProtonCachyOS);
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");
 
@@ -183,5 +205,111 @@ void MainWindow::onWriteToSteam()
         QMessageBox::warning(this, "Error",
             "Failed to write settings to Steam configuration.\n"
             "You may need to copy the launch options manually.");
+    }
+}
+
+void MainWindow::checkProtonOnStartup()
+{
+    ProtonManager& pm = ProtonManager::instance();
+
+    if (!pm.isProtonCachyOSInstalled()) {
+        QMessageBox::StandardButton reply = QMessageBox::question(this,
+            "Proton-CachyOS Not Found",
+            "Proton-CachyOS is not installed. This is a high-performance Proton build optimized for gaming.\n\n"
+            "Would you like to download and install it now?",
+            QMessageBox::Yes | QMessageBox::No);
+
+        if (reply == QMessageBox::Yes) {
+            installProtonCachyOS();
+        }
+    } else {
+        // Check for updates silently
+        pm.checkForUpdates();
+    }
+}
+
+void MainWindow::checkProtonCachyOS()
+{
+    statusBar()->showMessage("Checking for Proton-CachyOS updates...");
+    ProtonManager::instance().checkForUpdates();
+}
+
+void MainWindow::installProtonCachyOS()
+{
+    ProtonManager& pm = ProtonManager::instance();
+
+    QString currentVersion = pm.getInstalledVersion();
+    QString message;
+
+    if (currentVersion.isEmpty()) {
+        message = "This will download and install Proton-CachyOS.\n\n"
+                  "Proton-CachyOS is a high-performance Proton build with optimizations "
+                  "for better gaming performance and compatibility.\n\n"
+                  "Continue?";
+    } else {
+        message = QString("Current version: %1\n\n"
+                         "This will check for and install the latest version of Proton-CachyOS.\n\n"
+                         "Continue?").arg(currentVersion);
+    }
+
+    QMessageBox::StandardButton reply = QMessageBox::question(this,
+        "Install Proton-CachyOS", message, QMessageBox::Yes | QMessageBox::No);
+
+    if (reply == QMessageBox::Yes) {
+        statusBar()->showMessage("Starting Proton-CachyOS installation...");
+        pm.installProtonCachyOS();
+    }
+}
+
+void MainWindow::onProtonUpdateCheck(bool updateAvailable, const QString& version)
+{
+    ProtonManager& pm = ProtonManager::instance();
+    QString currentVersion = pm.getInstalledVersion();
+
+    if (updateAvailable) {
+        if (currentVersion.isEmpty()) {
+            // Not installed
+            statusBar()->showMessage("Proton-CachyOS not installed. Use Tools menu to install.", 5000);
+        } else {
+            // Update available
+            QMessageBox::StandardButton reply = QMessageBox::question(this,
+                "Update Available",
+                QString("A new version of Proton-CachyOS is available!\n\n"
+                       "Current version: %1\n"
+                       "New version: %2\n\n"
+                       "Would you like to update now?").arg(currentVersion, version),
+                QMessageBox::Yes | QMessageBox::No);
+
+            if (reply == QMessageBox::Yes) {
+                pm.updateProtonCachyOS();
+            }
+        }
+    } else {
+        if (!currentVersion.isEmpty()) {
+            statusBar()->showMessage("Proton-CachyOS is up to date (" + currentVersion + ")", 3000);
+        }
+    }
+}
+
+void MainWindow::onProtonInstallProgress(qint64 received, qint64 total)
+{
+    if (total > 0) {
+        int percent = (received * 100) / total;
+        double mb = received / (1024.0 * 1024.0);
+        double totalMb = total / (1024.0 * 1024.0);
+        statusBar()->showMessage(QString("Downloading Proton-CachyOS: %1% (%2 / %3 MB)")
+            .arg(percent).arg(mb, 0, 'f', 1).arg(totalMb, 0, 'f', 1));
+    }
+}
+
+void MainWindow::onProtonInstallComplete(bool success, const QString& message)
+{
+    if (success) {
+        QMessageBox::information(this, "Installation Complete",
+            message + "\n\nProton-CachyOS is now available for use with your games.");
+        statusBar()->showMessage("Proton-CachyOS installed successfully", 5000);
+    } else {
+        QMessageBox::warning(this, "Installation Failed", message);
+        statusBar()->showMessage("Proton-CachyOS installation failed", 5000);
     }
 }
