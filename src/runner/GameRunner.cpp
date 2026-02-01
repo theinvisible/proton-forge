@@ -268,6 +268,27 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
     env.insert("SteamAppId", game.id());
     env.insert("SteamGameId", game.id());
 
+    // Setup Steam Overlay
+    QString steamRoot = steamPath();
+    QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
+    QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
+
+    QStringList preloads;
+    if (env.contains("LD_PRELOAD")) {
+        preloads << env.value("LD_PRELOAD");
+    }
+
+    if (QFile::exists(overlay64)) {
+        preloads << overlay64;
+    }
+    if (QFile::exists(overlay32)) {
+        preloads << overlay32;
+    }
+
+    if (!preloads.isEmpty()) {
+        env.insert("LD_PRELOAD", preloads.join(":"));
+    }
+
     // Create compat data directory if needed
     QDir().mkpath(compatDataPath);
 
