@@ -32,6 +32,7 @@ QJsonObject DLSSSettings::toJson() const
     json["showIndicator"] = showIndicator;
 
     // Smooth Motion
+    json["enableSmoothMotion"] = enableSmoothMotion;
     json["enableFrameRateLimit"] = enableFrameRateLimit;
     json["targetFrameRate"] = targetFrameRate;
 
@@ -70,6 +71,7 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.showIndicator = json["showIndicator"].toBool(false);
 
     // Smooth Motion
+    settings.enableSmoothMotion = json["enableSmoothMotion"].toBool(false);
     settings.enableFrameRateLimit = json["enableFrameRateLimit"].toBool(false);
     settings.targetFrameRate = json["targetFrameRate"].toInt(60);
 
@@ -141,6 +143,7 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            dlssUpgrade == other.dlssUpgrade &&
            dlssVersion == other.dlssVersion &&
            showIndicator == other.showIndicator &&
+           enableSmoothMotion == other.enableSmoothMotion &&
            enableFrameRateLimit == other.enableFrameRateLimit &&
            targetFrameRate == other.targetFrameRate;
 }

@@ -345,6 +345,12 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
     QGroupBox* group = new QGroupBox("Smooth Motion / Frame Rate Control", this);
     QVBoxLayout* layout = new QVBoxLayout(group);
 
+    m_enableSmoothMotion = new QCheckBox("Enable Smooth Motion", this);
+    m_enableSmoothMotion->setToolTip(
+        "Enable driver-level frame generation.\n\n"
+        "Sets NVPRESENT_ENABLE_SMOOTH_MOTION=1 environment variable.\n");
+    layout->addWidget(m_enableSmoothMotion);
+
     m_enableFrameRateLimit = new QCheckBox("Enable Frame Rate Limit", this);
     m_enableFrameRateLimit->setToolTip(
         "Limit the maximum frame rate for smoother, more consistent gameplay.\n\n"
@@ -384,6 +390,7 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
         m_targetFrameRate->setEnabled(m_enableFrameRateLimit->isChecked());
     };
 
+    connect(m_enableSmoothMotion, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableFrameRateLimit, &QCheckBox::toggled, this, [updateFpsEnabled, this]() {
         updateFpsEnabled();
         onSettingChanged();
@@ -471,6 +478,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_fgOverride->blockSignals(block);
     m_fgMultiFrameCount->blockSignals(block);
     m_dlssUpgrade->blockSignals(block);
+    m_enableSmoothMotion->blockSignals(block);
     m_enableFrameRateLimit->blockSignals(block);
     m_targetFrameRate->blockSignals(block);
 }
@@ -519,6 +527,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_dlssUpgrade->setChecked(settings.dlssUpgrade);
 
     // Smooth Motion
+    m_enableSmoothMotion->setChecked(settings.enableSmoothMotion);
     m_enableFrameRateLimit->setChecked(settings.enableFrameRateLimit);
     m_targetFrameRate->setValue(settings.targetFrameRate);
     m_targetFrameRate->setEnabled(settings.enableFrameRateLimit);
@@ -558,6 +567,7 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.dlssUpgrade = m_dlssUpgrade->isChecked();
 
     // Smooth Motion
+    settings.enableSmoothMotion = m_enableSmoothMotion->isChecked();
     settings.enableFrameRateLimit = m_enableFrameRateLimit->isChecked();
     settings.targetFrameRate = m_targetFrameRate->value();
 

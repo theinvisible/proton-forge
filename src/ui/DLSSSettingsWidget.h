@@ -75,6 +75,7 @@ private:
     QCheckBox* m_dlssUpgrade;
 
     // Smooth Motion
+    QCheckBox* m_enableSmoothMotion;
     QCheckBox* m_enableFrameRateLimit;
     QSpinBox* m_targetFrameRate;
 

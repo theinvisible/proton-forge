@@ -37,6 +37,7 @@ public:
     bool showIndicator = false;
 
     // Smooth Motion / Frame Rate
+    bool enableSmoothMotion = false;
     bool enableFrameRateLimit = false;
     int targetFrameRate = 60;  // FPS limit
 

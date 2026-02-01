@@ -96,7 +96,12 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << QString("DXVK_NVAPI_DRS_SETTINGS=%1").arg(drsSettings);
     }
 
-    // Smooth Motion / Frame Rate Limit
+    // Smooth Motion
+    if (settings.enableSmoothMotion) {
+        envVars << "NVPRESENT_ENABLE_SMOOTH_MOTION=1";
+    }
+
+    // Frame Rate Limit
     if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
         envVars << QString("DXVK_FRAME_RATE=%1").arg(settings.targetFrameRate);
     }
@@ -136,7 +141,12 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
         env.insert("DXVK_NVAPI_DRS_SETTINGS", drsSettings);
     }
 
-    // Smooth Motion / Frame Rate Limit
+    // Smooth Motion
+    if (settings.enableSmoothMotion) {
+        env.insert("__GL_YIELD", "USLEEP");
+    }
+
+    // Frame Rate Limit
     if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
         env.insert("DXVK_FRAME_RATE", QString::number(settings.targetFrameRate));
     }
