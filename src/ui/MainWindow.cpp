@@ -28,13 +28,25 @@ MainWindow::MainWindow(QWidget* parent)
     // Connect game runner signals
     connect(m_gameRunner, &GameRunner::gameStarted, this, [this](const Game& game) {
         statusBar()->showMessage(QString("Started: %1").arg(game.name()), 5000);
+        // Update UI to show game is running
+        if (m_currentGame == game) {
+            m_settingsWidget->setGameRunning(true);
+        }
     });
 
     connect(m_gameRunner, &GameRunner::gameFinished, this, [this](const Game& game, int exitCode) {
         statusBar()->showMessage(QString("%1 exited with code %2").arg(game.name()).arg(exitCode), 5000);
+        // Update UI to show game is no longer running
+        if (m_currentGame == game) {
+            m_settingsWidget->setGameRunning(false);
+        }
     });
 
     connect(m_gameRunner, &GameRunner::launchError, this, [this](const Game& game, const QString& error) {
+        // Update UI on error
+        if (m_currentGame == game) {
+            m_settingsWidget->setGameRunning(false);
+        }
         QMessageBox::warning(this, "Launch Error",
             QString("Failed to launch %1:\n%2").arg(game.name(), error));
     });
@@ -143,6 +155,9 @@ void MainWindow::onGameSelected(const Game& game)
     m_settingsWidget->setGame(game);
     m_settingsWidget->setSettings(settings);
 
+    // Update Play button state based on whether game is running
+    m_settingsWidget->setGameRunning(m_gameRunner->isGameRunning(game));
+
     statusBar()->showMessage(QString("Selected: %1").arg(game.name()), 3000);
 }
 
@@ -160,6 +175,13 @@ void MainWindow::onPlayClicked()
 {
     if (m_currentGame.id().isEmpty()) {
         QMessageBox::information(this, "No Game Selected", "Please select a game first.");
+        return;
+    }
+
+    // Check if game is already running
+    if (m_gameRunner->isGameRunning(m_currentGame)) {
+        QMessageBox::information(this, "Game Already Running",
+            QString("%1 is already running.").arg(m_currentGame.name()));
         return;
     }
 

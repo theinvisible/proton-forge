@@ -271,6 +271,12 @@ void GameRunner::ensureSteamRunning()
 
 bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
 {
+    // Check if this game is already running
+    if (isGameRunning(game)) {
+        emit launchError(game, "Game is already running");
+        return false;
+    }
+
     if (game.launcher() == "Steam") {
         ensureSteamRunning();
     }
@@ -282,6 +288,13 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
 
     // Windows games need Proton
     return launchWithProton(game, settings);
+}
+
+bool GameRunner::isGameRunning(const Game& game) const
+{
+    // Check if we have a running process and it's for this game
+    return m_process && m_process->state() == QProcess::Running &&
+           m_runningGame == game;
 }
 
 bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings)
@@ -352,10 +365,12 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
 
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, game](int exitCode, QProcess::ExitStatus) {
+        m_runningGame = Game();  // Clear running game
         emit gameFinished(game, exitCode);
     });
 
     connect(m_process, &QProcess::errorOccurred, this, [this, game](QProcess::ProcessError error) {
+        m_runningGame = Game();  // Clear running game on error
         QString errorMsg;
         switch (error) {
             case QProcess::FailedToStart:
@@ -374,6 +389,7 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
     m_process->start(protonExe, {"run", gameExe});
 
     if (m_process->waitForStarted(5000)) {
+        m_runningGame = game;  // Track running game
         emit gameStarted(game);
         return true;
     }
@@ -497,6 +513,7 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
 
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, game](int exitCode, QProcess::ExitStatus) {
+        m_runningGame = Game();  // Clear running game
         emit gameFinished(game, exitCode);
     });
 
@@ -519,6 +536,7 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
     m_process->start(gameExe, QStringList());
 
     if (m_process->waitForStarted(5000)) {
+        m_runningGame = game;  // Track running game
         emit gameStarted(game);
         return true;
     }

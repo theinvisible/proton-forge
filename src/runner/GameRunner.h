@@ -13,6 +13,7 @@ public:
     explicit GameRunner(QObject* parent = nullptr);
 
     bool launch(const Game& game, const DLSSSettings& settings);
+    bool isGameRunning(const Game& game) const;
 
     // Proton detection
     QString findProtonPath(const Game& game);
@@ -38,6 +39,7 @@ private:
     bool isSteamRunning() const;
 
     QProcess* m_process = nullptr;
+    Game m_runningGame;
 };
 
 #endif // GAMERUNNER_H

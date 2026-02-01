@@ -23,6 +23,7 @@ public:
     DLSSSettings settings() const;
 
     void updateLaunchCommand(const QString& command);
+    void setGameRunning(bool running);
 
 signals:
     void settingsChanged(const DLSSSettings& settings);

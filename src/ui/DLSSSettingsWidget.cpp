@@ -485,6 +485,21 @@ void DLSSSettingsWidget::setGame(const Game& game)
     });
 }
 
+void DLSSSettingsWidget::setGameRunning(bool running)
+{
+    if (running) {
+        m_playButton->setText("Game is running...");
+        m_playButton->setStyleSheet("QPushButton { background-color: #dc3545; color: white; padding: 10px 20px; font-weight: bold; }");
+        m_playButton->setEnabled(false);
+        m_playButton->setToolTip("Game is currently running");
+    } else {
+        m_playButton->setText("Play");
+        m_playButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 10px 20px; font-weight: bold; }");
+        m_playButton->setEnabled(true);
+        m_playButton->setToolTip("Launch game directly with DLSS settings via Proton");
+    }
+}
+
 void DLSSSettingsWidget::blockSignalsForAll(bool block)
 {
     m_enableNVAPI->blockSignals(block);
