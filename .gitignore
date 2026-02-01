@@ -1,0 +1,24 @@
+# Build directories
+build/
+cmake-build-*/
+
+# IDE files
+.idea/
+.vscode/
+*.user
+*.pro.user
+
+# Qt generated files
+*_autogen/
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# Compiled files
+*.o
+*.so
+*.a
+*.exe
+
+# Cache
+.cache/
