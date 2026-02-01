@@ -30,6 +30,9 @@ private:
     QString findProtonFromConfig(const QString& appId) const;
     QStringList findExecutables(const QString& installPath) const;
 
+    void ensureSteamRunning();
+    bool isSteamRunning() const;
+
     QProcess* m_process = nullptr;
 };
 

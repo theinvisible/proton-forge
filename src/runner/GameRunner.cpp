@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QDirIterator>
+#include <QThread>
+#include <QCoreApplication>
 
 GameRunner::GameRunner(QObject* parent)
     : QObject(parent)
@@ -59,6 +61,7 @@ QString GameRunner::findDefaultProton() const
 
     // Preferred Proton versions (newest first)
     QStringList preferredVersions = {
+        "proton-cachyos",
         "GE-Proton",
         "Proton - Experimental",
         "Proton 9",
@@ -208,8 +211,41 @@ QString GameRunner::findGameExecutable(const Game& game)
     return QString();
 }
 
+bool GameRunner::isSteamRunning() const
+{
+    QProcess process;
+    process.start("pgrep", {"-x", "steam"});
+    process.waitForFinished();
+    return process.exitCode() == 0;
+}
+
+void GameRunner::ensureSteamRunning()
+{
+    if (!isSteamRunning()) {
+        QProcess::startDetached("steam", {"-silent"});
+
+        // Wait for Steam to appear, up to 15 seconds
+        for (int i = 0; i < 30; ++i) {
+            QThread::msleep(500);
+            QCoreApplication::processEvents();
+            if (isSteamRunning()) {
+                // Give it a bit more time to initialize
+                for (int j = 0; j < 6; ++j) {
+                    QThread::msleep(500);
+                    QCoreApplication::processEvents();
+                }
+                return;
+            }
+        }
+    }
+}
+
 bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
 {
+    if (game.launcher() == "Steam") {
+        ensureSteamRunning();
+    }
+
     QString protonPath = findProtonPath(game);
     if (protonPath.isEmpty()) {
         emit launchError(game, "Could not find Proton installation");
