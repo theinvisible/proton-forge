@@ -1,10 +1,12 @@
 #include "DLSSSettingsWidget.h"
 #include "network/ImageCache.h"
 #include "utils/EnvBuilder.h"
+#include "runner/GameRunner.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
 #include <QScrollArea>
+#include <QFileInfo>
 
 DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
     : QWidget(parent)
@@ -25,10 +27,19 @@ void DLSSSettingsWidget::setupUI()
     m_gameImageLabel->setStyleSheet("border: 1px solid #333; background-color: #222;");
     headerLayout->addWidget(m_gameImageLabel);
 
+    QVBoxLayout* gameInfoLayout = new QVBoxLayout();
     m_gameNameLabel = new QLabel("Select a game", this);
     m_gameNameLabel->setStyleSheet("font-size: 18px; font-weight: bold;");
     m_gameNameLabel->setWordWrap(true);
-    headerLayout->addWidget(m_gameNameLabel, 1);
+    gameInfoLayout->addWidget(m_gameNameLabel);
+
+    m_protonVersionLabel = new QLabel("", this);
+    m_protonVersionLabel->setStyleSheet("font-size: 12px; color: #888;");
+    m_protonVersionLabel->setWordWrap(true);
+    gameInfoLayout->addWidget(m_protonVersionLabel);
+    gameInfoLayout->addStretch();
+
+    headerLayout->addLayout(gameInfoLayout, 1);
 
     mainLayout->addLayout(headerLayout);
 
@@ -360,6 +371,20 @@ void DLSSSettingsWidget::setGame(const Game& game)
 {
     m_currentGame = game;
     m_gameNameLabel->setText(game.name());
+
+    // Detect Proton version
+    GameRunner runner;
+    QString protonPath = runner.findProtonPath(game);
+    QString protonVersion = "Proton: Not detected";
+
+    if (!protonPath.isEmpty()) {
+        // Extract version from path (e.g., /path/to/proton-cachyos-10.0-20260127-slr)
+        QFileInfo protonInfo(protonPath);
+        QString dirName = protonInfo.fileName();
+        protonVersion = QString("Proton: %1").arg(dirName);
+    }
+
+    m_protonVersionLabel->setText(protonVersion);
 
     // Load image
     QPixmap pixmap = ImageCache::instance().getImage(game.imageUrl(), QSize(230, 107));

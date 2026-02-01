@@ -47,6 +47,7 @@ private:
     // Header
     QLabel* m_gameNameLabel;
     QLabel* m_gameImageLabel;
+    QLabel* m_protonVersionLabel;
 
     // General settings
     QCheckBox* m_enableNVAPI;
