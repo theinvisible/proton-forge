@@ -22,3 +22,6 @@ qrc_*.cpp
 
 # Cache
 .cache/
+
+# Debian build
+debian-build
