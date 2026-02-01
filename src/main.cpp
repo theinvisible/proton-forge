@@ -9,7 +9,7 @@ int main(int argc, char *argv[])
 
     // Application metadata
     app.setApplicationName("NvidiaAppLinux");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion("1.0.1");
     app.setOrganizationName("NvidiaAppLinux");
     app.setOrganizationDomain("nvidia-app-linux");
 
