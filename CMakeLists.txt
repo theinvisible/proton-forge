@@ -24,6 +24,7 @@ set(SOURCES
     src/ui/MainWindow.cpp
     src/ui/GameListWidget.cpp
     src/ui/DLSSSettingsWidget.cpp
+    src/ui/ProtonVersionDialog.cpp
 )
 
 set(HEADERS
@@ -41,6 +42,7 @@ set(HEADERS
     src/ui/MainWindow.h
     src/ui/GameListWidget.h
     src/ui/DLSSSettingsWidget.h
+    src/ui/ProtonVersionDialog.h
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})

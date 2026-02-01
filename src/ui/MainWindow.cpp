@@ -3,6 +3,7 @@
 #include "core/SettingsManager.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "ui/ProtonVersionDialog.h"
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
@@ -238,27 +239,37 @@ void MainWindow::installProtonCachyOS()
 {
     ProtonManager& pm = ProtonManager::instance();
 
-    QString currentVersion = pm.getInstalledVersion();
-    QString message;
+    statusBar()->showMessage("Fetching available Proton-CachyOS versions...");
 
-    if (currentVersion.isEmpty()) {
-        message = "This will download and install Proton-CachyOS.\n\n"
-                  "Proton-CachyOS is a high-performance Proton build with optimizations "
-                  "for better gaming performance and compatibility.\n\n"
-                  "Continue?";
-    } else {
-        message = QString("Current version: %1\n\n"
-                         "This will check for and install the latest version of Proton-CachyOS.\n\n"
-                         "Continue?").arg(currentVersion);
-    }
+    // Fetch available versions and show selection dialog
+    connect(&pm, &ProtonManager::availableVersionsFetched, this,
+            [this](const QList<ProtonManager::ProtonRelease>& releases) {
+        // Disconnect to avoid multiple calls
+        disconnect(&ProtonManager::instance(), &ProtonManager::availableVersionsFetched, this, nullptr);
 
-    QMessageBox::StandardButton reply = QMessageBox::question(this,
-        "Install Proton-CachyOS", message, QMessageBox::Yes | QMessageBox::No);
+        statusBar()->clearMessage();
 
-    if (reply == QMessageBox::Yes) {
-        statusBar()->showMessage("Starting Proton-CachyOS installation...");
-        pm.installProtonCachyOS();
-    }
+        if (releases.isEmpty()) {
+            QMessageBox::warning(this, "Error",
+                "Could not fetch available Proton-CachyOS versions.\n"
+                "Please check your internet connection and try again.");
+            return;
+        }
+
+        // Show version selection dialog
+        QString currentVersion = ProtonManager::instance().getInstalledVersion();
+        ProtonVersionDialog dialog(releases, currentVersion, this);
+
+        if (dialog.exec() == QDialog::Accepted) {
+            ProtonManager::ProtonRelease selectedRelease = dialog.selectedRelease();
+            if (!selectedRelease.downloadUrl.isEmpty()) {
+                statusBar()->showMessage("Starting Proton-CachyOS installation...");
+                ProtonManager::instance().installProtonCachyOS(selectedRelease);
+            }
+        }
+    }, Qt::SingleShotConnection);
+
+    pm.fetchAvailableVersions();
 }
 
 void MainWindow::onProtonUpdateCheck(bool updateAvailable, const QString& version)

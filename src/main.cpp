@@ -1,6 +1,7 @@
 #include <QApplication>
 #include "ui/MainWindow.h"
 #include "core/Game.h"
+#include "utils/ProtonManager.h"
 
 int main(int argc, char *argv[])
 {
@@ -14,6 +15,7 @@ int main(int argc, char *argv[])
 
     // Register metatypes
     qRegisterMetaType<Game>("Game");
+    qRegisterMetaType<ProtonManager::ProtonRelease>("ProtonManager::ProtonRelease");
 
     // Apply dark style
     app.setStyle("Fusion");

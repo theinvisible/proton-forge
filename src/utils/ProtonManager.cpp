@@ -20,6 +20,10 @@ ProtonManager::ProtonManager()
     : m_networkManager(new QNetworkAccessManager(this))
 {
     m_downloadPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+
+    // Register metatype for use in QVariant
+    qRegisterMetaType<ProtonRelease>("ProtonRelease");
+    qRegisterMetaType<ProtonRelease>("ProtonManager::ProtonRelease");
 }
 
 QString ProtonManager::protonCachyOSPath()
@@ -146,6 +150,12 @@ ProtonManager::ProtonRelease ProtonManager::parseLatestRelease(const QByteArray&
     }
 
     QJsonObject root = doc.object();
+    return parseReleaseFromJson(root);
+}
+
+ProtonManager::ProtonRelease ProtonManager::parseReleaseFromJson(const QJsonObject& root) const
+{
+    ProtonRelease release;
     release.version = root["tag_name"].toString();
 
     // Find x86_64 tar.xz asset
@@ -167,6 +177,66 @@ ProtonManager::ProtonRelease ProtonManager::parseLatestRelease(const QByteArray&
     return release;
 }
 
+QList<ProtonManager::ProtonRelease> ProtonManager::parseReleases(const QByteArray& jsonData, int maxCount)
+{
+    QList<ProtonRelease> releases;
+
+    QJsonDocument doc = QJsonDocument::fromJson(jsonData);
+    if (!doc.isArray()) {
+        return releases;
+    }
+
+    QJsonArray releasesArray = doc.array();
+    int count = 0;
+
+    for (const QJsonValue& releaseValue : releasesArray) {
+        if (count >= maxCount) {
+            break;
+        }
+
+        QJsonObject releaseObj = releaseValue.toObject();
+        ProtonRelease release = parseReleaseFromJson(releaseObj);
+
+        // Only add if we found a valid x86_64 package
+        if (!release.downloadUrl.isEmpty()) {
+            releases.append(release);
+            count++;
+        }
+    }
+
+    return releases;
+}
+
+void ProtonManager::fetchAvailableVersions()
+{
+    fetchReleases(5);
+}
+
+void ProtonManager::fetchReleases(int count)
+{
+    // Fetch multiple releases from GitHub API
+    QString url = QString("https://api.github.com/repos/CachyOS/proton-cachyos/releases?per_page=%1").arg(count * 2); // Fetch extra in case some don't have x86_64 packages
+    QNetworkRequest request{QUrl(url)};
+    request.setRawHeader("Accept", "application/vnd.github.v3+json");
+    request.setRawHeader("User-Agent", "NvidiaAppLinux");
+
+    QNetworkReply* reply = m_networkManager->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, count]() {
+        reply->deleteLater();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit availableVersionsFetched(QList<ProtonRelease>());
+            return;
+        }
+
+        QByteArray data = reply->readAll();
+        m_availableReleases = parseReleases(data, count);
+
+        emit availableVersionsFetched(m_availableReleases);
+    });
+}
+
 void ProtonManager::installProtonCachyOS()
 {
     if (m_latestRelease.downloadUrl.isEmpty()) {
@@ -181,6 +251,13 @@ void ProtonManager::installProtonCachyOS()
         fetchLatestRelease();
     } else {
         downloadRelease(m_latestRelease);
+    }
+}
+
+void ProtonManager::installProtonCachyOS(const ProtonRelease& release)
+{
+    if (!release.downloadUrl.isEmpty()) {
+        downloadRelease(release);
     }
 }
 
