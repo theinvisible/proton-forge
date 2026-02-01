@@ -33,6 +33,9 @@ public:
     QString libraryPath() const { return m_libraryPath; }
     void setLibraryPath(const QString& path) { m_libraryPath = path; }
 
+    bool isNativeLinux() const { return m_isNativeLinux; }
+    void setIsNativeLinux(bool isNative) { m_isNativeLinux = isNative; }
+
     // Unique key for settings lookup
     QString settingsKey() const;
 
@@ -47,6 +50,7 @@ private:
     qint64 m_sizeOnDisk = 0;
     QString m_imageUrl;
     QString m_libraryPath;
+    bool m_isNativeLinux = false;
 };
 
 Q_DECLARE_METATYPE(Game)

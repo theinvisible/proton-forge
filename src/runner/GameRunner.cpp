@@ -275,6 +275,17 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
         ensureSteamRunning();
     }
 
+    // Native Linux games don't need Proton
+    if (game.isNativeLinux()) {
+        return launchNativeLinux(game, settings);
+    }
+
+    // Windows games need Proton
+    return launchWithProton(game, settings);
+}
+
+bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings)
+{
     QString protonPath = findProtonPath(game);
     if (protonPath.isEmpty()) {
         emit launchError(game, "Could not find Proton installation");
@@ -298,8 +309,14 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
     env.insert("SteamAppId", game.id());
     env.insert("SteamGameId", game.id());
 
-    // Setup Steam Overlay
+    // Setup Steam Overlay and runtime
     QString steamRoot = steamPath();
+    env.insert("STEAM_RUNTIME", steamRoot + "/ubuntu12_32/steam-runtime");
+
+    // Inherit current user's DISPLAY and other X11 variables
+    if (!env.contains("DISPLAY")) {
+        env.insert("DISPLAY", ":0");
+    }
     QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
     QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
 
@@ -362,5 +379,150 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
     }
 
     emit launchError(game, "Proton failed to start within timeout");
+    return false;
+}
+
+QString GameRunner::findLinuxExecutable(const Game& game)
+{
+    // If already set, use it
+    if (!game.executablePath().isEmpty() && QFile::exists(game.executablePath())) {
+        return game.executablePath();
+    }
+
+    QString installPath = game.installPath();
+    QStringList candidates;
+
+    // Common Linux executable patterns
+    QStringList nameVariants;
+    QString gameName = game.name().toLower();
+    QString gameNameNoSpaces = gameName;
+    gameNameNoSpaces.remove(' ');
+    QString installDirName = QFileInfo(installPath).fileName().toLower();
+
+    nameVariants << gameNameNoSpaces << gameName.replace(' ', '_')
+                 << gameName.replace(' ', '-') << installDirName;
+
+    // Search for executables (files with execute permission, no extension)
+    QDirIterator it(installPath, QDir::Files | QDir::Executable, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QString path = it.next();
+        QString filename = QFileInfo(path).fileName().toLower();
+
+        // Skip common non-game files
+        if (filename.contains("uninstall") || filename.contains("setup") ||
+            filename.endsWith(".sh") || filename.endsWith(".py") ||
+            filename.endsWith(".so") || filename.contains("crash")) {
+            continue;
+        }
+
+        candidates << path;
+    }
+
+    // Sort candidates by path depth (shallower first)
+    std::sort(candidates.begin(), candidates.end(), [](const QString& a, const QString& b) {
+        return a.count('/') < b.count('/');
+    });
+
+    // Prefer executables matching game name
+    for (const QString& exe : candidates) {
+        QString exeName = QFileInfo(exe).fileName().toLower();
+        for (const QString& variant : nameVariants) {
+            if (exeName == variant || exeName.contains(variant)) {
+                return exe;
+            }
+        }
+    }
+
+    // Look for x86_64 executables (more likely to be the main game)
+    for (const QString& exe : candidates) {
+        if (exe.contains("x86_64") || exe.contains("x64")) {
+            return exe;
+        }
+    }
+
+    // Return first candidate if we found any
+    if (!candidates.isEmpty()) {
+        return candidates.first();
+    }
+
+    return QString();
+}
+
+bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& settings)
+{
+    QString gameExe = findLinuxExecutable(game);
+    if (gameExe.isEmpty()) {
+        emit launchError(game, "Could not find game executable");
+        return false;
+    }
+
+    // Build environment with DLSS settings
+    QProcessEnvironment env = EnvBuilder::buildEnvironment(settings);
+
+    // Add Steam environment variables for Steam games
+    if (game.launcher() == "Steam") {
+        env.insert("SteamAppId", game.id());
+        env.insert("SteamGameId", game.id());
+
+        // Setup Steam Overlay
+        QString steamRoot = steamPath();
+        QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
+        QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
+
+        QStringList preloads;
+        if (env.contains("LD_PRELOAD")) {
+            preloads << env.value("LD_PRELOAD");
+        }
+
+        if (QFile::exists(overlay64)) {
+            preloads << overlay64;
+        }
+        if (QFile::exists(overlay32)) {
+            preloads << overlay32;
+        }
+
+        if (!preloads.isEmpty()) {
+            env.insert("LD_PRELOAD", preloads.join(":"));
+        }
+    }
+
+    // Clean up previous process
+    if (m_process) {
+        m_process->deleteLater();
+    }
+
+    m_process = new QProcess(this);
+    m_process->setProcessEnvironment(env);
+    m_process->setWorkingDirectory(QFileInfo(gameExe).absolutePath());
+
+    connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, game](int exitCode, QProcess::ExitStatus) {
+        emit gameFinished(game, exitCode);
+    });
+
+    connect(m_process, &QProcess::errorOccurred, this, [this, game](QProcess::ProcessError error) {
+        QString errorMsg;
+        switch (error) {
+            case QProcess::FailedToStart:
+                errorMsg = "Failed to start game";
+                break;
+            case QProcess::Crashed:
+                errorMsg = "Game crashed";
+                break;
+            default:
+                errorMsg = "Unknown error";
+        }
+        emit launchError(game, errorMsg);
+    });
+
+    // Launch the game directly
+    m_process->start(gameExe, QStringList());
+
+    if (m_process->waitForStarted(5000)) {
+        emit gameStarted(game);
+        return true;
+    }
+
+    emit launchError(game, "Game failed to start within timeout");
     return false;
 }

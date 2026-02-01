@@ -29,6 +29,10 @@ private:
     QString findDefaultProton() const;
     QString findProtonFromConfig(const QString& appId) const;
     QStringList findExecutables(const QString& installPath) const;
+    QString findLinuxExecutable(const Game& game);
+
+    bool launchNativeLinux(const Game& game, const DLSSSettings& settings);
+    bool launchWithProton(const Game& game, const DLSSSettings& settings);
 
     void ensureSteamRunning();
     bool isSteamRunning() const;

@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QTextStream>
+#include <QDirIterator>
 
 SteamLauncher::SteamLauncher()
 {
@@ -158,6 +159,22 @@ Game SteamLauncher::parseAppManifest(const QString& manifestPath, const QString&
     game.setInstallPath(libraryPath + "/common/" + installDir);
     game.setSizeOnDisk(sizeOnDisk);
     game.setLibraryPath(libraryPath);
+
+    // Detect if this is a native Linux game or Windows game running via Proton
+    // Check for presence of .exe files - if found, it's a Windows game
+    QString installPath = libraryPath + "/common/" + installDir;
+    bool hasExeFiles = false;
+
+    QDir gameDir(installPath);
+    if (gameDir.exists()) {
+        QDirIterator it(installPath, {"*.exe"}, QDir::Files, QDirIterator::Subdirectories);
+        if (it.hasNext()) {
+            hasExeFiles = true;
+        }
+    }
+
+    // Windows games have .exe files, native Linux games don't
+    game.setIsNativeLinux(!hasExeFiles);
 
     // Steam CDN header image URL
     game.setImageUrl(QString("https://steamcdn-a.akamaihd.net/steam/apps/%1/header.jpg").arg(appId));
