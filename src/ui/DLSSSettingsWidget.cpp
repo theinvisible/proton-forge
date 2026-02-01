@@ -57,6 +57,7 @@ void DLSSSettingsWidget::setupUI()
     scrollLayout->addWidget(createRayReconstructionGroup());
     scrollLayout->addWidget(createFrameGenerationGroup());
     scrollLayout->addWidget(createUpgradeGroup());
+    scrollLayout->addWidget(createSmoothMotionGroup());
     scrollLayout->addStretch();
 
     scrollArea->setWidget(scrollContent);
@@ -339,6 +340,61 @@ QGroupBox* DLSSSettingsWidget::createUpgradeGroup()
     return group;
 }
 
+QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
+{
+    QGroupBox* group = new QGroupBox("Smooth Motion / Frame Rate Control", this);
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    m_enableFrameRateLimit = new QCheckBox("Enable Frame Rate Limit", this);
+    m_enableFrameRateLimit->setToolTip(
+        "Limit the maximum frame rate for smoother, more consistent gameplay.\n\n"
+        "Frame rate limiting can:\n"
+        "• Reduce screen tearing\n"
+        "• Lower GPU temperature and power consumption\n"
+        "• Provide more consistent frame times\n"
+        "• Reduce input latency spikes\n\n"
+        "Uses DXVK_FRAME_RATE environment variable.\n\n"
+        "Recommended: Enable if you experience tearing or want to cap FPS below your monitor's refresh rate.");
+    layout->addWidget(m_enableFrameRateLimit);
+
+    QHBoxLayout* fpsLayout = new QHBoxLayout();
+    QLabel* fpsLabel = new QLabel("Target FPS:", this);
+    fpsLayout->addWidget(fpsLabel);
+
+    m_targetFrameRate = new QSpinBox(this);
+    m_targetFrameRate->setRange(30, 500);
+    m_targetFrameRate->setValue(60);
+    m_targetFrameRate->setSuffix(" FPS");
+    m_targetFrameRate->setToolTip(
+        "Set the maximum frame rate limit.\n\n"
+        "Common values:\n"
+        "• 30 FPS - Console-like experience, very low power\n"
+        "• 60 FPS - Standard smooth gaming\n"
+        "• 120 FPS - High refresh rate gaming\n"
+        "• 144 FPS - Match 144Hz monitor\n"
+        "• 165/240 FPS - Match high-end monitors\n\n"
+        "Set to match your monitor's refresh rate for best results.");
+    fpsLayout->addWidget(m_targetFrameRate);
+    fpsLayout->addStretch();
+
+    layout->addLayout(fpsLayout);
+
+    // Enable/disable FPS control based on checkbox
+    auto updateFpsEnabled = [this]() {
+        m_targetFrameRate->setEnabled(m_enableFrameRateLimit->isChecked());
+    };
+
+    connect(m_enableFrameRateLimit, &QCheckBox::toggled, this, [updateFpsEnabled, this]() {
+        updateFpsEnabled();
+        onSettingChanged();
+    });
+    connect(m_targetFrameRate, QOverload<int>::of(&QSpinBox::valueChanged), this, &DLSSSettingsWidget::onSettingChanged);
+
+    updateFpsEnabled();
+
+    return group;
+}
+
 QWidget* DLSSSettingsWidget::createActionsSection()
 {
     QWidget* widget = new QWidget(this);
@@ -415,6 +471,8 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_fgOverride->blockSignals(block);
     m_fgMultiFrameCount->blockSignals(block);
     m_dlssUpgrade->blockSignals(block);
+    m_enableFrameRateLimit->blockSignals(block);
+    m_targetFrameRate->blockSignals(block);
 }
 
 void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
@@ -460,6 +518,11 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     // DLSS Upgrade
     m_dlssUpgrade->setChecked(settings.dlssUpgrade);
 
+    // Smooth Motion
+    m_enableFrameRateLimit->setChecked(settings.enableFrameRateLimit);
+    m_targetFrameRate->setValue(settings.targetFrameRate);
+    m_targetFrameRate->setEnabled(settings.enableFrameRateLimit);
+
     blockSignalsForAll(false);
 
     // Update launch command preview
@@ -493,6 +556,10 @@ DLSSSettings DLSSSettingsWidget::settings() const
 
     // DLSS Upgrade
     settings.dlssUpgrade = m_dlssUpgrade->isChecked();
+
+    // Smooth Motion
+    settings.enableFrameRateLimit = m_enableFrameRateLimit->isChecked();
+    settings.targetFrameRate = m_targetFrameRate->value();
 
     return settings;
 }

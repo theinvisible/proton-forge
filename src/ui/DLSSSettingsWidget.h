@@ -40,6 +40,7 @@ private:
     QGroupBox* createRayReconstructionGroup();
     QGroupBox* createFrameGenerationGroup();
     QGroupBox* createUpgradeGroup();
+    QGroupBox* createSmoothMotionGroup();
     QWidget* createActionsSection();
 
     void blockSignalsForAll(bool block);
@@ -72,6 +73,10 @@ private:
 
     // DLSS Upgrade
     QCheckBox* m_dlssUpgrade;
+
+    // Smooth Motion
+    QCheckBox* m_enableFrameRateLimit;
+    QSpinBox* m_targetFrameRate;
 
     // Launch command preview
     QTextEdit* m_launchCommandPreview;

@@ -96,6 +96,11 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << QString("DXVK_NVAPI_DRS_SETTINGS=%1").arg(drsSettings);
     }
 
+    // Smooth Motion / Frame Rate Limit
+    if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
+        envVars << QString("DXVK_FRAME_RATE=%1").arg(settings.targetFrameRate);
+    }
+
     // Append %command% for Steam launch options
     envVars << "%command%";
 
@@ -129,6 +134,11 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     QString drsSettings = buildDRSSettings(settings);
     if (!drsSettings.isEmpty()) {
         env.insert("DXVK_NVAPI_DRS_SETTINGS", drsSettings);
+    }
+
+    // Smooth Motion / Frame Rate Limit
+    if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
+        env.insert("DXVK_FRAME_RATE", QString::number(settings.targetFrameRate));
     }
 
     return env;

@@ -36,6 +36,10 @@ public:
     // Indicators
     bool showIndicator = false;
 
+    // Smooth Motion / Frame Rate
+    bool enableFrameRateLimit = false;
+    int targetFrameRate = 60;  // FPS limit
+
     // Serialization
     QJsonObject toJson() const;
     static DLSSSettings fromJson(const QJsonObject& json);
