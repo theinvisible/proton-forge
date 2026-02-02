@@ -45,12 +45,17 @@ private:
     QWidget* createActionsSection();
 
     void blockSignalsForAll(bool block);
+    void populateExecutableSelector(const Game& game);
+    QStringList findWindowsExecutables(const QString& installPath) const;
+    QStringList findLinuxExecutables(const QString& installPath) const;
+    QString findBestExecutable(const Game& game, const QStringList& executables) const;
 
     // Header
     QLabel* m_gameNameLabel;
     QLabel* m_gameImageLabel;
     QLabel* m_platformBadge;
     QLabel* m_protonVersionLabel;
+    QComboBox* m_executableSelector;
 
     // General settings
     QCheckBox* m_enableNVAPI;

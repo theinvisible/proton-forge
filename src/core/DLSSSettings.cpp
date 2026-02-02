@@ -36,6 +36,11 @@ QJsonObject DLSSSettings::toJson() const
     json["enableFrameRateLimit"] = enableFrameRateLimit;
     json["targetFrameRate"] = targetFrameRate;
 
+    // Executable Selection
+    if (!executablePath.isEmpty()) {
+        json["executablePath"] = executablePath;
+    }
+
     return json;
 }
 
@@ -74,6 +79,9 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableSmoothMotion = json["enableSmoothMotion"].toBool(false);
     settings.enableFrameRateLimit = json["enableFrameRateLimit"].toBool(false);
     settings.targetFrameRate = json["targetFrameRate"].toInt(60);
+
+    // Executable Selection
+    settings.executablePath = json["executablePath"].toString();
 
     return settings;
 }

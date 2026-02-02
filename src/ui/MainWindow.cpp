@@ -186,6 +186,12 @@ void MainWindow::onPlayClicked()
     }
 
     DLSSSettings settings = m_settingsWidget->settings();
+
+    // Set the user-selected executable path on the game
+    if (!settings.executablePath.isEmpty()) {
+        m_currentGame.setExecutablePath(settings.executablePath);
+    }
+
     statusBar()->showMessage(QString("Launching %1...").arg(m_currentGame.name()));
     m_gameRunner->launch(m_currentGame, settings);
 }

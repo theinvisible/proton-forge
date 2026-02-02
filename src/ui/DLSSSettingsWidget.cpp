@@ -7,6 +7,10 @@
 #include <QFormLayout>
 #include <QScrollArea>
 #include <QFileInfo>
+#include <QDir>
+#include <QDirIterator>
+#include <QRegularExpression>
+#include <algorithm>
 
 DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
     : QWidget(parent)
@@ -45,6 +49,20 @@ void DLSSSettingsWidget::setupUI()
     m_protonVersionLabel->setStyleSheet("font-size: 12px; color: #888;");
     m_protonVersionLabel->setWordWrap(true);
     gameInfoLayout->addWidget(m_protonVersionLabel);
+
+    // Executable selector
+    QHBoxLayout* exeLayout = new QHBoxLayout();
+    QLabel* exeLabel = new QLabel("Executable:", this);
+    exeLabel->setStyleSheet("font-size: 12px; color: #888;");
+    exeLayout->addWidget(exeLabel);
+
+    m_executableSelector = new QComboBox(this);
+    m_executableSelector->setStyleSheet("font-size: 11px;");
+    m_executableSelector->setToolTip("Select which executable to launch");
+    m_executableSelector->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    exeLayout->addWidget(m_executableSelector, 1);
+    gameInfoLayout->addLayout(exeLayout);
+
     gameInfoLayout->addStretch();
 
     headerLayout->addLayout(gameInfoLayout, 1);
@@ -472,6 +490,9 @@ void DLSSSettingsWidget::setGame(const Game& game)
 
     m_protonVersionLabel->setText(protonVersion);
 
+    // Populate executable selector
+    populateExecutableSelector(game);
+
     // Load image
     QPixmap pixmap = ImageCache::instance().getImage(game.imageUrl(), QSize(230, 107));
     m_gameImageLabel->setPixmap(pixmap);
@@ -570,6 +591,18 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_targetFrameRate->setValue(settings.targetFrameRate);
     m_targetFrameRate->setEnabled(settings.enableFrameRateLimit);
 
+    // Restore saved executable selection
+    if (!settings.executablePath.isEmpty()) {
+        m_executableSelector->blockSignals(true);
+        for (int i = 0; i < m_executableSelector->count(); ++i) {
+            if (m_executableSelector->itemData(i).toString() == settings.executablePath) {
+                m_executableSelector->setCurrentIndex(i);
+                break;
+            }
+        }
+        m_executableSelector->blockSignals(false);
+    }
+
     blockSignalsForAll(false);
 
     // Update launch command preview
@@ -609,6 +642,11 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableFrameRateLimit = m_enableFrameRateLimit->isChecked();
     settings.targetFrameRate = m_targetFrameRate->value();
 
+    // Executable Selection
+    if (m_executableSelector->currentIndex() >= 0) {
+        settings.executablePath = m_executableSelector->currentData().toString();
+    }
+
     return settings;
 }
 
@@ -622,4 +660,157 @@ void DLSSSettingsWidget::onSettingChanged()
     DLSSSettings s = settings();
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(s));
     emit settingsChanged(s);
+}
+
+void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
+{
+    // Block signals to prevent saving during population
+    m_executableSelector->blockSignals(true);
+    m_executableSelector->clear();
+
+    QStringList executables;
+    if (game.isNativeLinux()) {
+        executables = findLinuxExecutables(game.installPath());
+    } else {
+        executables = findWindowsExecutables(game.installPath());
+    }
+
+    if (executables.isEmpty()) {
+        m_executableSelector->addItem("No executables found", "");
+        m_executableSelector->setEnabled(false);
+    } else {
+        for (const QString& exe : executables) {
+            QString displayName = QFileInfo(exe).fileName();
+            m_executableSelector->addItem(displayName, exe);
+        }
+        m_executableSelector->setEnabled(true);
+
+        // Select the best match by default
+        QString bestMatch = findBestExecutable(game, executables);
+        for (int i = 0; i < m_executableSelector->count(); ++i) {
+            if (m_executableSelector->itemData(i).toString() == bestMatch) {
+                m_executableSelector->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+
+    m_executableSelector->blockSignals(false);
+
+    // Connect the signal to save when user changes selection
+    // Disconnect first to avoid multiple connections
+    disconnect(m_executableSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), nullptr, nullptr);
+    connect(m_executableSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int index) {
+        if (index >= 0 && m_executableSelector->isEnabled()) {
+            // Trigger settings save
+            emit settingsChanged(settings());
+        }
+    });
+}
+
+QStringList DLSSSettingsWidget::findWindowsExecutables(const QString& installPath) const
+{
+    QStringList executables;
+    QDirIterator it(installPath, {"*.exe"}, QDir::Files, QDirIterator::Subdirectories);
+
+    while (it.hasNext()) {
+        QString path = it.next();
+        QString filename = QFileInfo(path).fileName().toLower();
+
+        // Skip common non-game executables
+        if (filename.contains("unins") || filename.contains("setup") ||
+            filename.contains("install") || filename.contains("crash") ||
+            filename.contains("report") || filename.contains("redist") ||
+            filename.contains("vcredist") || filename.contains("directx") ||
+            filename.contains("dotnet") || filename.contains("dxsetup") ||
+            filename == "ucc.exe") {  // UT2004 compiler, not the game
+            continue;
+        }
+
+        executables << path;
+    }
+
+    // Sort by path depth (shallower first), then alphabetically
+    std::sort(executables.begin(), executables.end(), [](const QString& a, const QString& b) {
+        int depthA = a.count('/');
+        int depthB = b.count('/');
+        if (depthA != depthB) return depthA < depthB;
+        return a < b;
+    });
+
+    return executables;
+}
+
+QStringList DLSSSettingsWidget::findLinuxExecutables(const QString& installPath) const
+{
+    QStringList executables;
+    QDirIterator it(installPath, QDir::Files | QDir::Executable, QDirIterator::Subdirectories);
+
+    while (it.hasNext()) {
+        QString path = it.next();
+        QString filename = QFileInfo(path).fileName().toLower();
+
+        // Skip common non-game files
+        if (filename.contains("uninstall") || filename.contains("setup") ||
+            filename.endsWith(".sh") || filename.endsWith(".py") ||
+            filename.endsWith(".so") || filename.contains("crash")) {
+            continue;
+        }
+
+        executables << path;
+    }
+
+    // Sort by path depth (shallower first)
+    std::sort(executables.begin(), executables.end(), [](const QString& a, const QString& b) {
+        int depthA = a.count('/');
+        int depthB = b.count('/');
+        if (depthA != depthB) return depthA < depthB;
+        return a < b;
+    });
+
+    return executables;
+}
+
+QString DLSSSettingsWidget::findBestExecutable(const Game& game, const QStringList& executables) const
+{
+    if (executables.isEmpty()) return QString();
+
+    QString gameName = game.name().toLower();
+    QString installDirName = QFileInfo(game.installPath()).fileName().toLower();
+
+    // Remove common suffixes and clean up the name
+    QString cleanName = gameName;
+    cleanName.remove(QRegularExpression("\\s*\\([^)]*\\)"));  // Remove (Demo), (2004), etc.
+    cleanName.remove(QRegularExpression("[^a-z0-9]"));  // Keep only alphanumeric
+
+    // Try to find an executable that matches the game name
+    for (const QString& exe : executables) {
+        QString exeName = QFileInfo(exe).baseName().toLower();
+        QString cleanExeName = exeName;
+        cleanExeName.remove(QRegularExpression("[^a-z0-9]"));
+
+        // Exact match with game name
+        if (cleanExeName == cleanName || exeName == gameName) {
+            return exe;
+        }
+
+        // Match with install directory
+        if (exeName == installDirName) {
+            return exe;
+        }
+    }
+
+    // Try partial matches
+    for (const QString& exe : executables) {
+        QString exeName = QFileInfo(exe).baseName().toLower();
+
+        // Partial match - executable contains significant part of game name
+        if (cleanName.length() > 3 && exeName.contains(cleanName.left(cleanName.length() / 2))) {
+            return exe;
+        }
+    }
+
+    // Return the first executable as fallback
+    return executables.first();
 }
