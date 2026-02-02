@@ -9,6 +9,13 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network)
 
+# Generate version header from template
+configure_file(
+    ${CMAKE_SOURCE_DIR}/src/core/Version.h.in
+    ${CMAKE_BINARY_DIR}/generated/Version.h
+    @ONLY
+)
+
 set(SOURCES
     src/main.cpp
     src/core/Game.cpp
@@ -47,7 +54,10 @@ set(HEADERS
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core

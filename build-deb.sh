@@ -4,9 +4,16 @@ set -e
 
 echo "Building .deb package for NvidiaAppLinux..."
 
+# Extract version from CMakeLists.txt (single source of truth)
+VERSION=$(grep -oP 'project\(NvidiaAppLinux VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+if [ -z "$VERSION" ]; then
+    echo "Error: Could not extract version from CMakeLists.txt"
+    exit 1
+fi
+echo "Version: ${VERSION}"
+
 # Variables
 PACKAGE_NAME="nvidia-app-linux"
-VERSION="1.0.1"
 ARCH="amd64"
 BUILD_DIR="debian-build"
 PACKAGE_DIR="${BUILD_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}"
@@ -20,8 +27,8 @@ mkdir -p "${PACKAGE_DIR}/usr/bin"
 mkdir -p "${PACKAGE_DIR}/usr/share/applications"
 mkdir -p "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}"
 
-# Copy the control file
-cp debian/control "${PACKAGE_DIR}/DEBIAN/control"
+# Copy and process the control file (replace @VERSION@ placeholder)
+sed "s/@VERSION@/${VERSION}/g" debian/control > "${PACKAGE_DIR}/DEBIAN/control"
 
 # Copy the binary
 echo "Copying binary..."
@@ -73,8 +80,8 @@ EOF
 
 # Create changelog
 echo "Creating changelog..."
-cat > "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}/changelog.gz" << 'EOF'
-nvidia-app-linux (1.0.1) stable; urgency=medium
+cat > "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}/changelog" << EOF
+nvidia-app-linux (${VERSION}) stable; urgency=medium
 
   * Initial release
   * DLSS Super Resolution, Ray Reconstruction, and Frame Generation support
@@ -88,7 +95,7 @@ nvidia-app-linux (1.0.1) stable; urgency=medium
 EOF
 
 # Compress changelog
-gzip -9 "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}/changelog.gz"
+gzip -9 "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}/changelog"
 
 # Calculate installed size (in KB)
 INSTALLED_SIZE=$(du -sk "${PACKAGE_DIR}" | cut -f1)

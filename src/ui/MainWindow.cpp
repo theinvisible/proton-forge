@@ -4,6 +4,7 @@
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
 #include "ui/ProtonVersionDialog.h"
+#include "Version.h"
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
@@ -118,9 +119,9 @@ void MainWindow::setupMenuBar()
     QAction* aboutAction = helpMenu->addAction("&About");
     connect(aboutAction, &QAction::triggered, this, [this]() {
         QMessageBox::about(this, "About NVIDIA App Linux",
-            "NVIDIA App Linux - DLSS Manager\n\n"
+            QString("NVIDIA App Linux - DLSS Manager\n\n"
             "Manage DLSS settings for Steam games running under Proton.\n\n"
-            "Version 1.0.1");
+            "Version %1").arg(APP_VERSION));
     });
 }
 

@@ -2,6 +2,7 @@
 #include "ui/MainWindow.h"
 #include "core/Game.h"
 #include "utils/ProtonManager.h"
+#include "Version.h"
 
 int main(int argc, char *argv[])
 {
@@ -9,7 +10,7 @@ int main(int argc, char *argv[])
 
     // Application metadata
     app.setApplicationName("NvidiaAppLinux");
-    app.setApplicationVersion("1.0.1");
+    app.setApplicationVersion(APP_VERSION);
     app.setOrganizationName("NvidiaAppLinux");
     app.setOrganizationDomain("nvidia-app-linux");
 

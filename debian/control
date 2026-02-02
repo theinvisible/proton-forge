@@ -1,5 +1,5 @@
 Package: nvidia-app-linux
-Version: 1.0.1
+Version: @VERSION@
 Section: games
 Priority: optional
 Architecture: amd64
