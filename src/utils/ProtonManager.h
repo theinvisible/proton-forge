@@ -13,11 +13,18 @@ class ProtonManager : public QObject {
 public:
     static ProtonManager& instance();
 
+    enum ProtonType {
+        ProtonCachyOS,
+        ProtonGE
+    };
+
     struct ProtonRelease {
         QString version;
         QString downloadUrl;
         QString fileName;
         QVersionNumber versionNumber;
+        ProtonType type = ProtonCachyOS;
+        QString displayName;  // Human-readable name
     };
 
     // Check if proton-cachyos is installed
@@ -60,17 +67,23 @@ private:
 
     void fetchLatestRelease();
     void fetchReleases(int count = 5);
+    void fetchProtonGEReleases(int count = 5);
     void downloadRelease(const ProtonRelease& release);
     void extractArchive(const QString& archivePath);
     ProtonRelease parseLatestRelease(const QByteArray& jsonData);
     QList<ProtonRelease> parseReleases(const QByteArray& jsonData, int maxCount = 5);
+    QList<ProtonRelease> parseProtonGEReleases(const QByteArray& jsonData, int maxCount = 5);
     ProtonRelease parseReleaseFromJson(const QJsonObject& releaseObj) const;
+    ProtonRelease parseProtonGEReleaseFromJson(const QJsonObject& releaseObj) const;
     QVersionNumber parseVersion(const QString& fileName) const;
+    QVersionNumber parseProtonGEVersion(const QString& tagName) const;
 
     QNetworkAccessManager* m_networkManager;
     ProtonRelease m_latestRelease;
     QList<ProtonRelease> m_availableReleases;
+    QList<ProtonRelease> m_pendingCachyOSReleases;
     QString m_downloadPath;
+    int m_pendingRequests = 0;
 };
 
 Q_DECLARE_METATYPE(ProtonManager::ProtonRelease)

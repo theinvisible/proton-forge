@@ -18,14 +18,14 @@ ProtonVersionDialog::ProtonVersionDialog(const QList<ProtonManager::ProtonReleas
 
 void ProtonVersionDialog::setupUI()
 {
-    setWindowTitle("Select Proton-CachyOS Version");
+    setWindowTitle("Select Proton Version");
     setMinimumWidth(600);
-    setMinimumHeight(400);
+    setMinimumHeight(500);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
     // Header
-    m_headerLabel = new QLabel("Select a Proton-CachyOS version to install:", this);
+    m_headerLabel = new QLabel("Select a Proton version to install:", this);
     m_headerLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
     mainLayout->addWidget(m_headerLabel);
 
@@ -69,19 +69,76 @@ void ProtonVersionDialog::setupUI()
 
 void ProtonVersionDialog::populateList()
 {
+    // Separate releases by type
+    QList<ProtonManager::ProtonRelease> cachyOSReleases;
+    QList<ProtonManager::ProtonRelease> geReleases;
+
     for (const ProtonManager::ProtonRelease& release : m_releases) {
-        // Extract version info from filename
+        if (release.type == ProtonManager::ProtonCachyOS) {
+            cachyOSReleases.append(release);
+        } else if (release.type == ProtonManager::ProtonGE) {
+            geReleases.append(release);
+        }
+    }
+
+    // Add CachyOS releases section
+    if (!cachyOSReleases.isEmpty()) {
+        QListWidgetItem* headerItem = new QListWidgetItem("═══ Proton-CachyOS ═══", m_versionList);
+        headerItem->setFlags(Qt::NoItemFlags);  // Not selectable
+        headerItem->setBackground(QColor(60, 60, 60));
+        headerItem->setForeground(QColor(130, 180, 255));
+        QFont headerFont = headerItem->font();
+        headerFont.setBold(true);
+        headerItem->setFont(headerFont);
+
+        bool isFirst = true;
+        for (const ProtonManager::ProtonRelease& release : cachyOSReleases) {
+            addReleaseItem(release, isFirst);
+            isFirst = false;
+        }
+    }
+
+    // Add GE releases section
+    if (!geReleases.isEmpty()) {
+        QListWidgetItem* headerItem = new QListWidgetItem("═══ Proton-GE ═══", m_versionList);
+        headerItem->setFlags(Qt::NoItemFlags);  // Not selectable
+        headerItem->setBackground(QColor(60, 60, 60));
+        headerItem->setForeground(QColor(255, 180, 100));
+        QFont headerFont = headerItem->font();
+        headerFont.setBold(true);
+        headerItem->setFont(headerFont);
+
+        bool isFirst = true;
+        for (const ProtonManager::ProtonRelease& release : geReleases) {
+            addReleaseItem(release, isFirst);
+            isFirst = false;
+        }
+    }
+
+    // Select first selectable item by default
+    for (int i = 0; i < m_versionList->count(); ++i) {
+        QListWidgetItem* item = m_versionList->item(i);
+        if (item->flags() & Qt::ItemIsSelectable) {
+            m_versionList->setCurrentRow(i);
+            break;
+        }
+    }
+}
+
+void ProtonVersionDialog::addReleaseItem(const ProtonManager::ProtonRelease& release, bool isLatest)
+{
+    QString displayText;
+    QString detailText;
+
+    if (release.type == ProtonManager::ProtonCachyOS) {
         // Format: proton-cachyos-10.0-20260127-slr-x86_64.tar.xz
         QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+)-([\w-]+))");
         QRegularExpressionMatch match = regex.match(release.fileName);
 
-        QString displayText;
-        QString detailText;
-
         if (match.hasMatch()) {
-            QString version = match.captured(1);      // e.g., "10.0"
-            QString date = match.captured(2);         // e.g., "20260127"
-            QString variant = match.captured(3);      // e.g., "slr"
+            QString version = match.captured(1);
+            QString date = match.captured(2);
+            QString variant = match.captured(3);
 
             // Format date as YYYY-MM-DD
             if (date.length() == 8) {
@@ -91,34 +148,28 @@ void ProtonVersionDialog::populateList()
                 date = QString("%1-%2-%3").arg(year, month, day);
             }
 
-            displayText = QString("Proton %1 (%2)").arg(version, date);
+            displayText = QString("  Proton %1 (%2)").arg(version, date);
             detailText = QString("Variant: %1  •  Tag: %2").arg(variant.toUpper(), release.version);
         } else {
-            displayText = release.version;
+            displayText = QString("  %1").arg(release.version);
             detailText = release.fileName;
         }
-
-        QListWidgetItem* item = new QListWidgetItem(m_versionList);
-        item->setText(displayText);
-        item->setToolTip(detailText + "\n" + release.fileName);
-        item->setData(Qt::UserRole, QVariant::fromValue(release));
-
-        // Add subtitle with details
-        QString subtitle = QString("  %1").arg(detailText);
-        item->setData(Qt::UserRole + 1, subtitle);
-
-        // Style the first item (latest) differently
-        if (m_versionList->count() == 1) {
-            QFont font = item->font();
-            font.setBold(true);
-            item->setFont(font);
-            item->setText(displayText + "  [Latest]");
-        }
+    } else if (release.type == ProtonManager::ProtonGE) {
+        // Format: GE-Proton9-20
+        displayText = QString("  %1").arg(release.version);
+        detailText = release.fileName;
     }
 
-    // Select first item by default
-    if (m_versionList->count() > 0) {
-        m_versionList->setCurrentRow(0);
+    QListWidgetItem* item = new QListWidgetItem(m_versionList);
+    item->setText(displayText);
+    item->setToolTip(detailText + "\n" + release.fileName);
+    item->setData(Qt::UserRole, QVariant::fromValue(release));
+
+    if (isLatest) {
+        QFont font = item->font();
+        font.setBold(true);
+        item->setFont(font);
+        item->setText(displayText + "  [Latest]");
     }
 }
 

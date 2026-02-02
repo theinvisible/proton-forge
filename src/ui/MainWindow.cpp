@@ -111,7 +111,7 @@ void MainWindow::setupMenuBar()
     QAction* checkProtonAction = toolsMenu->addAction("Check for Proton-CachyOS Updates");
     connect(checkProtonAction, &QAction::triggered, this, &MainWindow::checkProtonCachyOS);
 
-    QAction* installProtonAction = toolsMenu->addAction("Install/Update Proton-CachyOS");
+    QAction* installProtonAction = toolsMenu->addAction("Install/Update Proton");
     connect(installProtonAction, &QAction::triggered, this, &MainWindow::installProtonCachyOS);
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");

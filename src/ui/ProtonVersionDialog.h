@@ -20,6 +20,7 @@ public:
 private:
     void setupUI();
     void populateList();
+    void addReleaseItem(const ProtonManager::ProtonRelease& release, bool isLatest);
 
     QList<ProtonManager::ProtonRelease> m_releases;
     QString m_currentVersion;

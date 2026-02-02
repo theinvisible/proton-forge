@@ -156,6 +156,7 @@ ProtonManager::ProtonRelease ProtonManager::parseLatestRelease(const QByteArray&
 ProtonManager::ProtonRelease ProtonManager::parseReleaseFromJson(const QJsonObject& root) const
 {
     ProtonRelease release;
+    release.type = ProtonCachyOS;
     release.version = root["tag_name"].toString();
 
     // Find x86_64 tar.xz asset
@@ -170,6 +171,15 @@ ProtonManager::ProtonRelease ProtonManager::parseReleaseFromJson(const QJsonObje
             release.fileName = name;
             release.downloadUrl = asset["browser_download_url"].toString();
             release.versionNumber = parseVersion(name);
+
+            // Extract version for display name
+            QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+))");
+            QRegularExpressionMatch match = regex.match(name);
+            if (match.hasMatch()) {
+                release.displayName = QString("Proton-CachyOS %1 (%2)").arg(match.captured(1), match.captured(2));
+            } else {
+                release.displayName = QString("Proton-CachyOS %1").arg(release.version);
+            }
             break;
         }
     }
@@ -209,13 +219,19 @@ QList<ProtonManager::ProtonRelease> ProtonManager::parseReleases(const QByteArra
 
 void ProtonManager::fetchAvailableVersions()
 {
+    // Fetch both CachyOS and GE releases
+    m_pendingRequests = 2;
+    m_pendingCachyOSReleases.clear();
+    m_availableReleases.clear();
+
     fetchReleases(5);
+    fetchProtonGEReleases(5);
 }
 
 void ProtonManager::fetchReleases(int count)
 {
-    // Fetch multiple releases from GitHub API
-    QString url = QString("https://api.github.com/repos/CachyOS/proton-cachyos/releases?per_page=%1").arg(count * 2); // Fetch extra in case some don't have x86_64 packages
+    // Fetch multiple releases from GitHub API (Proton-CachyOS)
+    QString url = QString("https://api.github.com/repos/CachyOS/proton-cachyos/releases?per_page=%1").arg(count * 2);
     QNetworkRequest request{QUrl(url)};
     request.setRawHeader("Accept", "application/vnd.github.v3+json");
     request.setRawHeader("User-Agent", "NvidiaAppLinux");
@@ -225,16 +241,118 @@ void ProtonManager::fetchReleases(int count)
     connect(reply, &QNetworkReply::finished, this, [this, reply, count]() {
         reply->deleteLater();
 
-        if (reply->error() != QNetworkReply::NoError) {
-            emit availableVersionsFetched(QList<ProtonRelease>());
-            return;
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray data = reply->readAll();
+            m_pendingCachyOSReleases = parseReleases(data, count);
         }
 
-        QByteArray data = reply->readAll();
-        m_availableReleases = parseReleases(data, count);
-
-        emit availableVersionsFetched(m_availableReleases);
+        m_pendingRequests--;
+        if (m_pendingRequests == 0) {
+            // Combine CachyOS and GE releases
+            m_availableReleases = m_pendingCachyOSReleases + m_availableReleases;
+            emit availableVersionsFetched(m_availableReleases);
+        }
     });
+}
+
+void ProtonManager::fetchProtonGEReleases(int count)
+{
+    // Fetch Proton-GE releases from GitHub API
+    QString url = QString("https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=%1").arg(count * 2);
+    QNetworkRequest request{QUrl(url)};
+    request.setRawHeader("Accept", "application/vnd.github.v3+json");
+    request.setRawHeader("User-Agent", "NvidiaAppLinux");
+
+    QNetworkReply* reply = m_networkManager->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, count]() {
+        reply->deleteLater();
+
+        QList<ProtonRelease> geReleases;
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray data = reply->readAll();
+            geReleases = parseProtonGEReleases(data, count);
+        }
+
+        m_pendingRequests--;
+        if (m_pendingRequests == 0) {
+            // Combine CachyOS and GE releases
+            m_availableReleases = m_pendingCachyOSReleases + geReleases;
+            emit availableVersionsFetched(m_availableReleases);
+        } else {
+            // Store GE releases temporarily
+            m_availableReleases = geReleases;
+        }
+    });
+}
+
+QList<ProtonManager::ProtonRelease> ProtonManager::parseProtonGEReleases(const QByteArray& jsonData, int maxCount)
+{
+    QList<ProtonRelease> releases;
+
+    QJsonDocument doc = QJsonDocument::fromJson(jsonData);
+    if (!doc.isArray()) {
+        return releases;
+    }
+
+    QJsonArray releasesArray = doc.array();
+    int count = 0;
+
+    for (const QJsonValue& releaseValue : releasesArray) {
+        if (count >= maxCount) {
+            break;
+        }
+
+        QJsonObject releaseObj = releaseValue.toObject();
+        ProtonRelease release = parseProtonGEReleaseFromJson(releaseObj);
+
+        if (!release.downloadUrl.isEmpty()) {
+            releases.append(release);
+            count++;
+        }
+    }
+
+    return releases;
+}
+
+ProtonManager::ProtonRelease ProtonManager::parseProtonGEReleaseFromJson(const QJsonObject& root) const
+{
+    ProtonRelease release;
+    release.type = ProtonGE;
+    release.version = root["tag_name"].toString();
+
+    // Find tar.gz asset
+    QJsonArray assets = root["assets"].toArray();
+    for (const QJsonValue& assetValue : assets) {
+        QJsonObject asset = assetValue.toObject();
+        QString name = asset["name"].toString();
+
+        // Look for GE-Proton*.tar.gz file (not sha512sum)
+        if (name.startsWith("GE-Proton") && name.endsWith(".tar.gz") && !name.contains("sha512sum")) {
+            release.fileName = name;
+            release.downloadUrl = asset["browser_download_url"].toString();
+            release.versionNumber = parseProtonGEVersion(release.version);
+            release.displayName = QString("Proton-GE %1").arg(release.version);
+            break;
+        }
+    }
+
+    return release;
+}
+
+QVersionNumber ProtonManager::parseProtonGEVersion(const QString& tagName) const
+{
+    // Parse version from tag like "GE-Proton9-20" or "GE-Proton8-25"
+    QRegularExpression regex(R"(GE-Proton(\d+)-(\d+))");
+    QRegularExpressionMatch match = regex.match(tagName);
+
+    if (match.hasMatch()) {
+        int major = match.captured(1).toInt();
+        int minor = match.captured(2).toInt();
+        return QVersionNumber(major, minor, 0);
+    }
+
+    return QVersionNumber();
 }
 
 void ProtonManager::installProtonCachyOS()
