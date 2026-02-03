@@ -613,7 +613,10 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_targetFrameRate->setValue(settings.targetFrameRate);
     m_targetFrameRate->setEnabled(settings.enableFrameRateLimit);
 
-    // Restore saved executable selection
+    // Save executable path for later restoration after async search completes
+    m_savedExecutablePath = settings.executablePath;
+
+    // Try to restore immediately (will only work if search already completed)
     if (!settings.executablePath.isEmpty()) {
         m_executableSelector->blockSignals(true);
         for (int i = 0; i < m_executableSelector->count(); ++i) {
@@ -749,12 +752,26 @@ void DLSSSettingsWidget::updateExecutableSelectorWithResults(const QStringList& 
         }
         m_executableSelector->setEnabled(true);
 
-        // Select the best match by default
-        QString bestMatch = findBestExecutable(m_currentGame, executables);
-        for (int i = 0; i < m_executableSelector->count(); ++i) {
-            if (m_executableSelector->itemData(i).toString() == bestMatch) {
-                m_executableSelector->setCurrentIndex(i);
-                break;
+        // First, try to restore the saved executable path from settings
+        bool restored = false;
+        if (!m_savedExecutablePath.isEmpty()) {
+            for (int i = 0; i < m_executableSelector->count(); ++i) {
+                if (m_executableSelector->itemData(i).toString() == m_savedExecutablePath) {
+                    m_executableSelector->setCurrentIndex(i);
+                    restored = true;
+                    break;
+                }
+            }
+        }
+
+        // If no saved path or it wasn't found, select the best match
+        if (!restored) {
+            QString bestMatch = findBestExecutable(m_currentGame, executables);
+            for (int i = 0; i < m_executableSelector->count(); ++i) {
+                if (m_executableSelector->itemData(i).toString() == bestMatch) {
+                    m_executableSelector->setCurrentIndex(i);
+                    break;
+                }
             }
         }
     }

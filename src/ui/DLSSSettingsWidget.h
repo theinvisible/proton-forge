@@ -101,6 +101,7 @@ private:
 
     Game m_currentGame;
     QFutureWatcher<QStringList>* m_executableWatcher;
+    QString m_savedExecutablePath;  // Store saved selection during async search
 };
 
 #endif // DLSSSETTINGSWIDGET_H
