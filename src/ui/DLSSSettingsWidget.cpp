@@ -12,12 +12,21 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
+#include <QtConcurrent>
 #include <algorithm>
 
 DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
     : QWidget(parent)
+    , m_executableWatcher(new QFutureWatcher<QStringList>(this))
 {
     setupUI();
+
+    // Connect executable watcher to update UI when search completes
+    connect(m_executableWatcher, &QFutureWatcher<QStringList>::finished,
+            this, [this]() {
+        QStringList executables = m_executableWatcher->result();
+        updateExecutableSelectorWithResults(executables);
+    });
 }
 
 void DLSSSettingsWidget::setupUI()
@@ -697,16 +706,38 @@ void DLSSSettingsWidget::onSettingChanged()
 
 void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
 {
-    // Block signals to prevent saving during population
+    // Show loading state
     m_executableSelector->blockSignals(true);
     m_executableSelector->clear();
+    m_executableSelector->addItem("Searching for executables...", "");
+    m_executableSelector->setEnabled(false);
+    m_executableSelector->blockSignals(false);
 
-    QStringList executables;
-    if (game.isNativeLinux()) {
-        executables = findLinuxExecutables(game.installPath());
-    } else {
-        executables = findWindowsExecutables(game.installPath());
+    // Cancel any previous search
+    if (m_executableWatcher->isRunning()) {
+        m_executableWatcher->cancel();
+        m_executableWatcher->waitForFinished();
     }
+
+    // Start async search in background thread
+    QString installPath = game.installPath();
+    bool isLinux = game.isNativeLinux();
+
+    QFuture<QStringList> future = QtConcurrent::run([this, installPath, isLinux]() {
+        if (isLinux) {
+            return findLinuxExecutables(installPath);
+        } else {
+            return findWindowsExecutables(installPath);
+        }
+    });
+
+    m_executableWatcher->setFuture(future);
+}
+
+void DLSSSettingsWidget::updateExecutableSelectorWithResults(const QStringList& executables)
+{
+    m_executableSelector->blockSignals(true);
+    m_executableSelector->clear();
 
     if (executables.isEmpty()) {
         m_executableSelector->addItem("No executables found", "");
@@ -719,7 +750,7 @@ void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
         m_executableSelector->setEnabled(true);
 
         // Select the best match by default
-        QString bestMatch = findBestExecutable(game, executables);
+        QString bestMatch = findBestExecutable(m_currentGame, executables);
         for (int i = 0; i < m_executableSelector->count(); ++i) {
             if (m_executableSelector->itemData(i).toString() == bestMatch) {
                 m_executableSelector->setCurrentIndex(i);

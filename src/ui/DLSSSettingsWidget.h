@@ -9,6 +9,7 @@
 #include <QTextEdit>
 #include <QPushButton>
 #include <QLabel>
+#include <QFutureWatcher>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
 
@@ -46,6 +47,7 @@ private:
 
     void blockSignalsForAll(bool block);
     void populateExecutableSelector(const Game& game);
+    void updateExecutableSelectorWithResults(const QStringList& executables);
     void populateProtonVersionSelector();
     QStringList findWindowsExecutables(const QString& installPath) const;
     QStringList findLinuxExecutables(const QString& installPath) const;
@@ -98,6 +100,7 @@ private:
     QPushButton* m_writeToSteamButton;
 
     Game m_currentGame;
+    QFutureWatcher<QStringList>* m_executableWatcher;
 };
 
 #endif // DLSSSETTINGSWIDGET_H
