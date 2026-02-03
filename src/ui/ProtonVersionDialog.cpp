@@ -32,6 +32,11 @@ void ProtonVersionDialog::setupUI()
     m_headerLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
     mainLayout->addWidget(m_headerLabel);
 
+    // Info label
+    QLabel* infoLabel = new QLabel("✓ Installed versions are marked in green", this);
+    infoLabel->setStyleSheet("font-size: 12px; color: #888; margin-bottom: 5px;");
+    mainLayout->addWidget(infoLabel);
+
     // Version list
     m_versionList = new QListWidget(this);
     m_versionList->setSelectionMode(QAbstractItemView::SingleSelection);
