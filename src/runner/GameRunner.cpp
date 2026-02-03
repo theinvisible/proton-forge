@@ -1,8 +1,10 @@
 #include "GameRunner.h"
 #include "utils/EnvBuilder.h"
+#include "utils/ProtonManager.h"
 #include "parsers/VDFParser.h"
 #include "launchers/SteamLauncher.h"
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QDirIterator>
 #include <QThread>
@@ -149,15 +151,42 @@ QString GameRunner::findProtonFromConfig(const QString& appId) const
     return QString();
 }
 
-QString GameRunner::findProtonPath(const Game& game)
+QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& settings)
 {
+    // First check if user selected a specific Proton version
+    if (!settings.protonVersion.isEmpty()) {
+        QString protonPath = ProtonManager::protonCachyOSPath() + "/" + settings.protonVersion;
+
+        // Handle special values
+        if (settings.protonVersion == "auto") {
+            // Use latest CachyOS - fall through to default logic
+        } else if (settings.protonVersion == "latest-ge") {
+            // Find latest GE-Proton version
+            QDir dir(ProtonManager::protonCachyOSPath());
+            if (dir.exists()) {
+                QStringList geVersions = dir.entryList(QStringList() << "GE-Proton*", QDir::Dirs, QDir::Name | QDir::Reversed);
+                if (!geVersions.isEmpty()) {
+                    protonPath = ProtonManager::protonCachyOSPath() + "/" + geVersions.first();
+                    if (QFile::exists(protonPath + "/proton")) {
+                        return protonPath;
+                    }
+                }
+            }
+        } else {
+            // Use specific version selected by user
+            if (QFile::exists(protonPath + "/proton")) {
+                return protonPath;
+            }
+        }
+    }
+
     // First try to find per-game configured Proton
     QString protonPath = findProtonFromConfig(game.id());
     if (!protonPath.isEmpty()) {
         return protonPath;
     }
 
-    // Fall back to default Proton
+    // Fall back to default Proton (latest CachyOS)
     return findDefaultProton();
 }
 
@@ -299,7 +328,7 @@ bool GameRunner::isGameRunning(const Game& game) const
 
 bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings)
 {
-    QString protonPath = findProtonPath(game);
+    QString protonPath = findProtonPath(game, settings);
     if (protonPath.isEmpty()) {
         emit launchError(game, "Could not find Proton installation");
         return false;

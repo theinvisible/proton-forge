@@ -41,6 +41,11 @@ QJsonObject DLSSSettings::toJson() const
         json["executablePath"] = executablePath;
     }
 
+    // Proton Version
+    if (!protonVersion.isEmpty()) {
+        json["protonVersion"] = protonVersion;
+    }
+
     return json;
 }
 
@@ -82,6 +87,9 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
 
     // Executable Selection
     settings.executablePath = json["executablePath"].toString();
+
+    // Proton Version
+    settings.protonVersion = json["protonVersion"].toString();
 
     return settings;
 }
@@ -153,5 +161,7 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            showIndicator == other.showIndicator &&
            enableSmoothMotion == other.enableSmoothMotion &&
            enableFrameRateLimit == other.enableFrameRateLimit &&
-           targetFrameRate == other.targetFrameRate;
+           targetFrameRate == other.targetFrameRate &&
+           executablePath == other.executablePath &&
+           protonVersion == other.protonVersion;
 }

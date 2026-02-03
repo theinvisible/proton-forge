@@ -16,7 +16,7 @@ public:
     bool isGameRunning(const Game& game) const;
 
     // Proton detection
-    QString findProtonPath(const Game& game);
+    QString findProtonPath(const Game& game, const DLSSSettings& settings = DLSSSettings());
     QString findGameExecutable(const Game& game);
     QString getCompatDataPath(const Game& game);
 

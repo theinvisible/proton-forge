@@ -44,6 +44,9 @@ public:
     // Executable Selection (user preference)
     QString executablePath;
 
+    // Proton Version Selection
+    QString protonVersion;  // Empty/"auto" = latest CachyOS, "latest-ge" = latest GE, or specific version folder name
+
     // Serialization
     QJsonObject toJson() const;
     static DLSSSettings fromJson(const QJsonObject& json);

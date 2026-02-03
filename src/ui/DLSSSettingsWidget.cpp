@@ -1,6 +1,7 @@
 #include "DLSSSettingsWidget.h"
 #include "network/ImageCache.h"
 #include "utils/EnvBuilder.h"
+#include "utils/ProtonManager.h"
 #include "runner/GameRunner.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -9,6 +10,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QDirIterator>
+#include <QFile>
 #include <QRegularExpression>
 #include <algorithm>
 
@@ -49,6 +51,21 @@ void DLSSSettingsWidget::setupUI()
     m_protonVersionLabel->setStyleSheet("font-size: 12px; color: #888;");
     m_protonVersionLabel->setWordWrap(true);
     gameInfoLayout->addWidget(m_protonVersionLabel);
+
+    // Proton version selector
+    QHBoxLayout* protonLayout = new QHBoxLayout();
+    QLabel* protonLabel = new QLabel("Proton:", this);
+    protonLabel->setStyleSheet("font-size: 12px; color: #888;");
+    protonLayout->addWidget(protonLabel);
+
+    m_protonVersionSelector = new QComboBox(this);
+    m_protonVersionSelector->setStyleSheet("font-size: 11px;");
+    m_protonVersionSelector->setToolTip("Select which Proton version to use");
+    m_protonVersionSelector->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    connect(m_protonVersionSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &DLSSSettingsWidget::onSettingChanged);
+    protonLayout->addWidget(m_protonVersionSelector, 1);
+    gameInfoLayout->addLayout(protonLayout);
 
     // Executable selector
     QHBoxLayout* exeLayout = new QHBoxLayout();
@@ -490,6 +507,9 @@ void DLSSSettingsWidget::setGame(const Game& game)
 
     m_protonVersionLabel->setText(protonVersion);
 
+    // Populate Proton version selector
+    populateProtonVersionSelector();
+
     // Populate executable selector
     populateExecutableSelector(game);
 
@@ -537,6 +557,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_fgOverride->blockSignals(block);
     m_fgMultiFrameCount->blockSignals(block);
     m_dlssUpgrade->blockSignals(block);
+    m_protonVersionSelector->blockSignals(block);
     m_enableSmoothMotion->blockSignals(block);
     m_enableFrameRateLimit->blockSignals(block);
     m_targetFrameRate->blockSignals(block);
@@ -603,6 +624,17 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
         m_executableSelector->blockSignals(false);
     }
 
+    // Restore saved Proton version selection
+    QString protonVersionKey = settings.protonVersion.isEmpty() ? "auto" : settings.protonVersion;
+    m_protonVersionSelector->blockSignals(true);
+    int protonIndex = m_protonVersionSelector->findData(protonVersionKey);
+    if (protonIndex >= 0) {
+        m_protonVersionSelector->setCurrentIndex(protonIndex);
+    } else {
+        m_protonVersionSelector->setCurrentIndex(0);  // Default to "Latest Proton-CachyOS"
+    }
+    m_protonVersionSelector->blockSignals(false);
+
     blockSignalsForAll(false);
 
     // Update launch command preview
@@ -645,6 +677,15 @@ DLSSSettings DLSSSettingsWidget::settings() const
     // Executable Selection
     if (m_executableSelector->currentIndex() >= 0) {
         settings.executablePath = m_executableSelector->currentData().toString();
+    }
+
+    // Proton Version Selection
+    if (m_protonVersionSelector->currentIndex() >= 0) {
+        QString protonVersion = m_protonVersionSelector->currentData().toString();
+        // Don't save "auto" as it's the default
+        if (protonVersion != "auto") {
+            settings.protonVersion = protonVersion;
+        }
     }
 
     return settings;
@@ -707,6 +748,46 @@ void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
             emit settingsChanged(settings());
         }
     });
+}
+
+void DLSSSettingsWidget::populateProtonVersionSelector()
+{
+    m_protonVersionSelector->blockSignals(true);
+    m_protonVersionSelector->clear();
+
+    // Add special options
+    m_protonVersionSelector->addItem("Latest Proton-CachyOS (Recommended)", "auto");
+    m_protonVersionSelector->addItem("Latest Proton-GE", "latest-ge");
+
+    m_protonVersionSelector->insertSeparator(2);
+
+    // Get installed Proton versions
+    QString protonPath = ProtonManager::protonCachyOSPath();
+    QDir dir(protonPath);
+
+    if (dir.exists()) {
+        QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
+
+        for (const QString& entry : entries) {
+            // Check if it's a valid Proton installation
+            QString protonExe = protonPath + "/" + entry + "/proton";
+            if (QFile::exists(protonExe)) {
+                QString displayName = entry;
+
+                // Make display name more readable
+                if (entry.startsWith("proton-cachyos-")) {
+                    displayName = entry.mid(15);  // Remove "proton-cachyos-" prefix
+                    displayName = "CachyOS " + displayName;
+                } else if (entry.startsWith("GE-Proton")) {
+                    displayName = entry.mid(3);  // Remove "GE-" prefix
+                }
+
+                m_protonVersionSelector->addItem(displayName, entry);
+            }
+        }
+    }
+
+    m_protonVersionSelector->blockSignals(false);
 }
 
 QStringList DLSSSettingsWidget::findWindowsExecutables(const QString& installPath) const
