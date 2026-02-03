@@ -21,9 +21,12 @@ private:
     void setupUI();
     void populateList();
     void addReleaseItem(const ProtonManager::ProtonRelease& release, bool isLatest);
+    QStringList getInstalledVersions() const;
+    bool isVersionInstalled(const ProtonManager::ProtonRelease& release) const;
 
     QList<ProtonManager::ProtonRelease> m_releases;
     QString m_currentVersion;
+    QStringList m_installedVersions;
 
     QLabel* m_headerLabel;
     QListWidget* m_versionList;

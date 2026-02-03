@@ -13,6 +13,8 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QTimer>
+#include <QDesktopServices>
+#include <QDir>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -113,6 +115,15 @@ void MainWindow::setupMenuBar()
 
     QAction* installProtonAction = toolsMenu->addAction("Install/Update Proton");
     connect(installProtonAction, &QAction::triggered, this, &MainWindow::installProtonCachyOS);
+
+    toolsMenu->addSeparator();
+
+    QAction* openProtonFolderAction = toolsMenu->addAction("Open Proton Folder...");
+    connect(openProtonFolderAction, &QAction::triggered, this, []() {
+        QString path = ProtonManager::protonCachyOSPath();
+        QDir().mkpath(path);  // Ensure directory exists
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    });
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");
 

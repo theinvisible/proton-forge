@@ -4,6 +4,8 @@
 #include <QRegularExpression>
 #include <QFont>
 #include <QVariant>
+#include <QDir>
+#include <QFile>
 
 ProtonVersionDialog::ProtonVersionDialog(const QList<ProtonManager::ProtonRelease>& releases,
                                          const QString& currentVersion,
@@ -12,6 +14,7 @@ ProtonVersionDialog::ProtonVersionDialog(const QList<ProtonManager::ProtonReleas
     , m_releases(releases)
     , m_currentVersion(currentVersion)
 {
+    m_installedVersions = getInstalledVersions();
     setupUI();
     populateList();
 }
@@ -28,12 +31,6 @@ void ProtonVersionDialog::setupUI()
     m_headerLabel = new QLabel("Select a Proton version to install:", this);
     m_headerLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
     mainLayout->addWidget(m_headerLabel);
-
-    if (!m_currentVersion.isEmpty()) {
-        QLabel* currentLabel = new QLabel(QString("Currently installed: %1").arg(m_currentVersion), this);
-        currentLabel->setStyleSheet("color: #888; margin-bottom: 10px;");
-        mainLayout->addWidget(currentLabel);
-    }
 
     // Version list
     m_versionList = new QListWidget(this);
@@ -129,6 +126,7 @@ void ProtonVersionDialog::addReleaseItem(const ProtonManager::ProtonRelease& rel
 {
     QString displayText;
     QString detailText;
+    bool installed = isVersionInstalled(release);
 
     if (release.type == ProtonManager::ProtonCachyOS) {
         // Format: proton-cachyos-10.0-20260127-slr-x86_64.tar.xz
@@ -160,9 +158,14 @@ void ProtonVersionDialog::addReleaseItem(const ProtonManager::ProtonRelease& rel
         detailText = release.fileName;
     }
 
+    // Add installed indicator
+    if (installed) {
+        displayText = QString("✓ ") + displayText.trimmed();
+    }
+
     QListWidgetItem* item = new QListWidgetItem(m_versionList);
     item->setText(displayText);
-    item->setToolTip(detailText + "\n" + release.fileName);
+    item->setToolTip(detailText + "\n" + release.fileName + (installed ? "\n\n✓ Installed" : ""));
     item->setData(Qt::UserRole, QVariant::fromValue(release));
 
     if (isLatest) {
@@ -170,6 +173,11 @@ void ProtonVersionDialog::addReleaseItem(const ProtonManager::ProtonRelease& rel
         font.setBold(true);
         item->setFont(font);
         item->setText(displayText + "  [Latest]");
+    }
+
+    // Color installed versions differently
+    if (installed) {
+        item->setForeground(QColor(100, 255, 100));  // Light green
     }
 }
 
@@ -180,4 +188,52 @@ ProtonManager::ProtonRelease ProtonVersionDialog::selectedRelease() const
         return item->data(Qt::UserRole).value<ProtonManager::ProtonRelease>();
     }
     return ProtonManager::ProtonRelease();
+}
+
+QStringList ProtonVersionDialog::getInstalledVersions() const
+{
+    QStringList installed;
+    QString path = ProtonManager::protonCachyOSPath();
+    QDir dir(path);
+
+    if (!dir.exists()) {
+        return installed;
+    }
+
+    // Get all subdirectories in compatibilitytools.d
+    QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& entry : entries) {
+        // Check if it's a valid Proton installation (has proton executable)
+        QString protonExe = path + "/" + entry + "/proton";
+        if (QFile::exists(protonExe)) {
+            installed << entry;
+        }
+    }
+
+    return installed;
+}
+
+bool ProtonVersionDialog::isVersionInstalled(const ProtonManager::ProtonRelease& release) const
+{
+    // Extract directory name from fileName
+    // CachyOS: proton-cachyos-10.0-20260127-slr-x86_64.tar.xz -> proton-cachyos-10.0-20260127-slr-x86_64
+    // GE: GE-Proton9-20.tar.gz -> GE-Proton9-20
+
+    QString dirName = release.fileName;
+
+    // Remove archive extensions
+    if (dirName.endsWith(".tar.xz")) {
+        dirName.chop(7);
+    } else if (dirName.endsWith(".tar.gz")) {
+        dirName.chop(7);
+    }
+
+    // Check if this directory exists in installed versions
+    for (const QString& installed : m_installedVersions) {
+        if (installed == dirName || installed.startsWith(dirName)) {
+            return true;
+        }
+    }
+
+    return false;
 }
