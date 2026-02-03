@@ -815,19 +815,94 @@ QStringList DLSSSettingsWidget::findWindowsExecutables(const QString& installPat
     return executables;
 }
 
+bool DLSSSettingsWidget::isElfExecutable(const QString& filePath) const
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    // Read ELF header (first 20 bytes is enough)
+    QByteArray header = file.read(20);
+    file.close();
+
+    if (header.size() < 20) {
+        return false;
+    }
+
+    // Check ELF magic bytes: 0x7f 'E' 'L' 'F'
+    if (header[0] != 0x7f || header[1] != 'E' || header[2] != 'L' || header[3] != 'F') {
+        return false;
+    }
+
+    // Byte 16 is e_type (object file type)
+    // ET_EXEC = 2 (executable file)
+    // ET_DYN = 3 (shared object file)
+    unsigned char e_type_low = static_cast<unsigned char>(header[16]);
+    unsigned char e_type_high = static_cast<unsigned char>(header[17]);
+
+    // Check for little-endian ET_EXEC (2)
+    if (e_type_low == 2 && e_type_high == 0) {
+        return true;
+    }
+
+    // Check for big-endian ET_EXEC (2)
+    if (e_type_low == 0 && e_type_high == 2) {
+        return true;
+    }
+
+    // ET_DYN (3) can be either PIE executable or shared library
+    // Modern executables are often PIE (Position Independent Executable) which shows as ET_DYN
+    // We accept ET_DYN as well, but will filter .so files by extension earlier
+    if ((e_type_low == 3 && e_type_high == 0) || (e_type_low == 0 && e_type_high == 3)) {
+        // Only accept if it doesn't have .so extension (already filtered earlier)
+        return true;
+    }
+
+    return false;
+}
+
 QStringList DLSSSettingsWidget::findLinuxExecutables(const QString& installPath) const
 {
     QStringList executables;
-    QDirIterator it(installPath, QDir::Files | QDir::Executable, QDirIterator::Subdirectories);
+    QDirIterator it(installPath, QDir::Files, QDirIterator::Subdirectories);
 
     while (it.hasNext()) {
         QString path = it.next();
-        QString filename = QFileInfo(path).fileName().toLower();
+        QFileInfo fileInfo(path);
+        QString filename = fileInfo.fileName().toLower();
 
-        // Skip common non-game files
+        // Skip files with extensions that are definitely not executables
+        if (filename.endsWith(".txt") || filename.endsWith(".log") || filename.endsWith(".md") ||
+            filename.endsWith(".json") || filename.endsWith(".xml") || filename.endsWith(".cfg") ||
+            filename.endsWith(".ini") || filename.endsWith(".conf") || filename.endsWith(".yaml") ||
+            filename.endsWith(".dat") || filename.endsWith(".pak") || filename.endsWith(".csv") ||
+            filename.endsWith(".sh") || filename.endsWith(".py") || filename.endsWith(".pl") ||
+            filename.endsWith(".so") || filename.endsWith(".a") || filename.endsWith(".o") ||
+            filename.endsWith(".png") || filename.endsWith(".jpg") || filename.endsWith(".jpeg") ||
+            filename.endsWith(".bmp") || filename.endsWith(".svg") || filename.endsWith(".ico") ||
+            filename.endsWith(".ttf") || filename.endsWith(".otf") || filename.endsWith(".woff") ||
+            filename.endsWith(".mp3") || filename.endsWith(".ogg") || filename.endsWith(".wav") ||
+            filename.endsWith(".mp4") || filename.endsWith(".avi") || filename.endsWith(".mkv")) {
+            continue;
+        }
+
+        // Skip common non-game files by name
         if (filename.contains("uninstall") || filename.contains("setup") ||
-            filename.endsWith(".sh") || filename.endsWith(".py") ||
-            filename.endsWith(".so") || filename.contains("crash")) {
+            filename.contains("install") || filename.contains("update") ||
+            filename.contains("crash") || filename.contains("report") ||
+            filename.contains("readme") || filename.contains("license") ||
+            filename.contains("changelog")) {
+            continue;
+        }
+
+        // Only include files that are actually executable
+        if (!fileInfo.isExecutable()) {
+            continue;
+        }
+
+        // Check if it's actually an ELF executable by reading the header
+        if (!isElfExecutable(path)) {
             continue;
         }
 

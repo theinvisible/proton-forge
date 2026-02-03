@@ -50,6 +50,7 @@ private:
     QStringList findWindowsExecutables(const QString& installPath) const;
     QStringList findLinuxExecutables(const QString& installPath) const;
     QString findBestExecutable(const Game& game, const QStringList& executables) const;
+    bool isElfExecutable(const QString& filePath) const;
 
     // Header
     QLabel* m_gameNameLabel;
