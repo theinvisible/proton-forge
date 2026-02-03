@@ -53,6 +53,7 @@ void DLSSSettingsWidget::setupUI()
     protonLayout->setContentsMargins(0, 0, 0, 0);
     QLabel* protonLabel = new QLabel("Proton:", m_protonSelectorContainer);
     protonLabel->setStyleSheet("font-size: 12px; color: #888;");
+    protonLabel->setMinimumWidth(75);
     protonLayout->addWidget(protonLabel);
 
     m_protonVersionSelector = new QComboBox(m_protonSelectorContainer);
@@ -68,6 +69,7 @@ void DLSSSettingsWidget::setupUI()
     QHBoxLayout* exeLayout = new QHBoxLayout();
     QLabel* exeLabel = new QLabel("Executable:", this);
     exeLabel->setStyleSheet("font-size: 12px; color: #888;");
+    exeLabel->setMinimumWidth(75);
     exeLayout->addWidget(exeLabel);
 
     m_executableSelector = new QComboBox(this);
