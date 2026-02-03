@@ -55,7 +55,7 @@ private:
     QLabel* m_gameNameLabel;
     QLabel* m_gameImageLabel;
     QLabel* m_platformBadge;
-    QLabel* m_protonVersionLabel;
+    QWidget* m_protonSelectorContainer;
     QComboBox* m_protonVersionSelector;
     QComboBox* m_executableSelector;
 

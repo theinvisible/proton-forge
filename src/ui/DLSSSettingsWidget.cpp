@@ -47,25 +47,22 @@ void DLSSSettingsWidget::setupUI()
     m_platformBadge->hide();  // Hidden until a game is selected
     gameInfoLayout->addWidget(m_platformBadge);
 
-    m_protonVersionLabel = new QLabel("", this);
-    m_protonVersionLabel->setStyleSheet("font-size: 12px; color: #888;");
-    m_protonVersionLabel->setWordWrap(true);
-    gameInfoLayout->addWidget(m_protonVersionLabel);
-
-    // Proton version selector
-    QHBoxLayout* protonLayout = new QHBoxLayout();
-    QLabel* protonLabel = new QLabel("Proton:", this);
+    // Proton version selector (container widget for easy show/hide)
+    m_protonSelectorContainer = new QWidget(this);
+    QHBoxLayout* protonLayout = new QHBoxLayout(m_protonSelectorContainer);
+    protonLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* protonLabel = new QLabel("Proton:", m_protonSelectorContainer);
     protonLabel->setStyleSheet("font-size: 12px; color: #888;");
     protonLayout->addWidget(protonLabel);
 
-    m_protonVersionSelector = new QComboBox(this);
+    m_protonVersionSelector = new QComboBox(m_protonSelectorContainer);
     m_protonVersionSelector->setStyleSheet("font-size: 11px;");
     m_protonVersionSelector->setToolTip("Select which Proton version to use");
     m_protonVersionSelector->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     connect(m_protonVersionSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DLSSSettingsWidget::onSettingChanged);
     protonLayout->addWidget(m_protonVersionSelector, 1);
-    gameInfoLayout->addLayout(protonLayout);
+    gameInfoLayout->addWidget(m_protonSelectorContainer);
 
     // Executable selector
     QHBoxLayout* exeLayout = new QHBoxLayout();
@@ -493,22 +490,15 @@ void DLSSSettingsWidget::setGame(const Game& game)
         m_platformBadge->show();
     }
 
-    // Detect Proton version
-    GameRunner runner;
-    QString protonPath = runner.findProtonPath(game);
-    QString protonVersion = "Proton: Not detected";
-
-    if (!protonPath.isEmpty()) {
-        // Extract version from path (e.g., /path/to/proton-cachyos-10.0-20260127-slr)
-        QFileInfo protonInfo(protonPath);
-        QString dirName = protonInfo.fileName();
-        protonVersion = QString("Proton: %1").arg(dirName);
+    // Show/hide Proton version selector based on game type
+    if (game.isNativeLinux()) {
+        // Hide Proton-specific UI for native Linux games
+        m_protonSelectorContainer->hide();
+    } else {
+        // Show and populate Proton UI for Windows games
+        m_protonSelectorContainer->show();
+        populateProtonVersionSelector();
     }
-
-    m_protonVersionLabel->setText(protonVersion);
-
-    // Populate Proton version selector
-    populateProtonVersionSelector();
 
     // Populate executable selector
     populateExecutableSelector(game);
