@@ -19,6 +19,14 @@ struct DynamicLabels {
     QLabel* temperature = nullptr;
     QLabel* fanSpeed = nullptr;
     QLabel* performanceState = nullptr;
+
+    // Utilization labels
+    QLabel* gpuUtilization = nullptr;
+    QLabel* memoryUtilization = nullptr;
+    QLabel* encoderUtilization = nullptr;
+    QLabel* decoderUtilization = nullptr;
+    QLabel* jpegUtilization = nullptr;
+    QLabel* ofaUtilization = nullptr;
 };
 
 class GPUInfoDialog : public QDialog
@@ -37,6 +45,7 @@ private:
     QGroupBox* createDriverBiosGroup(const GPUInfo& gpu);
     QGroupBox* createPCIeGroup(const GPUInfo& gpu);
     QGroupBox* createClocksPowerGroup(const GPUInfo& gpu, int gpuIndex);
+    QGroupBox* createUtilizationGroup(const GPUInfo& gpu, int gpuIndex);
     QLabel* addInfoRow(QVBoxLayout* layout, const QString& label, const QString& value);
     QString vendorToString(GPUInfo::Vendor vendor);
 

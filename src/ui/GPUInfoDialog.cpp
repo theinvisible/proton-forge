@@ -180,6 +180,7 @@ QWidget* GPUInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
     layout->addWidget(createMemoryGroup(gpu));
     layout->addWidget(createDriverBiosGroup(gpu));
     layout->addWidget(createPCIeGroup(gpu));
+    layout->addWidget(createUtilizationGroup(gpu, gpuIndex));
     layout->addWidget(createClocksPowerGroup(gpu, gpuIndex));
 
     layout->addStretch();
@@ -269,6 +270,24 @@ QGroupBox* GPUInfoDialog::createPCIeGroup(const GPUInfo& gpu)
         }
         addInfoRow(layout, "Resizeable BAR:", barStatus);
     }
+
+    return group;
+}
+
+QGroupBox* GPUInfoDialog::createUtilizationGroup(const GPUInfo& gpu, int gpuIndex)
+{
+    QGroupBox* group = new QGroupBox("Utilization");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    // Store dynamic labels for auto-refresh
+    DynamicLabels& labels = m_dynamicLabels[gpuIndex];
+
+    labels.gpuUtilization = addInfoRow(layout, "GPU:", QString("%1 %").arg(gpu.gpuUtilization));
+    labels.memoryUtilization = addInfoRow(layout, "Memory:", QString("%1 %").arg(gpu.memoryUtilization));
+    labels.encoderUtilization = addInfoRow(layout, "Encoder:", QString("%1 %").arg(gpu.encoderUtilization));
+    labels.decoderUtilization = addInfoRow(layout, "Decoder:", QString("%1 %").arg(gpu.decoderUtilization));
+    labels.jpegUtilization = addInfoRow(layout, "JPEG:", QString("%1 %").arg(gpu.jpegUtilization));
+    labels.ofaUtilization = addInfoRow(layout, "OFA:", QString("%1 %").arg(gpu.ofaUtilization));
 
     return group;
 }
@@ -372,6 +391,26 @@ void GPUInfoDialog::refreshDynamicValues()
         if (labels.performanceState && !fresh.performanceState.isEmpty()) {
             labels.performanceState->setText(fresh.performanceState);
         }
+
+        // Update utilization labels
+        if (labels.gpuUtilization) {
+            labels.gpuUtilization->setText(QString("%1 %").arg(fresh.gpuUtilization));
+        }
+        if (labels.memoryUtilization) {
+            labels.memoryUtilization->setText(QString("%1 %").arg(fresh.memoryUtilization));
+        }
+        if (labels.encoderUtilization) {
+            labels.encoderUtilization->setText(QString("%1 %").arg(fresh.encoderUtilization));
+        }
+        if (labels.decoderUtilization) {
+            labels.decoderUtilization->setText(QString("%1 %").arg(fresh.decoderUtilization));
+        }
+        if (labels.jpegUtilization) {
+            labels.jpegUtilization->setText(QString("%1 %").arg(fresh.jpegUtilization));
+        }
+        if (labels.ofaUtilization) {
+            labels.ofaUtilization->setText(QString("%1 %").arg(fresh.ofaUtilization));
+        }
     }
 }
 
@@ -454,6 +493,15 @@ void GPUInfoDialog::copyToClipboard()
             text += QString("Fan Speed: %1 %%\n").arg(gpu.fanSpeed);
         if (!gpu.performanceState.isEmpty())
             text += QString("Performance State: %1\n").arg(gpu.performanceState);
+
+        // Utilization
+        text += QString("\nUtilization:\n");
+        text += QString("  GPU: %1 %%\n").arg(gpu.gpuUtilization);
+        text += QString("  Memory: %1 %%\n").arg(gpu.memoryUtilization);
+        text += QString("  Encoder: %1 %%\n").arg(gpu.encoderUtilization);
+        text += QString("  Decoder: %1 %%\n").arg(gpu.decoderUtilization);
+        text += QString("  JPEG: %1 %%\n").arg(gpu.jpegUtilization);
+        text += QString("  OFA: %1 %%\n").arg(gpu.ofaUtilization);
 
         if (i < m_gpus.size() - 1) {
             text += "\n";

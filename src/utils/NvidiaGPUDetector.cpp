@@ -193,6 +193,26 @@ GPUInfo NvidiaGPUDetector::parseNvidiaSmiOutput(const QString& output, int index
     // Performance State
     info.performanceState = extractValue(output, "Performance State");
 
+    // Utilization - parse from "Utilization" section
+    QRegularExpression utilizationRegex(
+        "Utilization\\s*\\n"
+        "\\s*GPU\\s*:\\s*(\\d+)\\s*%\\s*\\n"
+        "\\s*Memory\\s*:\\s*(\\d+)\\s*%\\s*\\n"
+        "\\s*Encoder\\s*:\\s*(\\d+)\\s*%\\s*\\n"
+        "\\s*Decoder\\s*:\\s*(\\d+)\\s*%\\s*\\n"
+        "\\s*JPEG\\s*:\\s*(\\d+)\\s*%\\s*\\n"
+        "\\s*OFA\\s*:\\s*(\\d+)\\s*%"
+    );
+    QRegularExpressionMatch utilizationMatch = utilizationRegex.match(output);
+    if (utilizationMatch.hasMatch()) {
+        info.gpuUtilization = utilizationMatch.captured(1).toInt();
+        info.memoryUtilization = utilizationMatch.captured(2).toInt();
+        info.encoderUtilization = utilizationMatch.captured(3).toInt();
+        info.decoderUtilization = utilizationMatch.captured(4).toInt();
+        info.jpegUtilization = utilizationMatch.captured(5).toInt();
+        info.ofaUtilization = utilizationMatch.captured(6).toInt();
+    }
+
     // UUID
     info.uuid = extractValue(output, "UUID");
 

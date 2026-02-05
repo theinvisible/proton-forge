@@ -41,6 +41,14 @@ struct GPUInfo {
     int fanSpeed = 0;
     QString performanceState;
 
+    // Utilization
+    int gpuUtilization = 0;
+    int memoryUtilization = 0;
+    int encoderUtilization = 0;
+    int decoderUtilization = 0;
+    int jpegUtilization = 0;
+    int ofaUtilization = 0;
+
     bool displayConnected = false;
     QString uuid;
 
