@@ -69,44 +69,11 @@ jobs:
           ls -lh protonforge_*.deb
           dpkg-deb --info protonforge_*.deb
 
-      - name: Install Flatpak and dependencies
-        run: |
-          apt-get install -y flatpak flatpak-builder wget
-          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install -y flathub org.kde.Platform//6.8 org.kde.Sdk//6.8
-
-      - name: Build Flatpak bundle
-        run: |
-          VERSION=${{ steps.get_version.outputs.VERSION }}
-
-          # Download and calculate SHA256 for the source archive
-          wget "https://github.com/theinvisible/proton-forge/archive/v${VERSION}.tar.gz"
-          SHA256=$(sha256sum "v${VERSION}.tar.gz" | awk '{print $1}')
-
-          # Update SHA256 in manifest
-          sed -i "s/sha256: REPLACE_WITH_ACTUAL_SHA256/sha256: ${SHA256}/" org.protonforge.ProtonForge.yml
-
-          # Update version in manifest URL
-          sed -i "s|url: https://github.com/theinvisible/proton-forge/archive/v[0-9.]\+\.tar\.gz|url: https://github.com/theinvisible/proton-forge/archive/v${VERSION}.tar.gz|" org.protonforge.ProtonForge.yml
-
-          # Build Flatpak (disable rofiles-fuse for Docker compatibility)
-          # Use --user flag and set environment variable to allow building without full sandboxing
-          FLATPAK_BUILDER_ALLOW_HOST_BUILD=1 flatpak-builder --user --disable-rofiles-fuse --repo=flatpak-repo --force-clean flatpak-build org.protonforge.ProtonForge.yml
-
-          # Create bundle
-          flatpak build-bundle flatpak-repo protonforge.flatpak org.protonforge.ProtonForge
-
-      - name: Verify Flatpak bundle was created
-        run: |
-          ls -lh protonforge.flatpak
-
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            protonforge_*.deb
-            protonforge.flatpak
+          files: protonforge_*.deb
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -115,19 +82,15 @@ jobs:
 
             ### Installation
 
-            **Flatpak (Recommended - Universal):**
-            ```bash
-            wget https://github.com/theinvisible/proton-forge/releases/download/v${{ steps.get_version.outputs.VERSION }}/protonforge.flatpak
-            flatpak install protonforge.flatpak
-            flatpak run org.protonforge.ProtonForge
-            ```
-
             **Debian/Ubuntu:**
             ```bash
             wget https://github.com/theinvisible/proton-forge/releases/download/v${{ steps.get_version.outputs.VERSION }}/protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
             sudo dpkg -i protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
             sudo apt-get install -f
             ```
+
+            **Flatpak:**
+            Build locally using the included `org.protonforge.ProtonForge.yml` manifest (see FLATPAK.md for instructions), or install from Flathub once published.
 
             **From Source:**
             ```bash
@@ -155,8 +118,6 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: protonforge-packages
-          path: |
-            protonforge_*.deb
-            protonforge.flatpak
+          name: protonforge-deb
+          path: protonforge_*.deb
           retention-days: 30
