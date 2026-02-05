@@ -72,16 +72,35 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 
 ## 🚀 Installation
 
+### From Flatpak (Recommended - Universal Linux)
+
+Flatpak provides the easiest installation method that works across all Linux distributions:
+
+```bash
+# Install from GitHub releases
+wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.3/protonforge.flatpak
+flatpak install protonforge.flatpak
+
+# Run
+flatpak run org.protonforge.ProtonForge
+```
+
+Or from Flathub (once published):
+
+```bash
+flatpak install flathub org.protonforge.ProtonForge
+```
+
 ### From .deb Package (Debian/Ubuntu)
 
 > **Built on:** Ubuntu 25.10 (Oracular Oriole) - the latest Ubuntu release. Compatible with Ubuntu 24.04 LTS and other Debian-based distributions with Qt6 6.0+.
 
 ```bash
 # Download the latest release
-wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.2/protonforge_1.0.2_amd64.deb
+wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.3/protonforge_1.0.3_amd64.deb
 
 # Install
-sudo dpkg -i protonforge_1.0.2_amd64.deb
+sudo dpkg -i protonforge_1.0.3_amd64.deb
 
 # Install dependencies if needed
 sudo apt-get install -f
@@ -258,6 +277,7 @@ SOFTWARE.
 - **GloriousEggroll**: For Proton-GE builds
 - **Qt Project**: For the excellent Qt framework
 - **dxvk-nvapi**: For making NVIDIA features work on Linux
+- **Claude (Anthropic)**: This project was developed with AI assistance from Claude Code
 
 ## 🔗 Links
 

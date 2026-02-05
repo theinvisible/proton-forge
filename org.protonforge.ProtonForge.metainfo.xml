@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.protonforge.ProtonForge</id>
+  <name>ProtonForge</name>
+  <summary>Advanced DLSS &amp; Proton Manager for Steam Games on Linux</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <developer_name>ProtonForge</developer_name>
+
+  <description>
+    <p>
+      ProtonForge is a powerful Qt6 application designed to give Linux gamers full control over
+      NVIDIA DLSS settings and Proton versions for Steam games. Configure DLSS Super Resolution,
+      Ray Reconstruction, Frame Generation, HDR support, and more - all from a single, intuitive interface.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>DLSS Configuration: Super Resolution, Ray Reconstruction, Frame Generation</li>
+      <li>HDR Support: Individual HDR options with smart system detection</li>
+      <li>Proton Management: Automatic updates for Proton-CachyOS and Proton-GE</li>
+      <li>Game Launch Integration: Direct launch or Steam integration</li>
+      <li>Performance Tuning: Frame rate limiting, vsync enhancements</li>
+      <li>Beautiful Game Library Browser with Steam artwork</li>
+    </ul>
+    <p>
+      Note: DLSS features require NVIDIA RTX graphics cards (GTX 16xx/RTX 20xx or newer).
+      Proton management features work with any GPU.
+    </p>
+  </description>
+
+  <url type="homepage">https://github.com/theinvisible/proton-forge</url>
+  <url type="bugtracker">https://github.com/theinvisible/proton-forge/issues</url>
+  <url type="help">https://github.com/theinvisible/proton-forge</url>
+
+  <launchable type="desktop-id">org.protonforge.ProtonForge.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main window with game library and DLSS settings</caption>
+    </screenshot>
+  </screenshots>
+
+  <categories>
+    <category>Game</category>
+    <category>Utility</category>
+    <category>Qt</category>
+  </categories>
+
+  <keywords>
+    <keyword>dlss</keyword>
+    <keyword>steam</keyword>
+    <keyword>proton</keyword>
+    <keyword>gaming</keyword>
+    <keyword>nvidia</keyword>
+    <keyword>hdr</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="1.0.3" date="2025-02-05">
+      <description>
+        <p>Latest release with improved features and bug fixes</p>
+      </description>
+    </release>
+  </releases>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </recommends>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+</component>

@@ -1,0 +1,51 @@
+app-id: org.protonforge.ProtonForge
+runtime: org.kde.Platform
+runtime-version: '6.8'
+sdk: org.kde.Sdk
+command: protonforge
+
+finish-args:
+  # X11 + Wayland access
+  - --socket=wayland
+  - --socket=x11
+  - --share=ipc
+
+  # GPU acceleration
+  - --device=dri
+
+  # Network access (for downloading Proton versions)
+  - --share=network
+
+  # File system access
+  - --filesystem=home
+  - --filesystem=~/.steam:rw
+  - --filesystem=~/.local/share/Steam:rw
+
+  # DBus access for desktop integration
+  - --socket=session-bus
+
+  # Allow running games
+  - --talk-name=org.freedesktop.Flatpak
+
+  # Pulseaudio/Pipewire
+  - --socket=pulseaudio
+
+modules:
+  - name: protonforge
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+    sources:
+      - type: archive
+        url: https://github.com/theinvisible/proton-forge/archive/v1.0.3.tar.gz
+        sha256: REPLACE_WITH_ACTUAL_SHA256
+      - type: file
+        path: org.protonforge.ProtonForge.desktop
+      - type: file
+        path: org.protonforge.ProtonForge.metainfo.xml
+
+    post-install:
+      - install -Dm644 org.protonforge.ProtonForge.desktop /app/share/applications/org.protonforge.ProtonForge.desktop
+      - install -Dm644 org.protonforge.ProtonForge.metainfo.xml /app/share/metainfo/org.protonforge.ProtonForge.metainfo.xml
+      # TODO: Add icon installation when icon file is available
+      # - install -Dm644 icon.svg /app/share/icons/hicolor/scalable/apps/org.protonforge.ProtonForge.svg
