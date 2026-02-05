@@ -1,0 +1,70 @@
+name: Build Flatpak
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.4
+
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="dev"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+      - name: Update manifest with version
+        run: |
+          VERSION=${{ steps.get_version.outputs.VERSION }}
+
+          # Download and calculate SHA256 for the source archive
+          wget "https://github.com/theinvisible/proton-forge/archive/v${VERSION}.tar.gz"
+          SHA256=$(sha256sum "v${VERSION}.tar.gz" | awk '{print $1}')
+
+          # Update SHA256 in manifest
+          sed -i "s/sha256: REPLACE_WITH_ACTUAL_SHA256/sha256: ${SHA256}/" org.protonforge.ProtonForge.yml
+
+          # Update version in manifest URL
+          sed -i "s|url: https://github.com/theinvisible/proton-forge/archive/v[0-9.]\+\.tar\.gz|url: https://github.com/theinvisible/proton-forge/archive/v${VERSION}.tar.gz|" org.protonforge.ProtonForge.yml
+
+          # Show the updated manifest
+          echo "Updated manifest:"
+          cat org.protonforge.ProtonForge.yml
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: protonforge.flatpak
+          manifest-path: org.protonforge.ProtonForge.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - name: Upload Flatpak bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: protonforge-flatpak
+          path: protonforge.flatpak
+          retention-days: 30
+
+      - name: Upload to release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: protonforge.flatpak
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

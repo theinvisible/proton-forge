@@ -82,15 +82,19 @@ jobs:
 
             ### Installation
 
+            **Flatpak (Recommended - Universal Linux):**
+            ```bash
+            wget https://github.com/theinvisible/proton-forge/releases/download/v${{ steps.get_version.outputs.VERSION }}/protonforge.flatpak
+            flatpak install protonforge.flatpak
+            flatpak run org.protonforge.ProtonForge
+            ```
+
             **Debian/Ubuntu:**
             ```bash
             wget https://github.com/theinvisible/proton-forge/releases/download/v${{ steps.get_version.outputs.VERSION }}/protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
             sudo dpkg -i protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
             sudo apt-get install -f
             ```
-
-            **Flatpak:**
-            Build locally using the included `org.protonforge.ProtonForge.yml` manifest (see FLATPAK.md for instructions), or install from Flathub once published.
 
             **From Source:**
             ```bash
