@@ -50,3 +50,5 @@ modules:
       - install -Dm644 org.protonforge.ProtonForge.desktop /app/share/applications/org.protonforge.ProtonForge.desktop
       - install -Dm644 org.protonforge.ProtonForge.metainfo.xml /app/share/metainfo/org.protonforge.ProtonForge.metainfo.xml
       - install -Dm644 org.protonforge.ProtonForge.svg /app/share/icons/hicolor/scalable/apps/org.protonforge.ProtonForge.svg
+      # Create symlink from protonforge to ProtonForge binary (Flatpak expects lowercase command)
+      - ln -sf /app/bin/ProtonForge /app/bin/protonforge
