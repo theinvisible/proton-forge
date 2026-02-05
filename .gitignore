@@ -3,6 +3,10 @@ build/
 cmake-build-*/
 debian-build/
 
+# GitHub Actions - keep workflows
+!.github/
+!.github/workflows/
+
 # IDE files
 .idea/
 .vscode/

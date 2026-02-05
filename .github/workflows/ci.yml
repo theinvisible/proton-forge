@@ -1,0 +1,65 @@
+name: CI Build
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:25.10  # Test on latest Ubuntu release
+
+    steps:
+      - name: Install Git
+        run: |
+          apt-get update
+          apt-get install -y git
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Qt6 and dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            cmake \
+            build-essential \
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            libqt6core6 \
+            libqt6widgets6 \
+            libqt6network6 \
+            libqt6concurrent6 \
+            file \
+            dpkg-dev
+
+      - name: Build debug version
+        run: |
+          mkdir -p cmake-build-debug
+          cd cmake-build-debug
+          cmake -DCMAKE_BUILD_TYPE=Debug ..
+          cmake --build . -j$(nproc)
+
+      - name: Build release version
+        run: |
+          mkdir -p cmake-build-release
+          cd cmake-build-release
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . -j$(nproc)
+
+      - name: Test .deb package build
+        run: |
+          bash build-deb.sh
+          ls -lh protonforge_*.deb
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: protonforge-builds
+          path: |
+            cmake-build-release/ProtonForge
+            protonforge_*.deb
+          retention-days: 7

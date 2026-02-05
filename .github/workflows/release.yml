@@ -1,0 +1,116 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.3
+
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:25.10  # Build on latest Ubuntu release (Oracular Oriole)
+
+    steps:
+      - name: Install Git (required for checkout)
+        run: |
+          apt-get update
+          apt-get install -y git
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Qt6 and dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            cmake \
+            build-essential \
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            libqt6core6 \
+            libqt6widgets6 \
+            libqt6network6 \
+            libqt6concurrent6 \
+            file \
+            dpkg-dev
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+      - name: Update CMakeLists.txt version
+        run: |
+          sed -i "s/project(ProtonForge VERSION [0-9.]\+/project(ProtonForge VERSION ${{ steps.get_version.outputs.VERSION }}/" CMakeLists.txt
+          cat CMakeLists.txt | grep "project(ProtonForge"
+
+      - name: Build release version
+        run: |
+          mkdir -p cmake-build-release
+          cd cmake-build-release
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . -j$(nproc)
+
+      - name: Build .deb package
+        run: |
+          bash build-deb.sh
+
+      - name: Verify package was created
+        run: |
+          ls -lh protonforge_*.deb
+          dpkg-deb --info protonforge_*.deb
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: protonforge_*.deb
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## ProtonForge v${{ steps.get_version.outputs.VERSION }}
+
+            ### Installation
+
+            **Debian/Ubuntu:**
+            ```bash
+            wget https://github.com/theinvisible/proton-forge/releases/download/v${{ steps.get_version.outputs.VERSION }}/protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
+            sudo dpkg -i protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
+            sudo apt-get install -f
+            ```
+
+            **From Source:**
+            ```bash
+            git clone https://github.com/theinvisible/proton-forge.git
+            cd proton-forge
+            git checkout v${{ steps.get_version.outputs.VERSION }}
+            mkdir build && cd build
+            cmake -DCMAKE_BUILD_TYPE=Release ..
+            cmake --build . -j$(nproc)
+            ```
+
+            ### What's Changed
+            See the full changelog below.
+
+            ---
+
+            **Built on:** Ubuntu 25.10 (Oracular Oriole)
+            **Qt Version:** 6.0+
+            **GPU Focus:** NVIDIA (Proton management works on any GPU)
+
+            *Compatible with Ubuntu 25.10, 24.04 LTS, and other Debian-based distributions with Qt6.*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: protonforge-deb
+          path: protonforge_*.deb
+          retention-days: 30

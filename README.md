@@ -74,7 +74,7 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 
 ### From .deb Package (Debian/Ubuntu)
 
-> **Tested on:** The .deb package is tested on the latest Ubuntu release. It should work on Debian and Ubuntu-based distributions with Qt6 6.0+.
+> **Built on:** Ubuntu 25.10 (Oracular Oriole) - the latest Ubuntu release. Compatible with Ubuntu 24.04 LTS and other Debian-based distributions with Qt6 6.0+.
 
 ```bash
 # Download the latest release
