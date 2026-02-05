@@ -34,6 +34,8 @@ signals:
 
 private slots:
     void onSettingChanged();
+    void onEnableAllHDRToggled(bool checked);
+    void onHDRCheckboxChanged();
 
 private:
     void setupUI();
@@ -66,6 +68,12 @@ private:
     QCheckBox* m_enableNVAPI;
     QCheckBox* m_enableNGXUpdater;
     QCheckBox* m_showIndicator;
+
+    // HDR settings
+    QCheckBox* m_enableAllHDR;  // Master checkbox
+    QCheckBox* m_enableProtonWayland;
+    QCheckBox* m_enableProtonHDR;
+    QCheckBox* m_enableHDRWSI;
 
     // Super Resolution
     QCheckBox* m_srOverride;

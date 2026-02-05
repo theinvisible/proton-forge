@@ -106,6 +106,17 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << QString("DXVK_FRAME_RATE=%1").arg(settings.targetFrameRate);
     }
 
+    // HDR
+    if (settings.enableProtonWayland) {
+        envVars << "PROTON_ENABLE_WAYLAND=1";
+    }
+    if (settings.enableProtonHDR) {
+        envVars << "PROTON_ENABLE_HDR=1";
+    }
+    if (settings.enableHDRWSI) {
+        envVars << "ENABLE_HDR_WSI=1";
+    }
+
     // Append %command% for Steam launch options
     envVars << "%command%";
 
@@ -149,6 +160,17 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     // Frame Rate Limit
     if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
         env.insert("DXVK_FRAME_RATE", QString::number(settings.targetFrameRate));
+    }
+
+    // HDR
+    if (settings.enableProtonWayland) {
+        env.insert("PROTON_ENABLE_WAYLAND", "1");
+    }
+    if (settings.enableProtonHDR) {
+        env.insert("PROTON_ENABLE_HDR", "1");
+    }
+    if (settings.enableHDRWSI) {
+        env.insert("ENABLE_HDR_WSI", "1");
     }
 
     return env;

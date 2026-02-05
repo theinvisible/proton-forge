@@ -36,6 +36,11 @@ QJsonObject DLSSSettings::toJson() const
     json["enableFrameRateLimit"] = enableFrameRateLimit;
     json["targetFrameRate"] = targetFrameRate;
 
+    // HDR
+    json["enableProtonWayland"] = enableProtonWayland;
+    json["enableProtonHDR"] = enableProtonHDR;
+    json["enableHDRWSI"] = enableHDRWSI;
+
     // Executable Selection
     if (!executablePath.isEmpty()) {
         json["executablePath"] = executablePath;
@@ -84,6 +89,11 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableSmoothMotion = json["enableSmoothMotion"].toBool(false);
     settings.enableFrameRateLimit = json["enableFrameRateLimit"].toBool(false);
     settings.targetFrameRate = json["targetFrameRate"].toInt(60);
+
+    // HDR
+    settings.enableProtonWayland = json["enableProtonWayland"].toBool(false);
+    settings.enableProtonHDR = json["enableProtonHDR"].toBool(false);
+    settings.enableHDRWSI = json["enableHDRWSI"].toBool(false);
 
     // Executable Selection
     settings.executablePath = json["executablePath"].toString();
@@ -162,6 +172,9 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            enableSmoothMotion == other.enableSmoothMotion &&
            enableFrameRateLimit == other.enableFrameRateLimit &&
            targetFrameRate == other.targetFrameRate &&
+           enableProtonWayland == other.enableProtonWayland &&
+           enableProtonHDR == other.enableProtonHDR &&
+           enableHDRWSI == other.enableHDRWSI &&
            executablePath == other.executablePath &&
            protonVersion == other.protonVersion;
 }

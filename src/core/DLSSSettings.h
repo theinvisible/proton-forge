@@ -41,6 +41,11 @@ public:
     bool enableFrameRateLimit = false;
     int targetFrameRate = 60;  // FPS limit
 
+    // HDR Settings
+    bool enableProtonWayland = false;
+    bool enableProtonHDR = false;
+    bool enableHDRWSI = false;
+
     // Executable Selection (user preference)
     QString executablePath;
 

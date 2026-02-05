@@ -157,9 +157,53 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "The indicator appears as an overlay in the corner of the screen.");
     layout->addWidget(m_showIndicator);
 
+    // HDR Settings with master checkbox
+    layout->addSpacing(10);
+    QLabel* hdrLabel = new QLabel("HDR Settings:", this);
+    hdrLabel->setStyleSheet("font-weight: bold; margin-top: 5px;");
+    layout->addWidget(hdrLabel);
+
+    m_enableAllHDR = new QCheckBox("Enable All HDR Options (Quick Toggle)", this);
+    m_enableAllHDR->setStyleSheet("font-weight: bold; color: #4CAF50;");
+    m_enableAllHDR->setToolTip(
+        "Quick toggle to enable/disable all HDR options at once.\n\n"
+        "This is a convenience checkbox that controls all three HDR settings below. "
+        "You can also toggle individual options if needed.");
+    layout->addWidget(m_enableAllHDR);
+
+    // Indent individual HDR options
+    QWidget* hdrOptionsWidget = new QWidget(this);
+    QVBoxLayout* hdrOptionsLayout = new QVBoxLayout(hdrOptionsWidget);
+    hdrOptionsLayout->setContentsMargins(20, 0, 0, 0);
+    hdrOptionsLayout->setSpacing(5);
+
+    m_enableProtonWayland = new QCheckBox("PROTON_ENABLE_WAYLAND=1", this);
+    m_enableProtonWayland->setToolTip(
+        "Enable Wayland support in Proton.\n\n"
+        "Required for HDR to work. Enables Wayland backend instead of XWayland.");
+    hdrOptionsLayout->addWidget(m_enableProtonWayland);
+
+    m_enableProtonHDR = new QCheckBox("PROTON_ENABLE_HDR=1", this);
+    m_enableProtonHDR->setToolTip(
+        "Enable HDR support in Proton.\n\n"
+        "Enables High Dynamic Range rendering support in Proton.");
+    hdrOptionsLayout->addWidget(m_enableProtonHDR);
+
+    m_enableHDRWSI = new QCheckBox("ENABLE_HDR_WSI=1", this);
+    m_enableHDRWSI->setToolTip(
+        "Enable HDR Window System Integration.\n\n"
+        "Enables HDR support in the Vulkan WSI (Window System Integration) layer.");
+    hdrOptionsLayout->addWidget(m_enableHDRWSI);
+
+    layout->addWidget(hdrOptionsWidget);
+
     connect(m_enableNVAPI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableAllHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onEnableAllHDRToggled);
+    connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
+    connect(m_enableProtonHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
+    connect(m_enableHDRWSI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
 
     return group;
 }
@@ -573,6 +617,15 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_enableNGXUpdater->setChecked(settings.enableNGXUpdater);
     m_showIndicator->setChecked(settings.showIndicator);
 
+    // HDR
+    m_enableProtonWayland->setChecked(settings.enableProtonWayland);
+    m_enableProtonHDR->setChecked(settings.enableProtonHDR);
+    m_enableHDRWSI->setChecked(settings.enableHDRWSI);
+    // Update master checkbox state based on individual checkboxes
+    m_enableAllHDR->setChecked(settings.enableProtonWayland &&
+                               settings.enableProtonHDR &&
+                               settings.enableHDRWSI);
+
     // Super Resolution
     m_srOverride->setChecked(settings.srOverride);
     int srModeIndex = m_srMode->findData(settings.srMode);
@@ -654,6 +707,11 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableNGXUpdater = m_enableNGXUpdater->isChecked();
     settings.showIndicator = m_showIndicator->isChecked();
 
+    // HDR
+    settings.enableProtonWayland = m_enableProtonWayland->isChecked();
+    settings.enableProtonHDR = m_enableProtonHDR->isChecked();
+    settings.enableHDRWSI = m_enableHDRWSI->isChecked();
+
     // Super Resolution
     settings.srOverride = m_srOverride->isChecked();
     settings.srMode = m_srMode->currentData().toString();
@@ -705,6 +763,43 @@ void DLSSSettingsWidget::onSettingChanged()
     DLSSSettings s = settings();
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(s));
     emit settingsChanged(s);
+}
+
+void DLSSSettingsWidget::onEnableAllHDRToggled(bool checked)
+{
+    // Block signals to prevent recursive updates
+    m_enableProtonWayland->blockSignals(true);
+    m_enableProtonHDR->blockSignals(true);
+    m_enableHDRWSI->blockSignals(true);
+
+    // Set all three HDR options to the same state
+    m_enableProtonWayland->setChecked(checked);
+    m_enableProtonHDR->setChecked(checked);
+    m_enableHDRWSI->setChecked(checked);
+
+    // Restore signals
+    m_enableProtonWayland->blockSignals(false);
+    m_enableProtonHDR->blockSignals(false);
+    m_enableHDRWSI->blockSignals(false);
+
+    // Trigger settings update
+    onSettingChanged();
+}
+
+void DLSSSettingsWidget::onHDRCheckboxChanged()
+{
+    // Update master checkbox state based on individual checkboxes
+    bool allChecked = m_enableProtonWayland->isChecked() &&
+                      m_enableProtonHDR->isChecked() &&
+                      m_enableHDRWSI->isChecked();
+
+    // Block signal to prevent recursive call
+    m_enableAllHDR->blockSignals(true);
+    m_enableAllHDR->setChecked(allChecked);
+    m_enableAllHDR->blockSignals(false);
+
+    // Trigger settings update
+    onSettingChanged();
 }
 
 void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
