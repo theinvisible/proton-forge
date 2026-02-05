@@ -7,5 +7,5 @@ Terminal=false
 Type=Application
 Categories=Game;Utility;Qt;
 Keywords=dlss;steam;proton;gaming;forge;nvidia;
-StartupNotify=true
+StartupNotify=false
 StartupWMClass=ProtonForge
