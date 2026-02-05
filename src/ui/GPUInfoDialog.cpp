@@ -197,6 +197,8 @@ QGroupBox* GPUInfoDialog::createGraphicsCardGroup(const GPUInfo& gpu)
     addInfoRow(layout, "Vendor:", vendorToString(gpu.vendor));
     if (!gpu.architecture.isEmpty())
         addInfoRow(layout, "Architecture:", gpu.architecture);
+    if (gpu.cudaCores > 0)
+        addInfoRow(layout, "CUDA Cores:", QString::number(gpu.cudaCores));
     if (!gpu.gpuPartNumber.isEmpty())
         addInfoRow(layout, "GPU Part Number:", gpu.gpuPartNumber);
     if (!gpu.computeCapability.isEmpty())
@@ -254,6 +256,19 @@ QGroupBox* GPUInfoDialog::createPCIeGroup(const GPUInfo& gpu)
         addInfoRow(layout, "Max Link:", gpu.pcieMaxGen);
     if (!gpu.pcieLinkWidth.isEmpty())
         addInfoRow(layout, "Link Width:", gpu.pcieLinkWidth);
+    if (!gpu.pcieLinkSpeed.isEmpty())
+        addInfoRow(layout, "Link Speed:", gpu.pcieLinkSpeed);
+
+    // Resizeable BAR status
+    QString barStatus;
+    if (gpu.bar1TotalMB > 0) {
+        if (gpu.resizeableBarEnabled) {
+            barStatus = QString("✓ Enabled (%1 MB)").arg(gpu.bar1TotalMB);
+        } else {
+            barStatus = QString("✗ Disabled (%1 MB)").arg(gpu.bar1TotalMB);
+        }
+        addInfoRow(layout, "Resizeable BAR:", barStatus);
+    }
 
     return group;
 }
@@ -387,6 +402,8 @@ void GPUInfoDialog::copyToClipboard()
 
         if (!gpu.architecture.isEmpty())
             text += QString("Architecture: %1\n").arg(gpu.architecture);
+        if (gpu.cudaCores > 0)
+            text += QString("CUDA Cores: %1\n").arg(gpu.cudaCores);
         if (!gpu.gpuPartNumber.isEmpty())
             text += QString("GPU Part Number: %1\n").arg(gpu.gpuPartNumber);
         if (!gpu.computeCapability.isEmpty())
@@ -412,6 +429,16 @@ void GPUInfoDialog::copyToClipboard()
             text += QString("Current Link: %1\n").arg(gpu.pcieCurrentGen);
         if (!gpu.pcieMaxGen.isEmpty())
             text += QString("Max Link: %1\n").arg(gpu.pcieMaxGen);
+        if (!gpu.pcieLinkWidth.isEmpty())
+            text += QString("Link Width: %1\n").arg(gpu.pcieLinkWidth);
+        if (!gpu.pcieLinkSpeed.isEmpty())
+            text += QString("Link Speed: %1\n").arg(gpu.pcieLinkSpeed);
+        if (gpu.bar1TotalMB > 0) {
+            QString barStatus = gpu.resizeableBarEnabled
+                ? QString("Enabled (%1 MB)").arg(gpu.bar1TotalMB)
+                : QString("Disabled (%1 MB)").arg(gpu.bar1TotalMB);
+            text += QString("Resizeable BAR: %1\n").arg(barStatus);
+        }
 
         if (gpu.currentGraphicsClock > 0)
             text += QString("GPU Clock: %1 MHz\n").arg(gpu.currentGraphicsClock);

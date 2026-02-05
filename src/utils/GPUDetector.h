@@ -21,10 +21,14 @@ struct GPUInfo {
     QString gpuPartNumber;
     QString computeCapability;
     int memoryTotalMB = 0;
+    int cudaCores = 0;
 
     QString pcieCurrentGen;
     QString pcieMaxGen;
     QString pcieLinkWidth;
+    QString pcieLinkSpeed;  // Current link speed (e.g., "8.0 GT/s PCIe x16")
+    int bar1TotalMB = 0;    // BAR1 size for Resizeable BAR detection
+    bool resizeableBarEnabled = false;
 
     int currentGraphicsClock = 0;
     int currentMemoryClock = 0;
