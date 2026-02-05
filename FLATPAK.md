@@ -173,12 +173,9 @@ ls ~/.steam
 ls ~/.local/share/Steam
 ```
 
-## Icon Requirements
+## Icon
 
-For Flathub submission, you need:
-- An SVG icon (preferred) or PNG icons in multiple sizes
-- Icon should be named `org.protonforge.ProtonForge.svg`
-- Place in `icons/` directory and update manifest accordingly
+The application icon is included as `org.protonforge.ProtonForge.svg` and is automatically installed by the Flatpak build process to `/app/share/icons/hicolor/scalable/apps/`.
 
 ## Notes
 

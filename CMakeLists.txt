@@ -54,7 +54,11 @@ set(HEADERS
     src/ui/ProtonVersionDialog.h
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+set(RESOURCES
+    resources.qrc
+)
+
+add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} ${RESOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -69,3 +73,19 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)
+
+# Install icon
+install(FILES org.protonforge.ProtonForge.svg
+    DESTINATION share/icons/hicolor/scalable/apps
+    RENAME protonforge.svg
+)
+
+# Install desktop file
+configure_file(
+    ${CMAKE_SOURCE_DIR}/protonforge.desktop.in
+    ${CMAKE_BINARY_DIR}/protonforge.desktop
+    @ONLY
+)
+install(FILES ${CMAKE_BINARY_DIR}/protonforge.desktop
+    DESTINATION share/applications
+)

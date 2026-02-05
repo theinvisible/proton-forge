@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RCC>
+    <qresource prefix="/">
+        <file alias="icon.svg">org.protonforge.ProtonForge.svg</file>
+    </qresource>
+</RCC>

@@ -43,9 +43,10 @@ modules:
         path: org.protonforge.ProtonForge.desktop
       - type: file
         path: org.protonforge.ProtonForge.metainfo.xml
+      - type: file
+        path: org.protonforge.ProtonForge.svg
 
     post-install:
       - install -Dm644 org.protonforge.ProtonForge.desktop /app/share/applications/org.protonforge.ProtonForge.desktop
       - install -Dm644 org.protonforge.ProtonForge.metainfo.xml /app/share/metainfo/org.protonforge.ProtonForge.metainfo.xml
-      # TODO: Add icon installation when icon file is available
-      # - install -Dm644 icon.svg /app/share/icons/hicolor/scalable/apps/org.protonforge.ProtonForge.svg
+      - install -Dm644 org.protonforge.ProtonForge.svg /app/share/icons/hicolor/scalable/apps/org.protonforge.ProtonForge.svg

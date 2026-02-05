@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QIcon>
 #include <QLockFile>
 #include <QDir>
 #include <QMessageBox>
@@ -16,6 +17,9 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(APP_VERSION);
     app.setOrganizationName("ProtonForge");
     app.setOrganizationDomain("protonforge");
+
+    // Set application icon
+    app.setWindowIcon(QIcon(":/icon.svg"));
 
     // Single instance check
     QString lockFilePath = QDir::temp().absoluteFilePath("protonforge.lock");

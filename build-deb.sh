@@ -25,6 +25,7 @@ rm -rf "${BUILD_DIR}"
 mkdir -p "${PACKAGE_DIR}/DEBIAN"
 mkdir -p "${PACKAGE_DIR}/usr/bin"
 mkdir -p "${PACKAGE_DIR}/usr/share/applications"
+mkdir -p "${PACKAGE_DIR}/usr/share/icons/hicolor/scalable/apps"
 mkdir -p "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}"
 
 # Copy and process the control file (replace @VERSION@ placeholder)
@@ -34,6 +35,10 @@ sed "s/@VERSION@/${VERSION}/g" debian/control > "${PACKAGE_DIR}/DEBIAN/control"
 echo "Copying binary..."
 cp cmake-build-release/ProtonForge "${PACKAGE_DIR}/usr/bin/protonforge"
 chmod 755 "${PACKAGE_DIR}/usr/bin/protonforge"
+
+# Copy the icon
+echo "Copying icon..."
+cp org.protonforge.ProtonForge.svg "${PACKAGE_DIR}/usr/share/icons/hicolor/scalable/apps/protonforge.svg"
 
 # Create desktop entry
 echo "Creating desktop entry..."

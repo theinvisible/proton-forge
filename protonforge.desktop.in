@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ProtonForge
+Comment=DLSS & Proton Manager for Steam Games
+Exec=protonforge
+Icon=protonforge
+Terminal=false
+Type=Application
+Categories=Game;Utility;Qt;
+Keywords=dlss;steam;proton;gaming;forge;nvidia;
+StartupNotify=true

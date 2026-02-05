@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2d2d2d;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="forgeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#76B900;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#5a9000;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="glowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#9dff00;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#76B900;stop-opacity:0.4" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <circle cx="64" cy="64" r="60" fill="url(#bgGradient)" stroke="#76B900" stroke-width="3"/>
+
+  <!-- Anvil base (forge symbol) -->
+  <path d="M 35 75 L 35 85 L 93 85 L 93 75 Z" fill="url(#forgeGradient)" stroke="#5a9000" stroke-width="2"/>
+
+  <!-- Anvil top -->
+  <path d="M 30 65 L 40 75 L 88 75 L 98 65 L 95 55 L 33 55 Z" fill="url(#forgeGradient)" stroke="#5a9000" stroke-width="2"/>
+
+  <!-- Anvil horn (left side) -->
+  <path d="M 30 65 L 25 60 L 25 55 L 30 55 Z" fill="#5a9000"/>
+
+  <!-- DLSS/Tech elements - circuit lines -->
+  <path d="M 45 35 L 55 35 L 55 45" stroke="url(#glowGradient)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M 73 35 L 83 35 L 83 45" stroke="url(#glowGradient)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M 55 30 L 73 30" stroke="url(#glowGradient)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+
+  <!-- Tech nodes/dots -->
+  <circle cx="45" cy="35" r="3" fill="#9dff00"/>
+  <circle cx="83" cy="35" r="3" fill="#9dff00"/>
+  <circle cx="55" cy="45" r="3" fill="#76B900"/>
+  <circle cx="83" cy="45" r="3" fill="#76B900"/>
+  <circle cx="55" cy="30" r="3" fill="#9dff00"/>
+  <circle cx="73" cy="30" r="3" fill="#9dff00"/>
+
+  <!-- Hammer hitting anvil (action symbol) -->
+  <g transform="translate(64, 48)">
+    <!-- Hammer head -->
+    <rect x="-8" y="-5" width="16" height="10" fill="#76B900" stroke="#5a9000" stroke-width="1.5" rx="2"/>
+    <!-- Hammer handle -->
+    <rect x="-2" y="5" width="4" height="15" fill="#8B4513" stroke="#5a2a0a" stroke-width="1"/>
+    <!-- Impact sparks -->
+    <circle cx="-12" cy="0" r="2" fill="#ffff00" opacity="0.8"/>
+    <circle cx="12" cy="0" r="2" fill="#ffff00" opacity="0.8"/>
+    <circle cx="0" cy="-8" r="1.5" fill="#ffff00" opacity="0.6"/>
+  </g>
+
+  <!-- Power/Energy lines emanating from center -->
+  <path d="M 64 90 L 64 95" stroke="#76B900" stroke-width="2" opacity="0.6" stroke-linecap="round"/>
+  <path d="M 50 87 L 47 92" stroke="#76B900" stroke-width="2" opacity="0.6" stroke-linecap="round"/>
+  <path d="M 78 87 L 81 92" stroke="#76B900" stroke-width="2" opacity="0.6" stroke-linecap="round"/>
+</svg>
