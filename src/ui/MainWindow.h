@@ -5,8 +5,10 @@
 #include <QSplitter>
 #include "GameListWidget.h"
 #include "DLSSSettingsWidget.h"
+#include "GPUInfoDialog.h"
 #include "core/Game.h"
 #include "runner/GameRunner.h"
+#include "utils/GPUDetector.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -27,6 +29,7 @@ private slots:
     void onProtonUpdateCheck(bool updateAvailable, const QString& version);
     void onProtonInstallProgress(qint64 received, qint64 total);
     void onProtonInstallComplete(bool success, const QString& message);
+    void showGPUInfo();
 
 private:
     void setupUI();

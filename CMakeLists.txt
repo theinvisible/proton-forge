@@ -27,12 +27,15 @@ set(SOURCES
     src/utils/EnvBuilder.cpp
     src/utils/ProtonManager.cpp
     src/utils/HDRChecker.cpp
+    src/utils/GPUDetector.cpp
+    src/utils/NvidiaGPUDetector.cpp
     src/network/ImageCache.cpp
     src/runner/GameRunner.cpp
     src/ui/MainWindow.cpp
     src/ui/GameListWidget.cpp
     src/ui/DLSSSettingsWidget.cpp
     src/ui/ProtonVersionDialog.cpp
+    src/ui/GPUInfoDialog.cpp
 )
 
 set(HEADERS
@@ -46,12 +49,15 @@ set(HEADERS
     src/utils/EnvBuilder.h
     src/utils/ProtonManager.h
     src/utils/HDRChecker.h
+    src/utils/GPUDetector.h
+    src/utils/NvidiaGPUDetector.h
     src/network/ImageCache.h
     src/runner/GameRunner.h
     src/ui/MainWindow.h
     src/ui/GameListWidget.h
     src/ui/DLSSSettingsWidget.h
     src/ui/ProtonVersionDialog.h
+    src/ui/GPUInfoDialog.h
 )
 
 set(RESOURCES

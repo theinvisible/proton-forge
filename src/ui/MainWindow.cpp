@@ -128,6 +128,13 @@ void MainWindow::setupMenuBar()
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");
 
+    // GPU Information menu item (only shown if NVIDIA GPU detected)
+    if (GPUDetector::hasNvidiaGPU()) {
+        QAction* gpuInfoAction = helpMenu->addAction("GPU &Information");
+        connect(gpuInfoAction, &QAction::triggered, this, &MainWindow::showGPUInfo);
+        helpMenu->addSeparator();
+    }
+
     QAction* aboutAction = helpMenu->addAction("&About");
     connect(aboutAction, &QAction::triggered, this, [this]() {
         QMessageBox aboutBox(this);
@@ -444,4 +451,19 @@ void MainWindow::onProtonInstallComplete(bool success, const QString& message)
         QMessageBox::warning(this, "Installation Failed", message);
         statusBar()->showMessage("Proton-CachyOS installation failed", 5000);
     }
+}
+
+void MainWindow::showGPUInfo()
+{
+    QList<GPUInfo> gpus = GPUDetector::detectAllGPUs();
+
+    if (gpus.isEmpty()) {
+        QMessageBox::information(this, "No GPUs Detected",
+            "Could not detect any compatible GPUs.\n\n"
+            "Supported vendors: NVIDIA");
+        return;
+    }
+
+    GPUInfoDialog dialog(gpus, this);
+    dialog.exec();
 }
