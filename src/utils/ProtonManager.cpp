@@ -99,7 +99,7 @@ void ProtonManager::fetchLatestRelease()
 {
     QNetworkRequest request(QUrl("https://api.github.com/repos/CachyOS/proton-cachyos/releases/latest"));
     request.setRawHeader("Accept", "application/vnd.github.v3+json");
-    request.setRawHeader("User-Agent", "NvidiaAppLinux");
+    request.setRawHeader("User-Agent", "ProtonForge");
 
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -234,7 +234,7 @@ void ProtonManager::fetchReleases(int count)
     QString url = QString("https://api.github.com/repos/CachyOS/proton-cachyos/releases?per_page=%1").arg(count * 2);
     QNetworkRequest request{QUrl(url)};
     request.setRawHeader("Accept", "application/vnd.github.v3+json");
-    request.setRawHeader("User-Agent", "NvidiaAppLinux");
+    request.setRawHeader("User-Agent", "ProtonForge");
 
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -261,7 +261,7 @@ void ProtonManager::fetchProtonGEReleases(int count)
     QString url = QString("https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=%1").arg(count * 2);
     QNetworkRequest request{QUrl(url)};
     request.setRawHeader("Accept", "application/vnd.github.v3+json");
-    request.setRawHeader("User-Agent", "NvidiaAppLinux");
+    request.setRawHeader("User-Agent", "ProtonForge");
 
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -391,7 +391,7 @@ void ProtonManager::downloadRelease(const ProtonRelease& release)
     QString filePath = m_downloadPath + "/" + release.fileName;
 
     QNetworkRequest request(QUrl(release.downloadUrl));
-    request.setRawHeader("User-Agent", "NvidiaAppLinux");
+    request.setRawHeader("User-Agent", "ProtonForge");
 
     QNetworkReply* reply = m_networkManager->get(request);
 

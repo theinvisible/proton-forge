@@ -19,7 +19,7 @@ SettingsManager::SettingsManager()
 QString SettingsManager::configDir()
 {
     QString configPath = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
-    return configPath + "/NvidiaAppLinux";
+    return configPath + "/ProtonForge";
 }
 
 QString SettingsManager::configFilePath()

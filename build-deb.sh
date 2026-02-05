@@ -2,10 +2,10 @@
 
 set -e
 
-echo "Building .deb package for NvidiaAppLinux..."
+echo "Building .deb package for ProtonForge..."
 
 # Extract version from CMakeLists.txt (single source of truth)
-VERSION=$(grep -oP 'project\(NvidiaAppLinux VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+VERSION=$(grep -oP 'project\(ProtonForge VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
 if [ -z "$VERSION" ]; then
     echo "Error: Could not extract version from CMakeLists.txt"
     exit 1
@@ -13,7 +13,7 @@ fi
 echo "Version: ${VERSION}"
 
 # Variables
-PACKAGE_NAME="nvidia-app-linux"
+PACKAGE_NAME="protonforge"
 ARCH="amd64"
 BUILD_DIR="debian-build"
 PACKAGE_DIR="${BUILD_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}"
@@ -32,32 +32,32 @@ sed "s/@VERSION@/${VERSION}/g" debian/control > "${PACKAGE_DIR}/DEBIAN/control"
 
 # Copy the binary
 echo "Copying binary..."
-cp cmake-build-release/NvidiaAppLinux "${PACKAGE_DIR}/usr/bin/nvidia-app-linux"
-chmod 755 "${PACKAGE_DIR}/usr/bin/nvidia-app-linux"
+cp cmake-build-release/ProtonForge "${PACKAGE_DIR}/usr/bin/protonforge"
+chmod 755 "${PACKAGE_DIR}/usr/bin/protonforge"
 
 # Create desktop entry
 echo "Creating desktop entry..."
 cat > "${PACKAGE_DIR}/usr/share/applications/${PACKAGE_NAME}.desktop" << 'EOF'
 [Desktop Entry]
-Name=NVIDIA App Linux
-Comment=DLSS Manager for Steam/Proton Games
-Exec=nvidia-app-linux
-Icon=nvidia-app-linux
+Name=ProtonForge
+Comment=DLSS & Proton Manager for Steam Games
+Exec=protonforge
+Icon=protonforge
 Terminal=false
 Type=Application
 Categories=Game;Utility;
-Keywords=nvidia;dlss;steam;proton;gaming;
+Keywords=dlss;steam;proton;gaming;forge;
 EOF
 
 # Create copyright file
 echo "Creating copyright file..."
 cat > "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}/copyright" << 'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: nvidia-app-linux
-Source: https://github.com/nvidia-app-linux
+Upstream-Name: protonforge
+Source: https://github.com/protonforge
 
 Files: *
-Copyright: 2025 NvidiaAppLinux
+Copyright: 2025 ProtonForge
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a
  copy of this software and associated documentation files (the "Software"),
@@ -81,17 +81,18 @@ EOF
 # Create changelog
 echo "Creating changelog..."
 cat > "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}/changelog" << EOF
-nvidia-app-linux (${VERSION}) stable; urgency=medium
+protonforge (${VERSION}) stable; urgency=medium
 
   * Initial release
   * DLSS Super Resolution, Ray Reconstruction, and Frame Generation support
+  * HDR support configuration (Wayland)
   * Direct game launch with custom settings
-  * Proton-CachyOS automatic installation and updates
+  * Proton-CachyOS and Proton-GE management
   * Per-game settings persistence
   * Frame rate limiting for smooth motion
   * Steam CDN game artwork integration
 
- -- NvidiaAppLinux <noreply@nvidia-app-linux>  $(date -R)
+ -- ProtonForge <noreply@protonforge>  $(date -R)
 EOF
 
 # Compress changelog

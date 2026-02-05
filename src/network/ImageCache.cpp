@@ -22,7 +22,7 @@ ImageCache::ImageCache()
 QString ImageCache::cacheDir()
 {
     QString cachePath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-    return cachePath + "/NvidiaAppLinux/images";
+    return cachePath + "/ProtonForge/images";
 }
 
 QString ImageCache::cacheFilePath(const QString& url) const

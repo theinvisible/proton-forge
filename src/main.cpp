@@ -12,13 +12,13 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     // Application metadata
-    app.setApplicationName("NvidiaAppLinux");
+    app.setApplicationName("ProtonForge");
     app.setApplicationVersion(APP_VERSION);
-    app.setOrganizationName("NvidiaAppLinux");
-    app.setOrganizationDomain("nvidia-app-linux");
+    app.setOrganizationName("ProtonForge");
+    app.setOrganizationDomain("protonforge");
 
     // Single instance check
-    QString lockFilePath = QDir::temp().absoluteFilePath("nvidia-app-linux.lock");
+    QString lockFilePath = QDir::temp().absoluteFilePath("protonforge.lock");
     QLockFile lockFile(lockFilePath);
     lockFile.setStaleLockTime(0);
 
@@ -26,7 +26,7 @@ int main(int argc, char *argv[])
         QMessageBox::warning(
             nullptr,
             "Application Already Running",
-            "NvidiaAppLinux is already running.\n\nOnly one instance of the application can run at a time.",
+            "ProtonForge is already running.\n\nOnly one instance of the application can run at a time.",
             QMessageBox::Ok
         );
         return 1;

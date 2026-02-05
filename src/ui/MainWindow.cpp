@@ -26,7 +26,7 @@ MainWindow::MainWindow(QWidget* parent)
     setupToolBar();
     loadGames();
 
-    setWindowTitle("NVIDIA App Linux - DLSS Manager");
+    setWindowTitle("ProtonForge - DLSS & Proton Manager");
     resize(1200, 800);
 
     // Connect game runner signals
@@ -130,9 +130,9 @@ void MainWindow::setupMenuBar()
 
     QAction* aboutAction = helpMenu->addAction("&About");
     connect(aboutAction, &QAction::triggered, this, [this]() {
-        QMessageBox::about(this, "About NVIDIA App Linux",
-            QString("NVIDIA App Linux - DLSS Manager\n\n"
-            "Manage DLSS settings for Steam games running under Proton.\n\n"
+        QMessageBox::about(this, "About ProtonForge",
+            QString("ProtonForge - DLSS & Proton Manager\n\n"
+            "Manage DLSS settings and Proton versions for Steam games.\n\n"
             "Version %1").arg(APP_VERSION));
     });
 }

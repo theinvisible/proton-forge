@@ -1,19 +1,20 @@
-Package: nvidia-app-linux
+Package: protonforge
 Version: @VERSION@
 Section: games
 Priority: optional
 Architecture: amd64
 Depends: libqt6core6 (>= 6.0.0), libqt6gui6 (>= 6.0.0), libqt6widgets6 (>= 6.0.0), libqt6network6 (>= 6.0.0), libc6 (>= 2.34)
-Maintainer: NvidiaAppLinux <noreply@nvidia-app-linux>
-Description: DLSS Manager for Steam/Proton Games
- NvidiaAppLinux is a Qt6 application for managing NVIDIA DLSS settings
- for Steam games running under Proton on Linux.
+Maintainer: ProtonForge <noreply@protonforge.dev>
+Description: DLSS & Proton Manager for Steam Games
+ ProtonForge is a Qt6 application for managing NVIDIA DLSS settings
+ and Proton versions for Steam games on Linux.
  .
  Features:
   - Configure DLSS Super Resolution, Ray Reconstruction, and Frame Generation
+  - HDR support configuration for Wayland
   - Direct game launch with custom settings
-  - Proton-CachyOS automatic installation and updates
+  - Proton-CachyOS and Proton-GE management
   - Per-game settings persistence
   - Frame rate limiting for smooth motion
   - Steam CDN game artwork integration
-Homepage: https://github.com/nvidia-app-linux
+Homepage: https://github.com/protonforge
