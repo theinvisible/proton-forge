@@ -1,4 +1,7 @@
 #include <QApplication>
+#include <QLockFile>
+#include <QDir>
+#include <QMessageBox>
 #include "ui/MainWindow.h"
 #include "core/Game.h"
 #include "utils/ProtonManager.h"
@@ -13,6 +16,21 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(APP_VERSION);
     app.setOrganizationName("NvidiaAppLinux");
     app.setOrganizationDomain("nvidia-app-linux");
+
+    // Single instance check
+    QString lockFilePath = QDir::temp().absoluteFilePath("nvidia-app-linux.lock");
+    QLockFile lockFile(lockFilePath);
+    lockFile.setStaleLockTime(0);
+
+    if (!lockFile.tryLock(100)) {
+        QMessageBox::warning(
+            nullptr,
+            "Application Already Running",
+            "NvidiaAppLinux is already running.\n\nOnly one instance of the application can run at a time.",
+            QMessageBox::Ok
+        );
+        return 1;
+    }
 
     // Register metatypes
     qRegisterMetaType<Game>("Game");
