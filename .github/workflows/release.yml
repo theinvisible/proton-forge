@@ -71,7 +71,7 @@ jobs:
 
       - name: Install Flatpak and dependencies
         run: |
-          apt-get install -y flatpak flatpak-builder
+          apt-get install -y flatpak flatpak-builder wget
           flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install -y flathub org.kde.Platform//6.8 org.kde.Sdk//6.8
 
