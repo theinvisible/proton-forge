@@ -45,11 +45,12 @@ void ProtonVersionDialog::setupUI()
 
     // Buttons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
-    buttonLayout->addStretch();
 
     m_deleteButton = new QPushButton("Delete Selected", this);
     m_deleteButton->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px 16px; }");
     buttonLayout->addWidget(m_deleteButton);
+
+    buttonLayout->addStretch();
 
     m_cancelButton = new QPushButton("Cancel", this);
     buttonLayout->addWidget(m_cancelButton);

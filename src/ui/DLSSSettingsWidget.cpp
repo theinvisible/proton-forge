@@ -117,7 +117,7 @@ void DLSSSettingsWidget::setupUI()
     mainLayout->addWidget(scrollArea, 1);
 
     // Launch command preview
-    QGroupBox* previewGroup = new QGroupBox("Launch Options Preview", this);
+    QGroupBox* previewGroup = new QGroupBox("Steam Launch Options Preview", this);
     QVBoxLayout* previewLayout = new QVBoxLayout(previewGroup);
     m_launchCommandPreview = new QTextEdit(this);
     m_launchCommandPreview->setReadOnly(true);
