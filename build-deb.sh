@@ -54,7 +54,7 @@ echo "Creating copyright file..."
 cat > "${PACKAGE_DIR}/usr/share/doc/${PACKAGE_NAME}/copyright" << 'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: protonforge
-Source: https://github.com/protonforge
+Source: https://github.com/theinvisible/proton-forge
 
 Files: *
 Copyright: 2025 ProtonForge

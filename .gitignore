@@ -1,27 +1,61 @@
 # Build directories
 build/
 cmake-build-*/
+debian-build/
 
 # IDE files
 .idea/
 .vscode/
 *.user
 *.pro.user
+*.swp
+*.swo
+*~
+.DS_Store
 
 # Qt generated files
 *_autogen/
 moc_*.cpp
 ui_*.h
 qrc_*.cpp
+*.autosave
+*.qm
 
 # Compiled files
 *.o
 *.so
 *.a
 *.exe
+ProtonForge
+NvidiaAppLinux
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
 
 # Cache
 .cache/
 
-# Debian build
-debian-build
+# Packages
+*.deb
+*.rpm
+*.tar.gz
+*.tar.xz
+*.zip
+
+# Generated files
+generated/
+Version.h
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.backup
+
+# Test executables
+test_hdr
