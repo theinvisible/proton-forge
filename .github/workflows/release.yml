@@ -89,8 +89,8 @@ jobs:
           # Update version in manifest URL
           sed -i "s|url: https://github.com/theinvisible/proton-forge/archive/v[0-9.]\+\.tar\.gz|url: https://github.com/theinvisible/proton-forge/archive/v${VERSION}.tar.gz|" org.protonforge.ProtonForge.yml
 
-          # Build Flatpak (disable rofiles-fuse for Docker compatibility)
-          flatpak-builder --disable-rofiles-fuse --repo=flatpak-repo --force-clean flatpak-build org.protonforge.ProtonForge.yml
+          # Build Flatpak (disable sandbox and rofiles-fuse for Docker compatibility)
+          flatpak-builder --disable-sandbox --disable-rofiles-fuse --repo=flatpak-repo --force-clean flatpak-build org.protonforge.ProtonForge.yml
 
           # Create bundle
           flatpak build-bundle flatpak-repo protonforge.flatpak org.protonforge.ProtonForge
