@@ -15,6 +15,7 @@
 #include <QTimer>
 #include <QDesktopServices>
 #include <QDir>
+#include <QSettings>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -322,22 +323,52 @@ void MainWindow::onProtonUpdateCheck(bool updateAvailable, const QString& versio
             // Not installed
             statusBar()->showMessage("Proton-CachyOS not installed. Use Tools menu to install.", 5000);
         } else {
-            // Update available
-            QMessageBox::StandardButton reply = QMessageBox::question(this,
-                "Update Available",
-                QString("A new version of Proton-CachyOS is available!\n\n"
-                       "Current version: %1\n"
-                       "New version: %2\n\n"
-                       "Would you like to update now?").arg(currentVersion, version),
-                QMessageBox::Yes | QMessageBox::No);
+            // Update available - check if user has dismissed this version
+            QSettings settings;
+            QString dismissedVersion = settings.value("proton/dismissedUpdateVersion").toString();
 
-            if (reply == QMessageBox::Yes) {
-                pm.updateProtonCachyOS();
+            // Only show notification if this is a different (newer) version than the dismissed one
+            if (dismissedVersion.isEmpty() || version != dismissedVersion) {
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle("Update Available");
+                msgBox.setIcon(QMessageBox::Question);
+                msgBox.setText(QString("A new version of Proton-CachyOS is available!\n\n"
+                                      "Current version: %1\n"
+                                      "New version: %2\n\n"
+                                      "Would you like to update now?").arg(currentVersion, version));
+                msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+                msgBox.setDefaultButton(QMessageBox::Yes);
+
+                // Add informative text
+                msgBox.setInformativeText("Note: If you choose 'No', you won't be notified about this version again "
+                                         "until a newer version is released.");
+
+                int reply = msgBox.exec();
+
+                if (reply == QMessageBox::Yes) {
+                    pm.updateProtonCachyOS();
+                    // Clear dismissed version since user is updating
+                    settings.remove("proton/dismissedUpdateVersion");
+                } else {
+                    // User clicked No - save this version as dismissed
+                    settings.setValue("proton/dismissedUpdateVersion", version);
+                    statusBar()->showMessage(QString("Update to version %1 dismissed. "
+                                                    "You will be notified when a newer version is available.").arg(version), 8000);
+                }
+            } else {
+                // This version was already dismissed, don't show notification
+                // Silently update status bar
+                statusBar()->showMessage(QString("Proton-CachyOS update available (%1), previously dismissed. "
+                                                "Check Tools menu to update.").arg(version), 3000);
             }
         }
     } else {
         if (!currentVersion.isEmpty()) {
             statusBar()->showMessage("Proton-CachyOS is up to date (" + currentVersion + ")", 3000);
+
+            // Clear dismissed version if we're up to date
+            QSettings settings;
+            settings.remove("proton/dismissedUpdateVersion");
         }
     }
 }
@@ -359,6 +390,10 @@ void MainWindow::onProtonInstallComplete(bool success, const QString& message)
         QMessageBox::information(this, "Installation Complete",
             message + "\n\nProton-CachyOS is now available for use with your games.");
         statusBar()->showMessage("Proton-CachyOS installed successfully", 5000);
+
+        // Clear dismissed update version since user has successfully updated
+        QSettings settings;
+        settings.remove("proton/dismissedUpdateVersion");
     } else {
         QMessageBox::warning(this, "Installation Failed", message);
         statusBar()->showMessage("Proton-CachyOS installation failed", 5000);
