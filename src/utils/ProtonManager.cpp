@@ -448,3 +448,26 @@ void ProtonManager::extractArchive(const QString& archivePath)
     process->setWorkingDirectory(protonCachyOSPath());
     process->start("tar", {"xf", archivePath});
 }
+
+bool ProtonManager::deleteProtonVersion(const ProtonRelease& release)
+{
+    // Extract directory name from fileName
+    QString dirName = release.fileName;
+
+    // Remove archive extensions
+    if (dirName.endsWith(".tar.xz")) {
+        dirName.chop(7);
+    } else if (dirName.endsWith(".tar.gz")) {
+        dirName.chop(7);
+    }
+
+    QString protonPath = protonCachyOSPath() + "/" + dirName;
+    QDir protonDir(protonPath);
+
+    if (!protonDir.exists()) {
+        return false;
+    }
+
+    // Remove the directory and all its contents
+    return protonDir.removeRecursively();
+}

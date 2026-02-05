@@ -6,6 +6,7 @@
 #include <QVariant>
 #include <QDir>
 #include <QFile>
+#include <QMessageBox>
 
 ProtonVersionDialog::ProtonVersionDialog(const QList<ProtonManager::ProtonRelease>& releases,
                                          const QString& currentVersion,
@@ -46,6 +47,10 @@ void ProtonVersionDialog::setupUI()
     QHBoxLayout* buttonLayout = new QHBoxLayout();
     buttonLayout->addStretch();
 
+    m_deleteButton = new QPushButton("Delete Selected", this);
+    m_deleteButton->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px 16px; }");
+    buttonLayout->addWidget(m_deleteButton);
+
     m_cancelButton = new QPushButton("Cancel", this);
     buttonLayout->addWidget(m_cancelButton);
 
@@ -59,14 +64,14 @@ void ProtonVersionDialog::setupUI()
     // Connections
     connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_installButton, &QPushButton::clicked, this, &QDialog::accept);
+    connect(m_deleteButton, &QPushButton::clicked, this, &ProtonVersionDialog::deleteSelectedVersion);
     connect(m_versionList, &QListWidget::itemDoubleClicked, this, &QDialog::accept);
 
-    // Enable/disable install button based on selection
-    connect(m_versionList, &QListWidget::itemSelectionChanged, this, [this]() {
-        m_installButton->setEnabled(!m_versionList->selectedItems().isEmpty());
-    });
+    // Enable/disable buttons based on selection
+    connect(m_versionList, &QListWidget::itemSelectionChanged, this, &ProtonVersionDialog::updateButtonStates);
 
     m_installButton->setEnabled(false);
+    m_deleteButton->setEnabled(false);
 }
 
 void ProtonVersionDialog::populateList()
@@ -241,4 +246,68 @@ bool ProtonVersionDialog::isVersionInstalled(const ProtonManager::ProtonRelease&
     }
 
     return false;
+}
+
+void ProtonVersionDialog::deleteSelectedVersion()
+{
+    QListWidgetItem* item = m_versionList->currentItem();
+    if (!item) {
+        return;
+    }
+
+    ProtonManager::ProtonRelease release = item->data(Qt::UserRole).value<ProtonManager::ProtonRelease>();
+
+    // Check if version is installed
+    if (!isVersionInstalled(release)) {
+        QMessageBox::warning(this, "Cannot Delete",
+                           "This version is not installed and cannot be deleted.");
+        return;
+    }
+
+    // Confirm deletion
+    QString versionName = release.version;
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        "Confirm Deletion",
+        QString("Are you sure you want to delete %1?\n\nThis will permanently remove all files for this Proton version.").arg(versionName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (reply != QMessageBox::Yes) {
+        return;
+    }
+
+    // Delete the version
+    bool success = ProtonManager::instance().deleteProtonVersion(release);
+
+    if (success) {
+        QMessageBox::information(this, "Success",
+                                QString("%1 has been deleted successfully.").arg(versionName));
+
+        // Refresh the list
+        m_installedVersions = getInstalledVersions();
+        m_versionList->clear();
+        populateList();
+    } else {
+        QMessageBox::critical(this, "Error",
+                            QString("Failed to delete %1.\n\nPlease check file permissions.").arg(versionName));
+    }
+}
+
+void ProtonVersionDialog::updateButtonStates()
+{
+    QListWidgetItem* item = m_versionList->currentItem();
+    bool hasSelection = item != nullptr;
+
+    if (hasSelection) {
+        ProtonManager::ProtonRelease release = item->data(Qt::UserRole).value<ProtonManager::ProtonRelease>();
+        bool installed = isVersionInstalled(release);
+
+        m_installButton->setEnabled(true);
+        m_deleteButton->setEnabled(installed);
+    } else {
+        m_installButton->setEnabled(false);
+        m_deleteButton->setEnabled(false);
+    }
 }

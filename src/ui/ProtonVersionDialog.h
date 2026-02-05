@@ -21,6 +21,8 @@ private:
     void setupUI();
     void populateList();
     void addReleaseItem(const ProtonManager::ProtonRelease& release, bool isLatest);
+    void deleteSelectedVersion();
+    void updateButtonStates();
     QStringList getInstalledVersions() const;
     bool isVersionInstalled(const ProtonManager::ProtonRelease& release) const;
 
@@ -31,6 +33,7 @@ private:
     QLabel* m_headerLabel;
     QListWidget* m_versionList;
     QPushButton* m_installButton;
+    QPushButton* m_deleteButton;
     QPushButton* m_cancelButton;
 };
 

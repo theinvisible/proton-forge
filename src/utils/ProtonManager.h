@@ -46,6 +46,9 @@ public:
     // Update to latest version
     void updateProtonCachyOS();
 
+    // Delete a specific Proton version
+    bool deleteProtonVersion(const ProtonRelease& release);
+
     // Get installation directory
     static QString protonCachyOSPath();
 
