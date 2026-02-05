@@ -36,7 +36,12 @@ jobs:
 
       - name: Add Flathub repository
         run: |
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install KDE runtime and SDK
+        run: |
+          flatpak install --user -y flathub org.kde.Platform//6.8
+          flatpak install --user -y flathub org.kde.Sdk//6.8
 
       - name: Update manifest with version
         run: |
@@ -57,11 +62,9 @@ jobs:
           cat org.protonforge.ProtonForge.yml
 
       - name: Build Flatpak
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: protonforge.flatpak
-          manifest-path: org.protonforge.ProtonForge.yml
-          cache-key: flatpak-builder-${{ github.sha }}
+        run: |
+          flatpak-builder --user --disable-rofiles-fuse --repo=repo --force-clean flatpak_app org.protonforge.ProtonForge.yml
+          flatpak build-bundle repo protonforge.flatpak org.protonforge.ProtonForge
 
       - name: Upload Flatpak bundle as artifact
         uses: actions/upload-artifact@v4
