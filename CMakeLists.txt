@@ -26,6 +26,7 @@ set(SOURCES
     src/launchers/SteamLauncher.cpp
     src/utils/EnvBuilder.cpp
     src/utils/ProtonManager.cpp
+    src/utils/HDRChecker.cpp
     src/network/ImageCache.cpp
     src/runner/GameRunner.cpp
     src/ui/MainWindow.cpp
@@ -44,6 +45,7 @@ set(HEADERS
     src/launchers/SteamLauncher.h
     src/utils/EnvBuilder.h
     src/utils/ProtonManager.h
+    src/utils/HDRChecker.h
     src/network/ImageCache.h
     src/runner/GameRunner.h
     src/ui/MainWindow.h

@@ -2,6 +2,7 @@
 #include "network/ImageCache.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/HDRChecker.h"
 #include "runner/GameRunner.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -12,6 +13,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
+#include <QMessageBox>
 #include <QtConcurrent>
 #include <algorithm>
 
@@ -767,6 +769,15 @@ void DLSSSettingsWidget::onSettingChanged()
 
 void DLSSSettingsWidget::onEnableAllHDRToggled(bool checked)
 {
+    // If enabling HDR, check system HDR status first
+    if (checked && !checkAndWarnHDRStatus()) {
+        // User canceled or chose not to enable HDR
+        m_enableAllHDR->blockSignals(true);
+        m_enableAllHDR->setChecked(false);
+        m_enableAllHDR->blockSignals(false);
+        return;
+    }
+
     // Block signals to prevent recursive updates
     m_enableProtonWayland->blockSignals(true);
     m_enableProtonHDR->blockSignals(true);
@@ -788,6 +799,31 @@ void DLSSSettingsWidget::onEnableAllHDRToggled(bool checked)
 
 void DLSSSettingsWidget::onHDRCheckboxChanged()
 {
+    qDebug() << "onHDRCheckboxChanged() called";
+
+    // Check if any HDR option is currently being enabled
+    bool anyHDREnabled = m_enableProtonWayland->isChecked() ||
+                         m_enableProtonHDR->isChecked() ||
+                         m_enableHDRWSI->isChecked();
+
+    // Get the sender to check which checkbox changed
+    QCheckBox* senderCheckbox = qobject_cast<QCheckBox*>(sender());
+    qDebug() << "Sender:" << (senderCheckbox ? senderCheckbox->text() : "null")
+             << "Checked:" << (senderCheckbox ? senderCheckbox->isChecked() : false);
+
+    // If any HDR option is being enabled, check system HDR status
+    if (senderCheckbox && senderCheckbox->isChecked() && anyHDREnabled) {
+        if (!checkAndWarnHDRStatus()) {
+            // User canceled, uncheck the checkbox
+            senderCheckbox->blockSignals(true);
+            senderCheckbox->setChecked(false);
+            senderCheckbox->blockSignals(false);
+
+            // Don't update settings
+            return;
+        }
+    }
+
     // Update master checkbox state based on individual checkboxes
     bool allChecked = m_enableProtonWayland->isChecked() &&
                       m_enableProtonHDR->isChecked() &&
@@ -1104,4 +1140,40 @@ QString DLSSSettingsWidget::findBestExecutable(const Game& game, const QStringLi
 
     // Return the first executable as fallback
     return executables.first();
+}
+
+bool DLSSSettingsWidget::checkAndWarnHDRStatus()
+{
+    // Debug: Show that this method is called
+    qDebug() << "checkAndWarnHDRStatus() called";
+
+    // Check HDR status
+    HDRChecker::HDRStatus status = HDRChecker::checkHDRStatus();
+    qDebug() << "HDR Status - isEnabled:" << status.isEnabled << "message:" << status.message;
+
+    // If HDR is enabled, no warning needed
+    if (status.isEnabled) {
+        return true;
+    }
+
+    // HDR is not enabled - show warning
+    QString warningMessage = HDRChecker::getWarningMessage(status);
+
+    if (warningMessage.isEmpty()) {
+        // No warning needed (shouldn't happen, but handle gracefully)
+        return true;
+    }
+
+    // Show warning dialog
+    QMessageBox msgBox(this);
+    msgBox.setIcon(QMessageBox::Warning);
+    msgBox.setWindowTitle("HDR Not Enabled");
+    msgBox.setText(warningMessage);
+    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    msgBox.setDefaultButton(QMessageBox::No);
+
+    int result = msgBox.exec();
+
+    // Return true if user wants to proceed anyway
+    return result == QMessageBox::Yes;
 }
