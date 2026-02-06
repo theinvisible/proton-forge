@@ -58,20 +58,29 @@ QString ProtonManager::getInstalledVersion() const
     }
 
     QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    QVersionNumber highestVersion;
+    QString highestVersionString;
+
+    QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+))");
+
     for (const QString& entry : entries) {
         if (entry.startsWith("proton-cachyos", Qt::CaseInsensitive)) {
             // Extract version from directory name
             // Format: proton-cachyos-10.0-20260127-slr
-            QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+))");
             QRegularExpressionMatch match = regex.match(entry);
             if (match.hasMatch()) {
-                return match.captured(1) + "-" + match.captured(2);
+                QString versionStr = match.captured(1) + "-" + match.captured(2);
+                QVersionNumber version = parseVersion(entry);
+
+                if (version > highestVersion) {
+                    highestVersion = version;
+                    highestVersionString = versionStr;
+                }
             }
-            return entry;
         }
     }
 
-    return QString();
+    return highestVersionString;
 }
 
 QVersionNumber ProtonManager::parseVersion(const QString& fileName) const
