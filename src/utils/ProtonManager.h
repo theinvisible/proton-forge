@@ -58,7 +58,7 @@ public:
 signals:
     void updateCheckComplete(bool updateAvailable, const QString& latestVersion);
     void availableVersionsFetched(const QList<ProtonRelease>& releases);
-    void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
+    void downloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QString& protonName);
     void installationComplete(bool success, const QString& message);
     void installationStarted();
 
@@ -72,7 +72,7 @@ private:
     void fetchReleases(int count = 5);
     void fetchProtonGEReleases(int count = 5);
     void downloadRelease(const ProtonRelease& release);
-    void extractArchive(const QString& archivePath);
+    void extractArchive(const QString& archivePath, const ProtonRelease& release);
     ProtonRelease parseLatestRelease(const QByteArray& jsonData);
     QList<ProtonRelease> parseReleases(const QByteArray& jsonData, int maxCount = 5);
     QList<ProtonRelease> parseProtonGEReleases(const QByteArray& jsonData, int maxCount = 5);

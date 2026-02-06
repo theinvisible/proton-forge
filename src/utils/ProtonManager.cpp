@@ -395,11 +395,12 @@ void ProtonManager::downloadRelease(const ProtonRelease& release)
 
     QNetworkReply* reply = m_networkManager->get(request);
 
-    connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 received, qint64 total) {
-        emit downloadProgress(received, total);
+    connect(reply, &QNetworkReply::downloadProgress, this, [this, release](qint64 received, qint64 total) {
+        QString name = release.type == ProtonGE ? "Proton-GE" : "Proton-CachyOS";
+        emit downloadProgress(received, total, name);
     });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, filePath]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, filePath, release]() {
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
@@ -418,11 +419,11 @@ void ProtonManager::downloadRelease(const ProtonRelease& release)
         file.close();
 
         // Extract archive
-        extractArchive(filePath);
+        extractArchive(filePath, release);
     });
 }
 
-void ProtonManager::extractArchive(const QString& archivePath)
+void ProtonManager::extractArchive(const QString& archivePath, const ProtonRelease& release)
 {
     // Ensure target directory exists
     QDir().mkpath(protonCachyOSPath());
@@ -431,14 +432,15 @@ void ProtonManager::extractArchive(const QString& archivePath)
     QProcess* process = new QProcess(this);
 
     connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, process, archivePath](int exitCode, QProcess::ExitStatus) {
+            this, [this, process, archivePath, release](int exitCode, QProcess::ExitStatus) {
         process->deleteLater();
 
         // Clean up downloaded archive
         QFile::remove(archivePath);
 
         if (exitCode == 0) {
-            emit installationComplete(true, "Proton-CachyOS installed successfully");
+            QString name = release.type == ProtonGE ? "Proton-GE" : "Proton-CachyOS";
+            emit installationComplete(true, name + " installed successfully");
         } else {
             emit installationComplete(false, "Extraction failed: " + process->errorString());
         }

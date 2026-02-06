@@ -426,14 +426,14 @@ void MainWindow::onProtonUpdateCheck(bool updateAvailable, const QString& versio
     }
 }
 
-void MainWindow::onProtonInstallProgress(qint64 received, qint64 total)
+void MainWindow::onProtonInstallProgress(qint64 received, qint64 total, const QString& protonName)
 {
     if (total > 0) {
         int percent = (received * 100) / total;
         double mb = received / (1024.0 * 1024.0);
         double totalMb = total / (1024.0 * 1024.0);
-        statusBar()->showMessage(QString("Downloading Proton-CachyOS: %1% (%2 / %3 MB)")
-            .arg(percent).arg(mb, 0, 'f', 1).arg(totalMb, 0, 'f', 1));
+        statusBar()->showMessage(QString("Downloading %1: %2% (%3 / %4 MB)")
+            .arg(protonName).arg(percent).arg(mb, 0, 'f', 1).arg(totalMb, 0, 'f', 1));
     }
 }
 
@@ -441,15 +441,15 @@ void MainWindow::onProtonInstallComplete(bool success, const QString& message)
 {
     if (success) {
         QMessageBox::information(this, "Installation Complete",
-            message + "\n\nProton-CachyOS is now available for use with your games.");
-        statusBar()->showMessage("Proton-CachyOS installed successfully", 5000);
+            message + "\n\nProton is now available for use with your games.");
+        statusBar()->showMessage(message, 5000);
 
         // Clear dismissed update version since user has successfully updated
         QSettings settings;
         settings.remove("proton/dismissedUpdateVersion");
     } else {
         QMessageBox::warning(this, "Installation Failed", message);
-        statusBar()->showMessage("Proton-CachyOS installation failed", 5000);
+        statusBar()->showMessage("Proton installation failed", 5000);
     }
 }
 
