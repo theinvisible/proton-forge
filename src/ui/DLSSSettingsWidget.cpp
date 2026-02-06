@@ -4,6 +4,7 @@
 #include "utils/ProtonManager.h"
 #include "utils/HDRChecker.h"
 #include "runner/GameRunner.h"
+#include "launchers/SteamLauncher.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -929,12 +930,16 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
     // Add special options
     m_protonVersionSelector->addItem("Latest Proton-CachyOS (Recommended)", "auto");
     m_protonVersionSelector->addItem("Latest Proton-GE", "latest-ge");
+    m_protonVersionSelector->addItem("Latest Steam Proton", "steam-proton");
 
-    m_protonVersionSelector->insertSeparator(2);
+    m_protonVersionSelector->insertSeparator(3);
 
-    // Get installed Proton versions
+    // Get installed Proton versions from compatibilitytools.d
     QString protonPath = ProtonManager::protonCachyOSPath();
     QDir dir(protonPath);
+
+    QMap<QString, QString> cachyosAndGeVersions;  // displayName -> directoryPath
+    QList<QPair<QString, QString>> steamProtonVersions;  // List of (entry, fullPath) pairs
 
     if (dir.exists()) {
         QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
@@ -953,9 +958,57 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
                     displayName = entry.mid(3);  // Remove "GE-" prefix
                 }
 
-                m_protonVersionSelector->addItem(displayName, entry);
+                cachyosAndGeVersions[displayName] = entry;
             }
         }
+    }
+
+    // Get Steam Proton versions from Steam libraries
+    QStringList libraryPaths = SteamLauncher::libraryPaths();
+    QStringList preferredSteamVersions = {"Proton - Experimental", "Proton 10", "Proton 9", "Proton 8", "Proton 7", "Proton Hotfix", "Proton 6", "Proton 5"};
+
+    for (const QString& preferred : preferredSteamVersions) {
+        bool found = false;
+        for (const QString& libPath : libraryPaths) {
+            if (found) break;
+
+            QString commonPath = libPath + "/common";
+            QDir steamDir(commonPath);
+
+            if (steamDir.exists()) {
+                QStringList entries = steamDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+
+                for (const QString& entry : entries) {
+                    if (entry.contains(preferred, Qt::CaseInsensitive)) {
+                        QString protonExe = commonPath + "/" + entry + "/proton";
+                        if (QFile::exists(protonExe)) {
+                            QString fullPath = commonPath + "/" + entry;
+                            steamProtonVersions.append(qMakePair(entry, fullPath));
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Limit to 3 newest Steam Proton versions
+        if (steamProtonVersions.size() >= 3) {
+            break;
+        }
+    }
+
+    // Add CachyOS and GE versions sorted by display name
+    QStringList sortedNames = cachyosAndGeVersions.keys();
+    sortedNames.sort();
+    for (const QString& displayName : sortedNames) {
+        m_protonVersionSelector->addItem(displayName, cachyosAndGeVersions[displayName]);
+    }
+
+    // Add Steam Proton versions (limited to 3 newest)
+    for (const auto& pair : steamProtonVersions) {
+        QString displayName = "Steam " + pair.first;
+        m_protonVersionSelector->addItem(displayName, pair.second);
     }
 
     m_protonVersionSelector->blockSignals(false);

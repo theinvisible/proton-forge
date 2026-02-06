@@ -95,6 +95,51 @@ QString GameRunner::findDefaultProton() const
     return QString();
 }
 
+QString GameRunner::findLatestSteamProton() const
+{
+    QString steam = steamPath();
+
+    // Get all Steam library paths
+    QStringList libraryPaths = SteamLauncher::libraryPaths();
+
+    // Build list of directories to check for Proton
+    QStringList protonDirs;
+
+    // Add common folders from all libraries (official Steam Proton is in common/)
+    for (const QString& libPath : libraryPaths) {
+        protonDirs << libPath + "/common";
+    }
+
+    // Preferred Steam Proton versions (newest first)
+    QStringList steamProtonVersions = {
+        "Proton - Experimental",
+        "Proton 10",
+        "Proton 9",
+        "Proton 8"
+    };
+
+    for (const QString& dir : protonDirs) {
+        QDir d(dir);
+        if (!d.exists()) continue;
+
+        QStringList entries = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+
+        // Check for Steam Proton versions (excluding CachyOS and GE)
+        for (const QString& preferred : steamProtonVersions) {
+            for (const QString& entry : entries) {
+                if (entry.contains(preferred, Qt::CaseInsensitive)) {
+                    QString protonExe = dir + "/" + entry + "/proton";
+                    if (QFile::exists(protonExe)) {
+                        return dir + "/" + entry;
+                    }
+                }
+            }
+        }
+    }
+
+    return QString();
+}
+
 QString GameRunner::findProtonFromConfig(const QString& appId) const
 {
     // Check Steam config for per-game Proton setting
@@ -155,8 +200,6 @@ QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& setting
 {
     // First check if user selected a specific Proton version
     if (!settings.protonVersion.isEmpty()) {
-        QString protonPath = ProtonManager::protonCachyOSPath() + "/" + settings.protonVersion;
-
         // Handle special values
         if (settings.protonVersion == "auto") {
             // Use latest CachyOS - fall through to default logic
@@ -166,13 +209,26 @@ QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& setting
             if (dir.exists()) {
                 QStringList geVersions = dir.entryList(QStringList() << "GE-Proton*", QDir::Dirs, QDir::Name | QDir::Reversed);
                 if (!geVersions.isEmpty()) {
-                    protonPath = ProtonManager::protonCachyOSPath() + "/" + geVersions.first();
+                    QString protonPath = ProtonManager::protonCachyOSPath() + "/" + geVersions.first();
                     if (QFile::exists(protonPath + "/proton")) {
                         return protonPath;
                     }
                 }
             }
+        } else if (settings.protonVersion == "steam-proton") {
+            // Find latest Steam Proton version
+            QString steamProton = findLatestSteamProton();
+            if (!steamProton.isEmpty()) {
+                return steamProton;
+            }
         } else {
+            // Check if it's an absolute path (for Steam Proton versions)
+            QString protonPath = settings.protonVersion;
+            if (!protonPath.startsWith("/")) {
+                // Relative path, prepend compatibilitytools.d directory
+                protonPath = ProtonManager::protonCachyOSPath() + "/" + settings.protonVersion;
+            }
+
             // Use specific version selected by user
             if (QFile::exists(protonPath + "/proton")) {
                 return protonPath;

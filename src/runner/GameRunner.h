@@ -28,6 +28,7 @@ signals:
 private:
     QString steamPath() const;
     QString findDefaultProton() const;
+    QString findLatestSteamProton() const;
     QString findProtonFromConfig(const QString& appId) const;
     QStringList findExecutables(const QString& installPath) const;
     QString findLinuxExecutable(const Game& game);
