@@ -938,7 +938,8 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
     QString protonPath = ProtonManager::protonCachyOSPath();
     QDir dir(protonPath);
 
-    QMap<QString, QString> cachyosAndGeVersions;  // displayName -> directoryPath
+    QMap<QString, QString> cachyosVersions;  // displayName -> directoryPath
+    QMap<QString, QString> geVersions;  // displayName -> directoryPath
     QList<QPair<QString, QString>> steamProtonVersions;  // List of (entry, fullPath) pairs
 
     if (dir.exists()) {
@@ -948,17 +949,13 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
             // Check if it's a valid Proton installation
             QString protonExe = protonPath + "/" + entry + "/proton";
             if (QFile::exists(protonExe)) {
-                QString displayName = entry;
-
-                // Make display name more readable
                 if (entry.startsWith("proton-cachyos-")) {
-                    displayName = entry.mid(15);  // Remove "proton-cachyos-" prefix
-                    displayName = "CachyOS " + displayName;
+                    QString displayName = entry.mid(15);  // Remove "proton-cachyos-" prefix
+                    cachyosVersions[displayName] = entry;
                 } else if (entry.startsWith("GE-Proton")) {
-                    displayName = entry.mid(3);  // Remove "GE-" prefix
+                    QString displayName = entry.mid(3);  // Remove "GE-" prefix
+                    geVersions[displayName] = entry;
                 }
-
-                cachyosAndGeVersions[displayName] = entry;
             }
         }
     }
@@ -998,17 +995,37 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
         }
     }
 
-    // Add CachyOS and GE versions sorted by display name
-    QStringList sortedNames = cachyosAndGeVersions.keys();
-    sortedNames.sort();
-    for (const QString& displayName : sortedNames) {
-        m_protonVersionSelector->addItem(displayName, cachyosAndGeVersions[displayName]);
+    // Add CachyOS versions (sorted by version number, newest first)
+    if (!cachyosVersions.isEmpty()) {
+        QStringList sortedCachyos = cachyosVersions.keys();
+        sortedCachyos.sort(Qt::CaseInsensitive);
+        std::reverse(sortedCachyos.begin(), sortedCachyos.end());
+
+        for (const QString& displayName : sortedCachyos) {
+            m_protonVersionSelector->addItem(displayName, cachyosVersions[displayName]);
+        }
+
+        m_protonVersionSelector->insertSeparator(m_protonVersionSelector->count());
+    }
+
+    // Add GE-Proton versions (sorted by version number, newest first)
+    if (!geVersions.isEmpty()) {
+        QStringList sortedGe = geVersions.keys();
+        sortedGe.sort(Qt::CaseInsensitive);
+        std::reverse(sortedGe.begin(), sortedGe.end());
+
+        for (const QString& displayName : sortedGe) {
+            m_protonVersionSelector->addItem(displayName, geVersions[displayName]);
+        }
+
+        m_protonVersionSelector->insertSeparator(m_protonVersionSelector->count());
     }
 
     // Add Steam Proton versions (limited to 3 newest)
-    for (const auto& pair : steamProtonVersions) {
-        QString displayName = "Steam " + pair.first;
-        m_protonVersionSelector->addItem(displayName, pair.second);
+    if (!steamProtonVersions.isEmpty()) {
+        for (const auto& pair : steamProtonVersions) {
+            m_protonVersionSelector->addItem(pair.first, pair.second);
+        }
     }
 
     m_protonVersionSelector->blockSignals(false);
