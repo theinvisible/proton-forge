@@ -4,6 +4,8 @@
 
 ProtonForge is a powerful Qt6 application designed to give Linux gamers full control over NVIDIA DLSS settings and Proton versions for Steam games. Configure DLSS Super Resolution, Ray Reconstruction, Frame Generation, HDR support, and more - all from a single, intuitive interface.
 
+![alt text](https://hadler.me/wordpress/wp-content/uploads/2026/02/Bildschirmfoto_20260220_202143.png "ProtonForge main page")
+
 > **Note:** ProtonForge currently focuses on NVIDIA graphics cards for DLSS-related features. Proton management features work with any GPU.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
