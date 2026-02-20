@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ProtonForge VERSION 1.0.5 LANGUAGES CXX)
+project(ProtonForge VERSION 1.0.6 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,6 +26,7 @@ set(SOURCES
     src/launchers/SteamLauncher.cpp
     src/utils/EnvBuilder.cpp
     src/utils/ProtonManager.cpp
+    src/utils/CPUDetector.cpp
     src/utils/HDRChecker.cpp
     src/utils/GPUDetector.cpp
     src/utils/NvidiaGPUDetector.cpp
@@ -35,7 +36,7 @@ set(SOURCES
     src/ui/GameListWidget.cpp
     src/ui/DLSSSettingsWidget.cpp
     src/ui/ProtonVersionDialog.cpp
-    src/ui/GPUInfoDialog.cpp
+    src/ui/SystemInfoDialog.cpp
     src/ui/SettingsDialog.cpp
     src/ui/AboutDialog.cpp
 )
@@ -50,6 +51,7 @@ set(HEADERS
     src/launchers/SteamLauncher.h
     src/utils/EnvBuilder.h
     src/utils/ProtonManager.h
+    src/utils/CPUDetector.h
     src/utils/HDRChecker.h
     src/utils/GPUDetector.h
     src/utils/NvidiaGPUDetector.h
@@ -59,7 +61,7 @@ set(HEADERS
     src/ui/GameListWidget.h
     src/ui/DLSSSettingsWidget.h
     src/ui/ProtonVersionDialog.h
-    src/ui/GPUInfoDialog.h
+    src/ui/SystemInfoDialog.h
     src/ui/SettingsDialog.h
     src/ui/AboutDialog.h
 )

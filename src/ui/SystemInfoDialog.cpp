@@ -1,4 +1,6 @@
-#include "GPUInfoDialog.h"
+#include "SystemInfoDialog.h"
+#include "utils/CPUDetector.h"
+#include <QtConcurrent>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QTabWidget>
@@ -10,8 +12,9 @@
 #include <QApplication>
 #include <QScrollArea>
 
-GPUInfoDialog::GPUInfoDialog(const QList<GPUInfo>& gpus, QWidget* parent)
+SystemInfoDialog::SystemInfoDialog(const QList<GPUInfo>& gpus, QWidget* parent)
     : QDialog(parent)
+    , m_cpuInfo(CPUDetector::detect())
     , m_gpus(gpus)
     , m_tabWidget(nullptr)
     , m_refreshTimer(new QTimer(this))
@@ -26,36 +29,31 @@ GPUInfoDialog::GPUInfoDialog(const QList<GPUInfo>& gpus, QWidget* parent)
 
     // Setup refresh timer
     m_refreshTimer->setInterval(1500); // 1.5 seconds
-    connect(m_refreshTimer, &QTimer::timeout, this, &GPUInfoDialog::refreshDynamicValues);
+    connect(m_refreshTimer, &QTimer::timeout, this, &SystemInfoDialog::refreshDynamicValues);
 }
 
-GPUInfoDialog::~GPUInfoDialog()
+SystemInfoDialog::~SystemInfoDialog()
 {
     if (m_refreshTimer->isActive()) {
         m_refreshTimer->stop();
     }
 }
 
-void GPUInfoDialog::setupUI()
+void SystemInfoDialog::setupUI()
 {
-    setWindowTitle("GPU Information");
+    setWindowTitle("System Information");
     setMinimumSize(700, 600);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-    if (m_gpus.size() > 1) {
-        // Multiple GPUs: use tabs
-        m_tabWidget = new QTabWidget(this);
-        for (int i = 0; i < m_gpus.size(); ++i) {
-            QWidget* tab = createGPUTab(m_gpus[i], i);
-            m_tabWidget->addTab(tab, QString("GPU %1").arg(i));
-        }
-        mainLayout->addWidget(m_tabWidget);
-    } else if (m_gpus.size() == 1) {
-        // Single GPU: no tabs needed
-        QWidget* content = createGPUTab(m_gpus[0], 0);
-        mainLayout->addWidget(content);
+    // Always use tabs: CPU first, then one tab per GPU
+    m_tabWidget = new QTabWidget(this);
+    m_tabWidget->addTab(createCPUTab(), "CPU");
+    for (int i = 0; i < m_gpus.size(); ++i) {
+        const QString label = m_gpus.size() > 1 ? QString("GPU %1").arg(i) : "GPU";
+        m_tabWidget->addTab(createGPUTab(m_gpus[i], i), label);
     }
+    mainLayout->addWidget(m_tabWidget);
 
     // Bottom controls
     QHBoxLayout* buttonLayout = new QHBoxLayout();
@@ -63,13 +61,13 @@ void GPUInfoDialog::setupUI()
     // Auto-refresh checkbox
     m_autoRefreshCheckbox = new QCheckBox("Auto-Refresh (1.5s)", this);
     m_autoRefreshCheckbox->setChecked(true); // Start enabled by default
-    connect(m_autoRefreshCheckbox, &QCheckBox::toggled, this, &GPUInfoDialog::toggleAutoRefresh);
+    connect(m_autoRefreshCheckbox, &QCheckBox::toggled, this, &SystemInfoDialog::toggleAutoRefresh);
     buttonLayout->addWidget(m_autoRefreshCheckbox);
 
     buttonLayout->addStretch();
 
     QPushButton* copyButton = new QPushButton("Copy to Clipboard", this);
-    connect(copyButton, &QPushButton::clicked, this, &GPUInfoDialog::copyToClipboard);
+    connect(copyButton, &QPushButton::clicked, this, &SystemInfoDialog::copyToClipboard);
     buttonLayout->addWidget(copyButton);
 
     QPushButton* closeButton = new QPushButton("Close", this);
@@ -166,7 +164,98 @@ void GPUInfoDialog::setupUI()
     );
 }
 
-QWidget* GPUInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
+QString SystemInfoDialog::formatCacheSize(int kib)
+{
+    if (kib <= 0)       return QString();
+    if (kib < 1024)     return QString("%1 KiB").arg(kib);
+    return QString("%1 MiB").arg(kib / 1024);
+}
+
+QWidget* SystemInfoDialog::createCPUTab()
+{
+    QScrollArea* scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    QWidget* widget = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(widget);
+    layout->setSpacing(10);
+
+    layout->addWidget(createCPUProcessorGroup());
+    layout->addWidget(createCPUFreqGroup());
+    if (m_cpuInfo.l1dCacheKiB > 0 || m_cpuInfo.l2CacheKiB > 0 || m_cpuInfo.l3CacheKiB > 0)
+        layout->addWidget(createCPUCacheGroup());
+    layout->addStretch();
+
+    scroll->setWidget(widget);
+    return scroll;
+}
+
+QGroupBox* SystemInfoDialog::createCPUProcessorGroup()
+{
+    QGroupBox* group = new QGroupBox("Processor");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    if (!m_cpuInfo.modelName.isEmpty())
+        addInfoRow(layout, "Name:", m_cpuInfo.modelName);
+    if (!m_cpuInfo.vendor.isEmpty())
+        addInfoRow(layout, "Vendor:", m_cpuInfo.vendor);
+    if (!m_cpuInfo.architecture.isEmpty())
+        addInfoRow(layout, "Architecture:", m_cpuInfo.architecture);
+    if (m_cpuInfo.physicalCores > 0)
+        addInfoRow(layout, "Physical Cores:", QString::number(m_cpuInfo.physicalCores));
+    if (m_cpuInfo.logicalCores > 0)
+        addInfoRow(layout, "Logical CPUs:", QString::number(m_cpuInfo.logicalCores));
+
+    return group;
+}
+
+QGroupBox* SystemInfoDialog::createCPUFreqGroup()
+{
+    QGroupBox* group = new QGroupBox("Frequencies & Temperature");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    if (m_cpuInfo.baseFreqMHz > 0)
+        addInfoRow(layout, "Base Frequency:", QString("%1 MHz").arg(m_cpuInfo.baseFreqMHz, 0, 'f', 0));
+    if (m_cpuInfo.maxFreqMHz > 0)
+        addInfoRow(layout, "Max Frequency:", QString("%1 MHz").arg(m_cpuInfo.maxFreqMHz, 0, 'f', 0));
+
+    // Dynamic labels — refreshed by the timer
+    if (m_cpuInfo.currentFreqMHz > 0 || m_cpuInfo.baseFreqMHz > 0) {
+        const QString freqStr = m_cpuInfo.currentFreqMHz > 0
+            ? QString("%1 MHz").arg(m_cpuInfo.currentFreqMHz, 0, 'f', 0)
+            : QString("—");
+        m_cpuDynamic.currentFreq = addInfoRow(layout, "Current Frequency:", freqStr);
+    }
+    if (m_cpuInfo.temperature > 0) {
+        m_cpuDynamic.temperature = addInfoRow(layout, "Temperature:",
+                                              QString("%1 °C").arg(m_cpuInfo.temperature));
+    } else {
+        // Still create the label so it can be filled on the first refresh
+        m_cpuDynamic.temperature = addInfoRow(layout, "Temperature:", "—");
+    }
+
+    return group;
+}
+
+QGroupBox* SystemInfoDialog::createCPUCacheGroup()
+{
+    QGroupBox* group = new QGroupBox("Cache");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    if (m_cpuInfo.l1dCacheKiB > 0)
+        addInfoRow(layout, "L1d Cache:", formatCacheSize(m_cpuInfo.l1dCacheKiB));
+    if (m_cpuInfo.l1iCacheKiB > 0)
+        addInfoRow(layout, "L1i Cache:", formatCacheSize(m_cpuInfo.l1iCacheKiB));
+    if (m_cpuInfo.l2CacheKiB > 0)
+        addInfoRow(layout, "L2 Cache:", formatCacheSize(m_cpuInfo.l2CacheKiB));
+    if (m_cpuInfo.l3CacheKiB > 0)
+        addInfoRow(layout, "L3 Cache:", formatCacheSize(m_cpuInfo.l3CacheKiB));
+
+    return group;
+}
+
+QWidget* SystemInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
 {
     QScrollArea* scrollArea = new QScrollArea();
     scrollArea->setWidgetResizable(true);
@@ -189,7 +278,7 @@ QWidget* GPUInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
     return scrollArea;
 }
 
-QGroupBox* GPUInfoDialog::createGraphicsCardGroup(const GPUInfo& gpu)
+QGroupBox* SystemInfoDialog::createGraphicsCardGroup(const GPUInfo& gpu)
 {
     QGroupBox* group = new QGroupBox("Graphics Card");
     QVBoxLayout* layout = new QVBoxLayout(group);
@@ -208,7 +297,7 @@ QGroupBox* GPUInfoDialog::createGraphicsCardGroup(const GPUInfo& gpu)
     return group;
 }
 
-QGroupBox* GPUInfoDialog::createMemoryGroup(const GPUInfo& gpu)
+QGroupBox* SystemInfoDialog::createMemoryGroup(const GPUInfo& gpu)
 {
     QGroupBox* group = new QGroupBox("Memory");
     QVBoxLayout* layout = new QVBoxLayout(group);
@@ -227,7 +316,7 @@ QGroupBox* GPUInfoDialog::createMemoryGroup(const GPUInfo& gpu)
     return group;
 }
 
-QGroupBox* GPUInfoDialog::createDriverBiosGroup(const GPUInfo& gpu)
+QGroupBox* SystemInfoDialog::createDriverBiosGroup(const GPUInfo& gpu)
 {
     QGroupBox* group = new QGroupBox("Driver & BIOS");
     QVBoxLayout* layout = new QVBoxLayout(group);
@@ -244,7 +333,7 @@ QGroupBox* GPUInfoDialog::createDriverBiosGroup(const GPUInfo& gpu)
     return group;
 }
 
-QGroupBox* GPUInfoDialog::createPCIeGroup(const GPUInfo& gpu)
+QGroupBox* SystemInfoDialog::createPCIeGroup(const GPUInfo& gpu)
 {
     QGroupBox* group = new QGroupBox("PCIe Interface");
     QVBoxLayout* layout = new QVBoxLayout(group);
@@ -274,7 +363,7 @@ QGroupBox* GPUInfoDialog::createPCIeGroup(const GPUInfo& gpu)
     return group;
 }
 
-QGroupBox* GPUInfoDialog::createUtilizationGroup(const GPUInfo& gpu, int gpuIndex)
+QGroupBox* SystemInfoDialog::createUtilizationGroup(const GPUInfo& gpu, int gpuIndex)
 {
     QGroupBox* group = new QGroupBox("Utilization");
     QVBoxLayout* layout = new QVBoxLayout(group);
@@ -292,7 +381,7 @@ QGroupBox* GPUInfoDialog::createUtilizationGroup(const GPUInfo& gpu, int gpuInde
     return group;
 }
 
-QGroupBox* GPUInfoDialog::createClocksPowerGroup(const GPUInfo& gpu, int gpuIndex)
+QGroupBox* SystemInfoDialog::createClocksPowerGroup(const GPUInfo& gpu, int gpuIndex)
 {
     QGroupBox* group = new QGroupBox("Clocks & Power");
     QVBoxLayout* layout = new QVBoxLayout(group);
@@ -318,7 +407,7 @@ QGroupBox* GPUInfoDialog::createClocksPowerGroup(const GPUInfo& gpu, int gpuInde
     return group;
 }
 
-QLabel* GPUInfoDialog::addInfoRow(QVBoxLayout* layout, const QString& label, const QString& value)
+QLabel* SystemInfoDialog::addInfoRow(QVBoxLayout* layout, const QString& label, const QString& value)
 {
     if (value.isEmpty()) {
         return nullptr;
@@ -341,7 +430,7 @@ QLabel* GPUInfoDialog::addInfoRow(QVBoxLayout* layout, const QString& label, con
     return valueWidget; // Return the value label so it can be updated
 }
 
-QString GPUInfoDialog::vendorToString(GPUInfo::Vendor vendor)
+QString SystemInfoDialog::vendorToString(GPUInfo::Vendor vendor)
 {
     switch (vendor) {
         case GPUInfo::NVIDIA: return "NVIDIA";
@@ -351,70 +440,91 @@ QString GPUInfoDialog::vendorToString(GPUInfo::Vendor vendor)
     }
 }
 
-void GPUInfoDialog::refreshDynamicValues()
+void SystemInfoDialog::refreshDynamicValues()
 {
-    // Fetch fresh GPU data
-    QList<GPUInfo> freshGpus = GPUDetector::detectAllGPUs();
+    // Skip if a refresh is already running — avoids piling up concurrent nvidia-smi calls
+    if (m_refreshInProgress)
+        return;
+    m_refreshInProgress = true;
 
+    // Capture a copy of m_cpuInfo for the background thread (no shared mutable state)
+    const CPUInfo cpuBase = m_cpuInfo;
+
+    using Result = QPair<CPUInfo, QList<GPUInfo>>;
+    auto* watcher = new QFutureWatcher<Result>(this);
+
+    connect(watcher, &QFutureWatcher<Result>::finished, this, [this, watcher]() {
+        watcher->deleteLater();
+        m_refreshInProgress = false;
+        const Result result = watcher->result();
+        applyRefreshResult(result.first, result.second);
+    });
+
+    watcher->setFuture(QtConcurrent::run([cpuBase]() -> Result {
+        return { CPUDetector::detectDynamic(cpuBase), GPUDetector::detectAllGPUs() };
+    }));
+}
+
+void SystemInfoDialog::applyRefreshResult(const CPUInfo& freshCpu, const QList<GPUInfo>& freshGpus)
+{
+    // ── CPU ──────────────────────────────────────────────────────────────────
+    m_cpuInfo = freshCpu;
+    if (m_cpuDynamic.currentFreq) {
+        m_cpuDynamic.currentFreq->setText(
+            freshCpu.currentFreqMHz > 0
+                ? QString("%1 MHz").arg(freshCpu.currentFreqMHz, 0, 'f', 0)
+                : QString("—"));
+    }
+    if (m_cpuDynamic.temperature) {
+        m_cpuDynamic.temperature->setText(
+            freshCpu.temperature > 0
+                ? QString("%1 °C").arg(freshCpu.temperature)
+                : QString("—"));
+    }
+
+    // ── GPU ──────────────────────────────────────────────────────────────────
     if (freshGpus.size() != m_gpus.size()) {
-        // GPU configuration changed, stop refreshing
         m_refreshTimer->stop();
-        if (m_autoRefreshCheckbox) {
+        if (m_autoRefreshCheckbox)
             m_autoRefreshCheckbox->setChecked(false);
-        }
         return;
     }
 
-    // Update stored GPU data and UI labels
     for (int i = 0; i < freshGpus.size(); ++i) {
         const GPUInfo& fresh = freshGpus[i];
-        m_gpus[i] = fresh; // Update stored data
+        m_gpus[i] = fresh;
 
         const DynamicLabels& labels = m_dynamicLabels[i];
 
-        // Update dynamic labels if they exist
-        if (labels.gpuClock && fresh.currentGraphicsClock > 0) {
+        if (labels.gpuClock && fresh.currentGraphicsClock > 0)
             labels.gpuClock->setText(QString("%1 MHz").arg(fresh.currentGraphicsClock));
-        }
-        if (labels.memoryClock && fresh.currentMemoryClock > 0) {
+        if (labels.memoryClock && fresh.currentMemoryClock > 0)
             labels.memoryClock->setText(QString("%1 MHz").arg(fresh.currentMemoryClock));
-        }
-        if (labels.powerDraw && fresh.currentPowerDraw > 0) {
+        if (labels.powerDraw && fresh.currentPowerDraw > 0)
             labels.powerDraw->setText(QString("%1 W").arg(fresh.currentPowerDraw));
-        }
-        if (labels.temperature && fresh.temperature > 0) {
+        if (labels.temperature && fresh.temperature > 0)
             labels.temperature->setText(QString("%1 °C").arg(fresh.temperature));
-        }
-        if (labels.fanSpeed && fresh.fanSpeed > 0) {
+        if (labels.fanSpeed && fresh.fanSpeed > 0)
             labels.fanSpeed->setText(QString("%1 %").arg(fresh.fanSpeed));
-        }
-        if (labels.performanceState && !fresh.performanceState.isEmpty()) {
+        if (labels.performanceState && !fresh.performanceState.isEmpty())
             labels.performanceState->setText(fresh.performanceState);
-        }
 
-        // Update utilization labels
-        if (labels.gpuUtilization) {
+        if (labels.gpuUtilization)
             labels.gpuUtilization->setText(QString("%1 %").arg(fresh.gpuUtilization));
-        }
-        if (labels.memoryUtilization) {
+        if (labels.memoryUtilization)
             labels.memoryUtilization->setText(QString("%1 %").arg(fresh.memoryUtilization));
-        }
-        if (labels.encoderUtilization) {
+        if (labels.encoderUtilization)
             labels.encoderUtilization->setText(QString("%1 %").arg(fresh.encoderUtilization));
-        }
-        if (labels.decoderUtilization) {
+        if (labels.decoderUtilization)
             labels.decoderUtilization->setText(QString("%1 %").arg(fresh.decoderUtilization));
-        }
-        if (labels.jpegUtilization) {
+        if (labels.jpegUtilization)
             labels.jpegUtilization->setText(QString("%1 %").arg(fresh.jpegUtilization));
-        }
-        if (labels.ofaUtilization) {
+        if (labels.ofaUtilization)
             labels.ofaUtilization->setText(QString("%1 %").arg(fresh.ofaUtilization));
-        }
     }
 }
 
-void GPUInfoDialog::toggleAutoRefresh(bool enabled)
+void SystemInfoDialog::toggleAutoRefresh(bool enabled)
 {
     if (enabled) {
         m_refreshTimer->start();
@@ -425,7 +535,7 @@ void GPUInfoDialog::toggleAutoRefresh(bool enabled)
     }
 }
 
-void GPUInfoDialog::copyToClipboard()
+void SystemInfoDialog::copyToClipboard()
 {
     QString text;
 

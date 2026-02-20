@@ -140,8 +140,8 @@ void MainWindow::setupMenuBar()
 
     // GPU Information menu item (only shown if NVIDIA GPU detected)
     if (GPUDetector::hasNvidiaGPU()) {
-        QAction* gpuInfoAction = helpMenu->addAction("GPU &Information");
-        connect(gpuInfoAction, &QAction::triggered, this, &MainWindow::showGPUInfo);
+        QAction* gpuInfoAction = helpMenu->addAction("&System Information");
+        connect(gpuInfoAction, &QAction::triggered, this, &MainWindow::showSystemInfo);
         helpMenu->addSeparator();
     }
 
@@ -481,7 +481,7 @@ void MainWindow::onProtonInstallComplete(bool success, const QString& message)
     }
 }
 
-void MainWindow::showGPUInfo()
+void MainWindow::showSystemInfo()
 {
     QList<GPUInfo> gpus = GPUDetector::detectAllGPUs();
 
@@ -492,7 +492,7 @@ void MainWindow::showGPUInfo()
         return;
     }
 
-    GPUInfoDialog dialog(gpus, this);
+    SystemInfoDialog dialog(gpus, this);
     dialog.exec();
 }
 

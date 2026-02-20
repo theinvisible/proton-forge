@@ -5,7 +5,7 @@
 #include <QSplitter>
 #include "GameListWidget.h"
 #include "DLSSSettingsWidget.h"
-#include "GPUInfoDialog.h"
+#include "SystemInfoDialog.h"
 #include "core/Game.h"
 #include "runner/GameRunner.h"
 #include "utils/GPUDetector.h"
@@ -30,7 +30,7 @@ private slots:
     void onProtonGEUpdateCheck(bool updateAvailable, const QString& version);
     void onProtonInstallProgress(qint64 received, qint64 total, const QString& protonName);
     void onProtonInstallComplete(bool success, const QString& message);
-    void showGPUInfo();
+    void showSystemInfo();
     void showSettings();
 
 private:
