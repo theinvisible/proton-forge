@@ -37,6 +37,7 @@ set(SOURCES
     src/ui/ProtonVersionDialog.cpp
     src/ui/GPUInfoDialog.cpp
     src/ui/SettingsDialog.cpp
+    src/ui/AboutDialog.cpp
 )
 
 set(HEADERS
@@ -60,6 +61,7 @@ set(HEADERS
     src/ui/ProtonVersionDialog.h
     src/ui/GPUInfoDialog.h
     src/ui/SettingsDialog.h
+    src/ui/AboutDialog.h
 )
 
 set(RESOURCES

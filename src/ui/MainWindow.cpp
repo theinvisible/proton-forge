@@ -5,6 +5,7 @@
 #include "utils/ProtonManager.h"
 #include "ui/ProtonVersionDialog.h"
 #include "ui/SettingsDialog.h"
+#include "ui/AboutDialog.h"
 #include "Version.h"
 #include <QMenuBar>
 #include <QToolBar>
@@ -146,56 +147,8 @@ void MainWindow::setupMenuBar()
 
     QAction* aboutAction = helpMenu->addAction("&About");
     connect(aboutAction, &QAction::triggered, this, [this]() {
-        QMessageBox aboutBox(this);
-        aboutBox.setWindowTitle("About ProtonForge");
-        aboutBox.setIconPixmap(QPixmap(":/icons/app-icon.png").scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-
-        QString aboutText = QString(
-            "<div style='font-family: monospace;'>"
-            "<h2 style='color: #76B900;'>🔧 ProtonForge v%1</h2>"
-            "<p style='font-size: 11px; color: #888;'>"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            "</p>"
-            "</div>"
-
-            "<div style='margin: 10px 0;'>"
-            "<p><b>🎮 Level Up Your Linux Gaming</b></p>"
-            "<p style='color: #ccc; font-size: 11px;'>"
-            "Forge the perfect settings for your games.<br>"
-            "Fine-tune DLSS. Manage Proton. Unleash HDR.<br>"
-            "Your games, your rules."
-            "</p>"
-            "</div>"
-
-            "<div style='background: #2a2a2a; padding: 8px; border-radius: 4px; margin: 10px 0;'>"
-            "<p style='font-size: 10px; color: #76B900; margin: 2px;'>"
-            "⚡ <b>POWERED BY:</b></p>"
-            "<p style='font-size: 10px; color: #888; margin: 2px;'>"
-            "├─ NVIDIA DLSS Technology<br>"
-            "├─ Proton-CachyOS & Proton-GE<br>"
-            "├─ Qt6 Framework<br>"
-            "└─ The Linux Gaming Community"
-            "</p>"
-            "</div>"
-
-            "<div style='margin: 10px 0;'>"
-            "<p style='font-size: 10px; color: #666;'>"
-            "🚀 <b>FPS:</b> Unlimited | <b>Ray Tracing:</b> On | <b>Quality:</b> Ultra<br>"
-            "💚 <b>GPU:</b> NVIDIA Focused | <b>Platform:</b> Linux<br>"
-            "🔥 <b>Status:</b> Forging Your Gaming Experience"
-            "</p>"
-            "</div>"
-
-            "<p style='font-size: 9px; color: #555; margin-top: 15px;'>"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br>"
-            "Made with ❤️ for gamers who refuse to compromise<br>"
-            "MIT License | github.com/theinvisible/proton-forge"
-            "</p>"
-        ).arg(APP_VERSION);
-
-        aboutBox.setText(aboutText);
-        aboutBox.setStandardButtons(QMessageBox::Ok);
-        aboutBox.exec();
+        AboutDialog dlg(this);
+        dlg.exec();
     });
 }
 
