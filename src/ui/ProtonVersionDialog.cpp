@@ -226,6 +226,22 @@ void ProtonVersionDialog::setupUI()
     changelogLabel->setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 4px;");
     m_changelogView = new QTextBrowser(rightPanel);
     m_changelogView->setOpenExternalLinks(true);
+    m_changelogView->setStyleSheet(
+        "QTextBrowser {"
+        "  border: 1px solid #444; border-radius: 6px;"
+        "  background: #1a1a1a; color: #e0e0e0;"
+        "  padding: 4px;"
+        "}"
+        "QScrollBar:vertical {"
+        "  background: #1a1a1a; width: 8px; border-radius: 4px; margin: 0;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        "  background: #555; border-radius: 4px; min-height: 24px;"
+        "}"
+        "QScrollBar::handle:vertical:hover { background: #777; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }"
+    );
     rightLayout->addWidget(changelogLabel);
     rightLayout->addWidget(m_changelogView);
     rightPanel->setMinimumWidth(300);
@@ -384,11 +400,26 @@ void ProtonVersionDialog::updateChangelog()
 
     ProtonManager::ProtonRelease release = item->data(Qt::UserRole).value<ProtonManager::ProtonRelease>();
 
-    QString html;
-    html += QString("<h3>%1</h3>").arg(release.displayName.isEmpty() ? release.version : release.displayName);
+    const QString accentColor = (release.type == ProtonManager::ProtonGE)
+                                ? "#e85d04" : "#77c71f";
+
+    QString html = QString(
+        "<html><head><style>"
+        "  body  { color: #e0e0e0; font-size: 12px; line-height: 1.6; margin: 10px 14px; }"
+        "  h3    { color: %1; font-size: 14px; margin: 0 0 8px 0;"
+        "          padding-bottom: 6px; border-bottom: 1px solid #333; }"
+        "  a     { color: #4a90d9; text-decoration: none; }"
+        "  a:hover { text-decoration: underline; }"
+        "  code  { background: #2a2a2a; padding: 1px 5px; font-family: monospace; }"
+        "  b, strong { color: #f0f0f0; }"
+        "</style></head><body>"
+    ).arg(accentColor);
+
+    const QString title = release.displayName.isEmpty() ? release.version : release.displayName;
+    html += QString("<h3>%1</h3>").arg(title);
 
     if (release.changelog.isEmpty()) {
-        html += "<p><i>No changelog available.</i></p>";
+        html += "<p><i style='color:#777;'>No changelog available.</i></p>";
     } else {
         QString body = release.changelog.toHtmlEscaped();
         body.replace("\r\n", "\n");
@@ -398,7 +429,6 @@ void ProtonVersionDialog::updateChangelog()
                      R"(<a href="\2">\1</a>)");
 
         // Plain URLs not already inside an href="..." attribute
-        // Negative lookbehind for the fixed 6-char sequence href="
         body.replace(QRegularExpression(R"((?<!href=")(https?://[^\s<>\[\]"]+))"),
                      R"(<a href="\1">\1</a>)");
 
@@ -406,6 +436,7 @@ void ProtonVersionDialog::updateChangelog()
         html += body;
     }
 
+    html += "</body></html>";
     m_changelogView->setHtml(html);
 }
 
