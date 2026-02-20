@@ -7,6 +7,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QRegularExpression>
 
@@ -145,8 +146,7 @@ void ProtonManager::checkForGEUpdates()
 {
     QNetworkRequest request(
         QUrl("https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest"));
-    request.setRawHeader("Accept", "application/vnd.github.v3+json");
-    request.setRawHeader("User-Agent", "ProtonForge");
+    applyGitHubHeaders(request);
 
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -185,8 +185,7 @@ void ProtonManager::checkForGEUpdates()
 void ProtonManager::fetchLatestRelease()
 {
     QNetworkRequest request(QUrl("https://api.github.com/repos/CachyOS/proton-cachyos/releases/latest"));
-    request.setRawHeader("Accept", "application/vnd.github.v3+json");
-    request.setRawHeader("User-Agent", "ProtonForge");
+    applyGitHubHeaders(request);
 
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -321,6 +320,17 @@ QString ProtonManager::extractApiError(QNetworkReply* reply)
     return reply->errorString();
 }
 
+void ProtonManager::applyGitHubHeaders(QNetworkRequest& request, bool acceptJson) const
+{
+    if (acceptJson)
+        request.setRawHeader("Accept", "application/vnd.github.v3+json");
+    request.setRawHeader("User-Agent", "ProtonForge");
+    QSettings s;
+    QString token = s.value("github/apiToken").toString().trimmed();
+    if (!token.isEmpty())
+        request.setRawHeader("Authorization", ("Bearer " + token).toUtf8());
+}
+
 void ProtonManager::fetchAvailableVersions()
 {
     // Fetch both CachyOS and GE releases
@@ -338,8 +348,7 @@ void ProtonManager::fetchReleases(int count)
     // Fetch multiple releases from GitHub API (Proton-CachyOS)
     QString url = QString("https://api.github.com/repos/CachyOS/proton-cachyos/releases?per_page=%1").arg(count * 2);
     QNetworkRequest request{QUrl(url)};
-    request.setRawHeader("Accept", "application/vnd.github.v3+json");
-    request.setRawHeader("User-Agent", "ProtonForge");
+    applyGitHubHeaders(request);
 
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -367,8 +376,7 @@ void ProtonManager::fetchProtonGEReleases(int count)
     // Fetch Proton-GE releases from GitHub API
     QString url = QString("https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=%1").arg(count * 2);
     QNetworkRequest request{QUrl(url)};
-    request.setRawHeader("Accept", "application/vnd.github.v3+json");
-    request.setRawHeader("User-Agent", "ProtonForge");
+    applyGitHubHeaders(request);
 
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -501,7 +509,7 @@ void ProtonManager::downloadRelease(const ProtonRelease& release)
     QString filePath = m_downloadPath + "/" + release.fileName;
 
     QNetworkRequest request(QUrl(release.downloadUrl));
-    request.setRawHeader("User-Agent", "ProtonForge");
+    applyGitHubHeaders(request, false);
 
     QNetworkReply* reply = m_networkManager->get(request);
 

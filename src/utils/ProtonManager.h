@@ -99,6 +99,8 @@ private:
     // Extract human-readable error from a GitHub API error response
     static QString extractApiError(QNetworkReply* reply);
 
+    void applyGitHubHeaders(QNetworkRequest& request, bool acceptJson = true) const;
+
     QNetworkAccessManager* m_networkManager;
     ProtonRelease m_latestRelease;
     QList<ProtonRelease> m_availableReleases;

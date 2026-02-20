@@ -4,6 +4,7 @@
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
 #include "ui/ProtonVersionDialog.h"
+#include "ui/SettingsDialog.h"
 #include "Version.h"
 #include <QMenuBar>
 #include <QToolBar>
@@ -104,6 +105,12 @@ void MainWindow::setupMenuBar()
     QAction* refreshAction = fileMenu->addAction("&Refresh Games");
     refreshAction->setShortcut(QKeySequence::Refresh);
     connect(refreshAction, &QAction::triggered, this, &MainWindow::refreshGameList);
+
+    fileMenu->addSeparator();
+
+    QAction* settingsAction = fileMenu->addAction("&Settings...");
+    settingsAction->setShortcut(QKeySequence::Preferences);
+    connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettings);
 
     fileMenu->addSeparator();
 
@@ -352,15 +359,28 @@ void MainWindow::installProtonCachyOS()
 
         if (releases.isEmpty()) {
             QString detail = ProtonManager::instance().lastFetchError();
-            QString msg = "Could not fetch available Proton versions.";
-            if (!detail.isEmpty())
-                msg += "\n\nAPI error: " + detail;
-            if (detail.contains("rate limit", Qt::CaseInsensitive))
-                msg += "\n\nThe GitHub API allows 60 requests/hour for unauthenticated access. "
-                       "Please wait up to an hour and try again.";
-            else
+            bool isRateLimit = detail.contains("rate limit", Qt::CaseInsensitive);
+
+            if (isRateLimit) {
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle("GitHub API Rate Limit Reached");
+                msgBox.setIcon(QMessageBox::Warning);
+                msgBox.setText("Could not fetch available Proton versions — the GitHub API rate limit has been reached.");
+                msgBox.setInformativeText(
+                    "Unauthenticated requests are limited to 60 per hour.\n\n"
+                    "You can set a Personal Access Token in Settings to increase this limit to 5,000 requests/hour.");
+                QPushButton* settingsBtn = msgBox.addButton("Open Settings...", QMessageBox::ActionRole);
+                msgBox.addButton(QMessageBox::Ok);
+                msgBox.exec();
+                if (msgBox.clickedButton() == settingsBtn)
+                    showSettings();
+            } else {
+                QString msg = "Could not fetch available Proton versions.";
+                if (!detail.isEmpty())
+                    msg += "\n\nAPI error: " + detail;
                 msg += "\n\nPlease check your internet connection and try again.";
-            QMessageBox::warning(this, "Error", msg);
+                QMessageBox::warning(this, "Error", msg);
+            }
             return;
         }
 
@@ -520,5 +540,11 @@ void MainWindow::showGPUInfo()
     }
 
     GPUInfoDialog dialog(gpus, this);
+    dialog.exec();
+}
+
+void MainWindow::showSettings()
+{
+    SettingsDialog dialog(this);
     dialog.exec();
 }

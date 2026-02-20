@@ -31,6 +31,7 @@ private slots:
     void onProtonInstallProgress(qint64 received, qint64 total, const QString& protonName);
     void onProtonInstallComplete(bool success, const QString& message);
     void showGPUInfo();
+    void showSettings();
 
 private:
     void setupUI();

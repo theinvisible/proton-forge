@@ -36,6 +36,7 @@ set(SOURCES
     src/ui/DLSSSettingsWidget.cpp
     src/ui/ProtonVersionDialog.cpp
     src/ui/GPUInfoDialog.cpp
+    src/ui/SettingsDialog.cpp
 )
 
 set(HEADERS
@@ -58,6 +59,7 @@ set(HEADERS
     src/ui/DLSSSettingsWidget.h
     src/ui/ProtonVersionDialog.h
     src/ui/GPUInfoDialog.h
+    src/ui/SettingsDialog.h
 )
 
 set(RESOURCES
