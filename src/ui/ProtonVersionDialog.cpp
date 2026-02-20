@@ -8,6 +8,123 @@
 #include <QFile>
 #include <QMessageBox>
 #include <QCloseEvent>
+#include <QStyledItemDelegate>
+#include <QFontMetrics>
+
+// ---------------------------------------------------------------------------
+// Custom roles stored on each version list item
+// ---------------------------------------------------------------------------
+static constexpr int RoleIsInstalled = Qt::UserRole + 1;
+static constexpr int RoleIsLatest    = Qt::UserRole + 2;
+static constexpr int RoleVersionText = Qt::UserRole + 3;
+static constexpr int RoleDateText    = Qt::UserRole + 4;
+
+// ---------------------------------------------------------------------------
+// VersionItemDelegate – paints each version as a modern card
+// ---------------------------------------------------------------------------
+class VersionItemDelegate : public QStyledItemDelegate {
+public:
+    explicit VersionItemDelegate(QObject* parent = nullptr)
+        : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const override {
+        return QSize(0, 62);
+    }
+
+    void paint(QPainter* p, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override
+    {
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+
+        const QRect  r         = option.rect.adjusted(4, 3, -4, -3);
+        const bool   selected  = option.state & QStyle::State_Selected;
+        const bool   hovered   = option.state & QStyle::State_MouseOver;
+        const bool   installed = index.data(RoleIsInstalled).toBool();
+        const bool   isLatest  = index.data(RoleIsLatest).toBool();
+        const QString verText  = index.data(RoleVersionText).toString();
+        const QString dateText = index.data(RoleDateText).toString();
+
+        // --- Card background ---
+        const QColor bg     = selected ? QColor("#1a3558")
+                            : hovered  ? QColor("#2e2e2e")
+                                       : QColor("#242424");
+        const QColor border = selected ? QColor("#4a90d9") : QColor("#3a3a3a");
+        p->setPen(QPen(border, 1));
+        p->setBrush(bg);
+        p->drawRoundedRect(r, 5, 5);
+
+        // --- Badge setup ---
+        QFont badgeFont = option.font;
+        badgeFont.setPixelSize(10);
+        badgeFont.setBold(true);
+        QFontMetrics bfm(badgeFont);
+        const int badgeH   = 16;
+        const int badgePad = 7;
+        const int badgeGap = 5;
+
+        struct Badge { QString label; QColor color; };
+        // Left-to-right order in the rendered row: LATEST … INSTALLED
+        QList<Badge> badgeList;
+        if (isLatest)  badgeList += {"LATEST",    QColor("#1565c0")};
+        if (installed) badgeList += {"INSTALLED", QColor("#2e7d32")};
+
+        // Compute badge rects right-to-left so rightmost badge is INSTALLED
+        QList<QRect> badgeRects(badgeList.size());
+        int bx = r.right() - 8;
+        for (int i = badgeList.size() - 1; i >= 0; --i) {
+            int bw = bfm.horizontalAdvance(badgeList[i].label) + badgePad * 2;
+            badgeRects[i] = QRect(bx - bw, r.center().y() - badgeH / 2, bw, badgeH);
+            bx -= bw + badgeGap;
+        }
+
+        // --- Text area (left of badges) ---
+        const int textLeft  = r.left() + 12;
+        const int textRight = badgeList.isEmpty() ? r.right() - 8 : bx + badgeGap - 4;
+        const int textW     = qMax(0, textRight - textLeft);
+
+        QFont vFont = option.font;
+        vFont.setBold(true);
+        vFont.setPixelSize(13);
+        QFontMetrics vfm(vFont);
+
+        QFont dFont = option.font;
+        dFont.setPixelSize(11);
+        QFontMetrics dfm(dFont);
+
+        const bool hasDate = !dateText.isEmpty();
+        const int  totalH  = vfm.height() + (hasDate ? 2 + dfm.height() : 0);
+        const int  topY    = r.top() + (r.height() - totalH) / 2;
+
+        // Version line
+        p->setFont(vFont);
+        p->setPen(selected ? QColor("#ffffff") : QColor("#e0e0e0"));
+        p->drawText(QRect(textLeft, topY, textW, vfm.height()),
+                    Qt::AlignLeft | Qt::AlignVCenter,
+                    vfm.elidedText(verText, Qt::ElideRight, textW));
+
+        // Date line
+        if (hasDate) {
+            p->setFont(dFont);
+            p->setPen(selected ? QColor("#aaaaaa") : QColor("#777777"));
+            p->drawText(QRect(textLeft, topY + vfm.height() + 2, textW, dfm.height()),
+                        Qt::AlignLeft | Qt::AlignVCenter,
+                        dfm.elidedText(dateText, Qt::ElideRight, textW));
+        }
+
+        // --- Draw badges ---
+        p->setFont(badgeFont);
+        for (int i = 0; i < badgeList.size(); ++i) {
+            p->setPen(Qt::NoPen);
+            p->setBrush(badgeList[i].color);
+            p->drawRoundedRect(badgeRects[i], 3, 3);
+            p->setPen(Qt::white);
+            p->drawText(badgeRects[i], Qt::AlignCenter, badgeList[i].label);
+        }
+
+        p->restore();
+    }
+};
 
 ProtonVersionDialog::ProtonVersionDialog(const QList<ProtonManager::ProtonRelease>& releases,
                                          const QString& currentVersion,
@@ -87,6 +204,14 @@ void ProtonVersionDialog::setupUI()
     infoLabel->setStyleSheet("font-size: 11px; color: #888; margin-bottom: 4px;");
     m_versionList = new QListWidget(midPanel);
     m_versionList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_versionList->setStyleSheet(
+        "QListWidget { border: 1px solid #444; border-radius: 6px;"
+        "              background: #1a1a1a; padding: 4px; }"
+        "QListWidget::item { border-radius: 5px; margin: 2px 4px; }"
+        "QListWidget::item:hover { background: transparent; }"   // enables hover tracking
+        "QListWidget::item:selected { background: transparent; }" // delegate draws selection
+    );
+    m_versionList->setItemDelegate(new VersionItemDelegate(m_versionList));
     midLayout->addWidget(versionLabel);
     midLayout->addWidget(infoLabel);
     midLayout->addWidget(m_versionList);
@@ -214,49 +339,31 @@ void ProtonVersionDialog::updateVersionList()
             continue;
         }
 
-        bool installed = isVersionInstalled(release);
-        QString displayText;
+        const bool installed = isVersionInstalled(release);
+        QString versionText, dateText;
 
         if (release.type == ProtonManager::ProtonCachyOS) {
             QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+)-([\w-]+))");
             QRegularExpressionMatch match = regex.match(release.fileName);
-
             if (match.hasMatch()) {
-                QString version = match.captured(1);
                 QString date = match.captured(2);
-
-                if (date.length() == 8) {
+                if (date.length() == 8)
                     date = date.mid(0, 4) + "-" + date.mid(4, 2) + "-" + date.mid(6, 2);
-                }
-
-                displayText = QString("Proton %1 (%2)").arg(version, date);
+                versionText = QString("Proton %1").arg(match.captured(1));
+                dateText    = date;
             } else {
-                displayText = release.version;
+                versionText = release.version;
             }
         } else {
-            displayText = release.version;
+            versionText = release.version;
         }
 
-        if (installed) {
-            displayText = QString("✓ ") + displayText;
-        }
-
-        if (isFirst) {
-            displayText += "  [Latest]";
-        }
-
-        QListWidgetItem* item = new QListWidgetItem(displayText, m_versionList);
-        item->setData(Qt::UserRole, QVariant::fromValue(release));
-
-        if (isFirst) {
-            QFont font = item->font();
-            font.setBold(true);
-            item->setFont(font);
-        }
-
-        if (installed) {
-            item->setForeground(QColor(100, 255, 100));
-        }
+        QListWidgetItem* item = new QListWidgetItem(versionText, m_versionList);
+        item->setData(Qt::UserRole,      QVariant::fromValue(release));
+        item->setData(RoleIsInstalled,   installed);
+        item->setData(RoleIsLatest,      isFirst);
+        item->setData(RoleVersionText,   versionText);
+        item->setData(RoleDateText,      dateText);
 
         isFirst = false;
     }
