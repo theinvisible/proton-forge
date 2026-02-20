@@ -42,6 +42,22 @@ QIcon SettingsDialog::makeCategoryIcon(const QColor& color, const QString& lette
 
 void SettingsDialog::setupUI()
 {
+    setStyleSheet(
+        "QPushButton {"
+        "    background-color: #333333;"
+        "    color: #cccccc;"
+        "    border: 1px solid #555555;"
+        "    padding: 6px 16px;"
+        "    border-radius: 4px;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #404040;"
+        "    border: 1px solid #76B900;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #2a2a2a;"
+        "}");
+
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 12);
     mainLayout->setSpacing(0);

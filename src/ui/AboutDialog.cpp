@@ -176,6 +176,21 @@ AboutDialog::AboutDialog(QWidget* parent)
     setWindowTitle("About ProtonForge");
     setFixedWidth(420);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    setStyleSheet(
+        "QPushButton {"
+        "    background-color: #333333;"
+        "    color: #cccccc;"
+        "    border: 1px solid #555555;"
+        "    padding: 6px 16px;"
+        "    border-radius: 4px;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #404040;"
+        "    border: 1px solid #76B900;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #2a2a2a;"
+        "}");
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 16);
@@ -236,23 +251,20 @@ AboutDialog::AboutDialog(QWidget* parent)
         "QFrame { background: #1c1c1c; border: 1px solid #333;"
         "         border-radius: 6px; padding: 10px; }");
     auto* poweredLayout = new QVBoxLayout(poweredFrame);
-    poweredLayout->setSpacing(4);
+    poweredLayout->setSpacing(1);
+    poweredLayout->setContentsMargins(8, 8, 8, 8);
 
     auto* poweredTitle = new QLabel("⚡  POWERED BY");
     poweredTitle->setStyleSheet("color: #76B900; font-size: 10px; font-weight: bold; border: none;");
     poweredLayout->addWidget(poweredTitle);
 
-    const QStringList items = {
-        "├─ NVIDIA DLSS Technology",
-        "├─ Proton-CachyOS &amp; Proton-GE",
-        "├─ Qt6 Framework",
-        "└─ The Linux Gaming Community"
-    };
-    for (const QString& item : items) {
-        auto* lbl = new QLabel(item);
-        lbl->setStyleSheet("color: #777; font-size: 10px; font-family: monospace; border: none;");
-        poweredLayout->addWidget(lbl);
-    }
+    auto* itemsLabel = new QLabel(
+        "├─ NVIDIA DLSS Technology<br>"
+        "├─ Proton-CachyOS &amp; Proton-GE<br>"
+        "├─ Qt6 Framework<br>"
+        "└─ The Linux Gaming Community");
+    itemsLabel->setStyleSheet("color: #777; font-size: 10px; font-family: monospace; border: none;");
+    poweredLayout->addWidget(itemsLabel);
     bodyLayout->addWidget(poweredFrame);
 
     // Stats line
