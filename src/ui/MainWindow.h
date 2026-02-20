@@ -44,6 +44,7 @@ private:
     GameRunner* m_gameRunner;
 
     Game m_currentGame;
+    bool m_dialogInstallActive = false;
 };
 
 #endif // MAINWINDOW_H

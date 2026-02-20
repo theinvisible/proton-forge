@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QMessageBox>
+#include <QCloseEvent>
 
 ProtonVersionDialog::ProtonVersionDialog(const QList<ProtonManager::ProtonRelease>& releases,
                                          const QString& currentVersion,
@@ -17,33 +18,132 @@ ProtonVersionDialog::ProtonVersionDialog(const QList<ProtonManager::ProtonReleas
 {
     m_installedVersions = getInstalledVersions();
     setupUI();
-    populateList();
+    populateVariants();
+}
+
+// ---------------------------------------------------------------------------
+// Static helper: draw a filled circle with a centered letter
+// ---------------------------------------------------------------------------
+QIcon ProtonVersionDialog::makeVariantIcon(const QColor& color, const QString& letter)
+{
+    QPixmap pixmap(36, 36);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    painter.setBrush(color);
+    painter.setPen(Qt::NoPen);
+    painter.drawEllipse(1, 1, 34, 34);
+
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(18);
+    painter.setFont(font);
+    painter.setPen(Qt::white);
+    painter.drawText(QRect(0, 0, 36, 36), Qt::AlignCenter, letter);
+
+    return QIcon(pixmap);
 }
 
 void ProtonVersionDialog::setupUI()
 {
     setWindowTitle("Select Proton Version");
-    setMinimumWidth(600);
-    setMinimumHeight(500);
+    resize(1100, 750);
+    setMinimumSize(850, 580);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-    // Header
-    m_headerLabel = new QLabel("Select a Proton version to install:", this);
-    m_headerLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
-    mainLayout->addWidget(m_headerLabel);
+    // Three-panel splitter
+    QSplitter* splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setChildrenCollapsible(false);
 
-    // Info label
-    QLabel* infoLabel = new QLabel("✓ Installed versions are marked in green", this);
-    infoLabel->setStyleSheet("font-size: 12px; color: #888; margin-bottom: 5px;");
-    mainLayout->addWidget(infoLabel);
+    // Left panel – variant selector
+    QWidget* leftPanel = new QWidget(splitter);
+    QVBoxLayout* leftLayout = new QVBoxLayout(leftPanel);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* variantLabel = new QLabel("Proton Variant", leftPanel);
+    variantLabel->setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 4px;");
+    m_variantList = new QListWidget(leftPanel);
+    m_variantList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_variantList->setStyleSheet(
+        "QListWidget { border: 1px solid #444; border-radius: 6px; background: #1e1e1e; padding: 4px; }"
+        "QListWidget::item { padding: 6px 10px; border-radius: 4px; margin: 2px 4px; font-size: 13px; font-weight: bold; }"
+        "QListWidget::item:selected { background: #1e3a0a; color: #9dff00; border: 1px solid #77c71f; }"
+        "QListWidget::item:hover:!selected { background: #2a2a2a; }"
+    );
+    leftLayout->addWidget(variantLabel);
+    leftLayout->addWidget(m_variantList);
+    leftPanel->setMinimumWidth(160);
+    splitter->addWidget(leftPanel);
 
-    // Version list
-    m_versionList = new QListWidget(this);
+    // Middle panel – version list
+    QWidget* midPanel = new QWidget(splitter);
+    QVBoxLayout* midLayout = new QVBoxLayout(midPanel);
+    midLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* versionLabel = new QLabel("Versions", midPanel);
+    versionLabel->setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 4px;");
+    QLabel* infoLabel = new QLabel("✓ Installed versions are marked in green", midPanel);
+    infoLabel->setStyleSheet("font-size: 11px; color: #888; margin-bottom: 4px;");
+    m_versionList = new QListWidget(midPanel);
     m_versionList->setSelectionMode(QAbstractItemView::SingleSelection);
-    mainLayout->addWidget(m_versionList, 1);
+    midLayout->addWidget(versionLabel);
+    midLayout->addWidget(infoLabel);
+    midLayout->addWidget(m_versionList);
+    midPanel->setMinimumWidth(220);
+    splitter->addWidget(midPanel);
 
-    // Buttons
+    // Right panel – changelog
+    QWidget* rightPanel = new QWidget(splitter);
+    QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* changelogLabel = new QLabel("Changelog", rightPanel);
+    changelogLabel->setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 4px;");
+    m_changelogView = new QTextBrowser(rightPanel);
+    m_changelogView->setOpenExternalLinks(true);
+    rightLayout->addWidget(changelogLabel);
+    rightLayout->addWidget(m_changelogView);
+    rightPanel->setMinimumWidth(300);
+    splitter->addWidget(rightPanel);
+
+    // Proportions: left 1, middle 2, right 3
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 2);
+    splitter->setStretchFactor(2, 3);
+
+    mainLayout->addWidget(splitter, 1);
+
+    // Progress panel (initially hidden)
+    m_progressFrame = new QFrame(this);
+    m_progressFrame->setFrameShape(QFrame::StyledPanel);
+    m_progressFrame->setStyleSheet("QFrame { border: 1px solid #555; border-radius: 6px; padding: 8px; }");
+    m_progressFrame->setVisible(false);
+
+    QVBoxLayout* progressLayout = new QVBoxLayout(m_progressFrame);
+    progressLayout->setContentsMargins(12, 8, 12, 8);
+    progressLayout->setSpacing(6);
+
+    m_progressPhaseLabel = new QLabel(m_progressFrame);
+    QFont boldFont = m_progressPhaseLabel->font();
+    boldFont.setBold(true);
+    boldFont.setPointSize(boldFont.pointSize() + 1);
+    m_progressPhaseLabel->setFont(boldFont);
+
+    m_progressDetailLabel = new QLabel(m_progressFrame);
+    m_progressDetailLabel->setStyleSheet("color: #aaa; font-size: 11px;");
+
+    m_progressBar = new QProgressBar(m_progressFrame);
+    m_progressBar->setRange(0, 100);
+    m_progressBar->setValue(0);
+    m_progressBar->setTextVisible(true);
+
+    progressLayout->addWidget(m_progressPhaseLabel);
+    progressLayout->addWidget(m_progressDetailLabel);
+    progressLayout->addWidget(m_progressBar);
+
+    mainLayout->addWidget(m_progressFrame);
+
+    // Button row
     QHBoxLayout* buttonLayout = new QHBoxLayout();
 
     m_deleteButton = new QPushButton("Delete Selected", this);
@@ -64,132 +164,142 @@ void ProtonVersionDialog::setupUI()
 
     // Connections
     connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
-    connect(m_installButton, &QPushButton::clicked, this, &QDialog::accept);
+    connect(m_installButton, &QPushButton::clicked, this, &ProtonVersionDialog::startInstallation);
     connect(m_deleteButton, &QPushButton::clicked, this, &ProtonVersionDialog::deleteSelectedVersion);
-    connect(m_versionList, &QListWidget::itemDoubleClicked, this, &QDialog::accept);
-
-    // Enable/disable buttons based on selection
+    connect(m_versionList, &QListWidget::itemDoubleClicked, this, &ProtonVersionDialog::startInstallation);
     connect(m_versionList, &QListWidget::itemSelectionChanged, this, &ProtonVersionDialog::updateButtonStates);
+    connect(m_versionList, &QListWidget::itemSelectionChanged, this, &ProtonVersionDialog::updateChangelog);
+    connect(m_variantList, &QListWidget::itemSelectionChanged, this, &ProtonVersionDialog::onVariantSelected);
 
     m_installButton->setEnabled(false);
     m_deleteButton->setEnabled(false);
 }
 
-void ProtonVersionDialog::populateList()
+void ProtonVersionDialog::populateVariants()
 {
-    // Separate releases by type
-    QList<ProtonManager::ProtonRelease> cachyOSReleases;
-    QList<ProtonManager::ProtonRelease> geReleases;
+    m_variantList->setIconSize(QSize(36, 36));
 
+    QListWidgetItem* cachyItem = new QListWidgetItem("Proton-CachyOS", m_variantList);
+    cachyItem->setIcon(makeVariantIcon(QColor("#77c71f"), "C"));
+    cachyItem->setSizeHint(QSize(0, 56));
+    cachyItem->setData(Qt::UserRole, QVariant::fromValue(static_cast<int>(ProtonManager::ProtonCachyOS)));
+
+    QListWidgetItem* geItem = new QListWidgetItem("Proton-GE", m_variantList);
+    geItem->setIcon(makeVariantIcon(QColor("#e85d04"), "G"));
+    geItem->setSizeHint(QSize(0, 56));
+    geItem->setData(Qt::UserRole, QVariant::fromValue(static_cast<int>(ProtonManager::ProtonGE)));
+
+    m_variantList->setCurrentRow(0);
+    // onVariantSelected is triggered via signal
+}
+
+void ProtonVersionDialog::onVariantSelected()
+{
+    QListWidgetItem* item = m_variantList->currentItem();
+    if (!item) {
+        return;
+    }
+    m_selectedType = static_cast<ProtonManager::ProtonType>(item->data(Qt::UserRole).toInt());
+    m_changelogView->clear();
+    updateVersionList();
+}
+
+void ProtonVersionDialog::updateVersionList()
+{
+    m_versionList->clear();
+
+    bool isFirst = true;
     for (const ProtonManager::ProtonRelease& release : m_releases) {
+        if (release.type != m_selectedType) {
+            continue;
+        }
+
+        bool installed = isVersionInstalled(release);
+        QString displayText;
+
         if (release.type == ProtonManager::ProtonCachyOS) {
-            cachyOSReleases.append(release);
-        } else if (release.type == ProtonManager::ProtonGE) {
-            geReleases.append(release);
+            QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+)-([\w-]+))");
+            QRegularExpressionMatch match = regex.match(release.fileName);
+
+            if (match.hasMatch()) {
+                QString version = match.captured(1);
+                QString date = match.captured(2);
+
+                if (date.length() == 8) {
+                    date = date.mid(0, 4) + "-" + date.mid(4, 2) + "-" + date.mid(6, 2);
+                }
+
+                displayText = QString("Proton %1 (%2)").arg(version, date);
+            } else {
+                displayText = release.version;
+            }
+        } else {
+            displayText = release.version;
         }
+
+        if (installed) {
+            displayText = QString("✓ ") + displayText;
+        }
+
+        if (isFirst) {
+            displayText += "  [Latest]";
+        }
+
+        QListWidgetItem* item = new QListWidgetItem(displayText, m_versionList);
+        item->setData(Qt::UserRole, QVariant::fromValue(release));
+
+        if (isFirst) {
+            QFont font = item->font();
+            font.setBold(true);
+            item->setFont(font);
+        }
+
+        if (installed) {
+            item->setForeground(QColor(100, 255, 100));
+        }
+
+        isFirst = false;
     }
 
-    // Add CachyOS releases section
-    if (!cachyOSReleases.isEmpty()) {
-        QListWidgetItem* headerItem = new QListWidgetItem("═══ Proton-CachyOS ═══", m_versionList);
-        headerItem->setFlags(Qt::NoItemFlags);  // Not selectable
-        headerItem->setBackground(QColor(60, 60, 60));
-        headerItem->setForeground(QColor(130, 180, 255));
-        QFont headerFont = headerItem->font();
-        headerFont.setBold(true);
-        headerItem->setFont(headerFont);
-
-        bool isFirst = true;
-        for (const ProtonManager::ProtonRelease& release : cachyOSReleases) {
-            addReleaseItem(release, isFirst);
-            isFirst = false;
-        }
-    }
-
-    // Add GE releases section
-    if (!geReleases.isEmpty()) {
-        QListWidgetItem* headerItem = new QListWidgetItem("═══ Proton-GE ═══", m_versionList);
-        headerItem->setFlags(Qt::NoItemFlags);  // Not selectable
-        headerItem->setBackground(QColor(60, 60, 60));
-        headerItem->setForeground(QColor(255, 180, 100));
-        QFont headerFont = headerItem->font();
-        headerFont.setBold(true);
-        headerItem->setFont(headerFont);
-
-        bool isFirst = true;
-        for (const ProtonManager::ProtonRelease& release : geReleases) {
-            addReleaseItem(release, isFirst);
-            isFirst = false;
-        }
-    }
-
-    // Select first selectable item by default
-    for (int i = 0; i < m_versionList->count(); ++i) {
-        QListWidgetItem* item = m_versionList->item(i);
-        if (item->flags() & Qt::ItemIsSelectable) {
-            m_versionList->setCurrentRow(i);
-            break;
-        }
+    if (m_versionList->count() > 0) {
+        m_versionList->setCurrentRow(0);
+        // updateChangelog is triggered via signal
     }
 }
 
-void ProtonVersionDialog::addReleaseItem(const ProtonManager::ProtonRelease& release, bool isLatest)
+void ProtonVersionDialog::updateChangelog()
 {
-    QString displayText;
-    QString detailText;
-    bool installed = isVersionInstalled(release);
-
-    if (release.type == ProtonManager::ProtonCachyOS) {
-        // Format: proton-cachyos-10.0-20260127-slr-x86_64.tar.xz
-        QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+)-([\w-]+))");
-        QRegularExpressionMatch match = regex.match(release.fileName);
-
-        if (match.hasMatch()) {
-            QString version = match.captured(1);
-            QString date = match.captured(2);
-            QString variant = match.captured(3);
-
-            // Format date as YYYY-MM-DD
-            if (date.length() == 8) {
-                QString year = date.mid(0, 4);
-                QString month = date.mid(4, 2);
-                QString day = date.mid(6, 2);
-                date = QString("%1-%2-%3").arg(year, month, day);
-            }
-
-            displayText = QString("  Proton %1 (%2)").arg(version, date);
-            detailText = QString("Variant: %1  •  Tag: %2").arg(variant.toUpper(), release.version);
-        } else {
-            displayText = QString("  %1").arg(release.version);
-            detailText = release.fileName;
-        }
-    } else if (release.type == ProtonManager::ProtonGE) {
-        // Format: GE-Proton9-20
-        displayText = QString("  %1").arg(release.version);
-        detailText = release.fileName;
+    QListWidgetItem* item = m_versionList->currentItem();
+    if (!item) {
+        m_changelogView->clear();
+        return;
     }
 
-    // Add installed indicator
-    if (installed) {
-        displayText = QString("✓ ") + displayText.trimmed();
+    ProtonManager::ProtonRelease release = item->data(Qt::UserRole).value<ProtonManager::ProtonRelease>();
+
+    QString html;
+    html += QString("<h3>%1</h3>").arg(release.displayName.isEmpty() ? release.version : release.displayName);
+
+    if (release.changelog.isEmpty()) {
+        html += "<p><i>No changelog available.</i></p>";
+    } else {
+        QString body = release.changelog.toHtmlEscaped();
+        body.replace("\r\n", "\n");
+
+        // Markdown links [text](url) → <a href="url">text</a>
+        body.replace(QRegularExpression(R"(\[([^\]\n]+)\]\((https?://[^\s)]+)\))"),
+                     R"(<a href="\2">\1</a>)");
+
+        // Plain URLs not already inside an href="..." attribute
+        // Negative lookbehind for the fixed 6-char sequence href="
+        body.replace(QRegularExpression(R"((?<!href=")(https?://[^\s<>\[\]"]+))"),
+                     R"(<a href="\1">\1</a>)");
+
+        body.replace("\n", "<br>");
+        html += body;
     }
 
-    QListWidgetItem* item = new QListWidgetItem(m_versionList);
-    item->setText(displayText);
-    item->setToolTip(detailText + "\n" + release.fileName + (installed ? "\n\n✓ Installed" : ""));
-    item->setData(Qt::UserRole, QVariant::fromValue(release));
-
-    if (isLatest) {
-        QFont font = item->font();
-        font.setBold(true);
-        item->setFont(font);
-        item->setText(displayText + "  [Latest]");
-    }
-
-    // Color installed versions differently
-    if (installed) {
-        item->setForeground(QColor(100, 255, 100));  // Light green
-    }
+    m_changelogView->setHtml(html);
 }
 
 ProtonManager::ProtonRelease ProtonVersionDialog::selectedRelease() const
@@ -211,10 +321,8 @@ QStringList ProtonVersionDialog::getInstalledVersions() const
         return installed;
     }
 
-    // Get all subdirectories in compatibilitytools.d
     QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QString& entry : entries) {
-        // Check if it's a valid Proton installation (has proton executable)
         QString protonExe = path + "/" + entry + "/proton";
         if (QFile::exists(protonExe)) {
             installed << entry;
@@ -226,20 +334,14 @@ QStringList ProtonVersionDialog::getInstalledVersions() const
 
 bool ProtonVersionDialog::isVersionInstalled(const ProtonManager::ProtonRelease& release) const
 {
-    // Extract directory name from fileName
-    // CachyOS: proton-cachyos-10.0-20260127-slr-x86_64.tar.xz -> proton-cachyos-10.0-20260127-slr-x86_64
-    // GE: GE-Proton9-20.tar.gz -> GE-Proton9-20
-
     QString dirName = release.fileName;
 
-    // Remove archive extensions
     if (dirName.endsWith(".tar.xz")) {
         dirName.chop(7);
     } else if (dirName.endsWith(".tar.gz")) {
         dirName.chop(7);
     }
 
-    // Check if this directory exists in installed versions
     for (const QString& installed : m_installedVersions) {
         if (installed == dirName || installed.startsWith(dirName)) {
             return true;
@@ -258,14 +360,12 @@ void ProtonVersionDialog::deleteSelectedVersion()
 
     ProtonManager::ProtonRelease release = item->data(Qt::UserRole).value<ProtonManager::ProtonRelease>();
 
-    // Check if version is installed
     if (!isVersionInstalled(release)) {
         QMessageBox::warning(this, "Cannot Delete",
                            "This version is not installed and cannot be deleted.");
         return;
     }
 
-    // Confirm deletion
     QString versionName = release.version;
     QMessageBox::StandardButton reply = QMessageBox::question(
         this,
@@ -279,17 +379,14 @@ void ProtonVersionDialog::deleteSelectedVersion()
         return;
     }
 
-    // Delete the version
     bool success = ProtonManager::instance().deleteProtonVersion(release);
 
     if (success) {
         QMessageBox::information(this, "Success",
                                 QString("%1 has been deleted successfully.").arg(versionName));
 
-        // Refresh the list
         m_installedVersions = getInstalledVersions();
-        m_versionList->clear();
-        populateList();
+        updateVersionList();
     } else {
         QMessageBox::critical(this, "Error",
                             QString("Failed to delete %1.\n\nPlease check file permissions.").arg(versionName));
@@ -298,6 +395,10 @@ void ProtonVersionDialog::deleteSelectedVersion()
 
 void ProtonVersionDialog::updateButtonStates()
 {
+    if (m_installing) {
+        return;
+    }
+
     QListWidgetItem* item = m_versionList->currentItem();
     bool hasSelection = item != nullptr;
 
@@ -310,5 +411,102 @@ void ProtonVersionDialog::updateButtonStates()
     } else {
         m_installButton->setEnabled(false);
         m_deleteButton->setEnabled(false);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Installation workflow
+// ---------------------------------------------------------------------------
+
+void ProtonVersionDialog::startInstallation()
+{
+    ProtonManager::ProtonRelease release = selectedRelease();
+    if (release.downloadUrl.isEmpty()) {
+        return;
+    }
+
+    m_installing = true;
+
+    // Disable action buttons
+    m_installButton->setEnabled(false);
+    m_deleteButton->setEnabled(false);
+    m_cancelButton->setEnabled(false);
+
+    // Show progress panel
+    m_progressFrame->setStyleSheet("QFrame { border: 1px solid #555; border-radius: 6px; padding: 8px; }");
+    m_progressPhaseLabel->setText("Download");
+    m_progressDetailLabel->setText("Preparing...");
+    m_progressBar->setRange(0, 100);
+    m_progressBar->setValue(0);
+    m_progressFrame->setVisible(true);
+
+    // Connect ProtonManager signals
+    ProtonManager& pm = ProtonManager::instance();
+    connect(&pm, &ProtonManager::downloadProgress,
+            this, &ProtonVersionDialog::onDownloadProgress, Qt::UniqueConnection);
+    connect(&pm, &ProtonManager::extractionStarted,
+            this, &ProtonVersionDialog::onExtractionStarted, Qt::UniqueConnection);
+    connect(&pm, &ProtonManager::installationComplete,
+            this, &ProtonVersionDialog::onInstallationComplete, Qt::UniqueConnection);
+
+    pm.installProtonCachyOS(release);
+}
+
+void ProtonVersionDialog::onDownloadProgress(qint64 received, qint64 total, const QString& name)
+{
+    m_progressPhaseLabel->setText("Download");
+    if (total > 0) {
+        int percent = static_cast<int>(received * 100 / total);
+        double mb = received / (1024.0 * 1024.0);
+        double totalMb = total / (1024.0 * 1024.0);
+        m_progressBar->setRange(0, 100);
+        m_progressBar->setValue(percent);
+        m_progressDetailLabel->setText(
+            QString("%1 – %2% (%3 / %4 MB)")
+                .arg(name)
+                .arg(percent)
+                .arg(mb, 0, 'f', 1)
+                .arg(totalMb, 0, 'f', 1)
+        );
+    }
+}
+
+void ProtonVersionDialog::onExtractionStarted()
+{
+    m_progressPhaseLabel->setText("Extracting");
+    m_progressDetailLabel->setText("Extracting archive...");
+    m_progressBar->setRange(0, 0);  // indeterminate
+}
+
+void ProtonVersionDialog::onInstallationComplete(bool success, const QString& message)
+{
+    // Disconnect ProtonManager signals
+    ProtonManager& pm = ProtonManager::instance();
+    disconnect(&pm, &ProtonManager::downloadProgress, this, &ProtonVersionDialog::onDownloadProgress);
+    disconnect(&pm, &ProtonManager::extractionStarted, this, &ProtonVersionDialog::onExtractionStarted);
+    disconnect(&pm, &ProtonManager::installationComplete, this, &ProtonVersionDialog::onInstallationComplete);
+
+    m_installing = false;
+
+    // Hide progress panel and restore buttons
+    m_progressFrame->setVisible(false);
+    m_cancelButton->setEnabled(true);
+
+    // Refresh installed version list
+    m_installedVersions = getInstalledVersions();
+    updateVersionList();
+    updateButtonStates();
+
+    if (!success) {
+        QMessageBox::warning(this, "Installation Failed", message);
+    }
+}
+
+void ProtonVersionDialog::closeEvent(QCloseEvent* event)
+{
+    if (m_installing) {
+        event->ignore();
+    } else {
+        QDialog::closeEvent(event);
     }
 }

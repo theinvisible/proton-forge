@@ -25,6 +25,7 @@ public:
         QVersionNumber versionNumber;
         ProtonType type = ProtonCachyOS;
         QString displayName;  // Human-readable name
+        QString changelog;    // body field from GitHub API
     };
 
     // Check if proton-cachyos is installed
@@ -61,6 +62,7 @@ signals:
     void downloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QString& protonName);
     void installationComplete(bool success, const QString& message);
     void installationStarted();
+    void extractionStarted();
 
 private:
     ProtonManager();

@@ -193,6 +193,7 @@ ProtonManager::ProtonRelease ProtonManager::parseReleaseFromJson(const QJsonObje
         }
     }
 
+    release.changelog = root["body"].toString();
     return release;
 }
 
@@ -346,6 +347,7 @@ ProtonManager::ProtonRelease ProtonManager::parseProtonGEReleaseFromJson(const Q
         }
     }
 
+    release.changelog = root["body"].toString();
     return release;
 }
 
@@ -457,6 +459,7 @@ void ProtonManager::extractArchive(const QString& archivePath, const ProtonRelea
 
     // Extract to compatibilitytools.d
     process->setWorkingDirectory(protonCachyOSPath());
+    emit extractionStarted();
     process->start("tar", {"xf", archivePath});
 }
 

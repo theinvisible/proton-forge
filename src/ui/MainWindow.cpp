@@ -114,7 +114,7 @@ void MainWindow::setupMenuBar()
     QAction* checkProtonAction = toolsMenu->addAction("Check for Proton-CachyOS Updates");
     connect(checkProtonAction, &QAction::triggered, this, &MainWindow::checkProtonCachyOS);
 
-    QAction* installProtonAction = toolsMenu->addAction("Install/Update Proton");
+    QAction* installProtonAction = toolsMenu->addAction("Proton-Manager");
     connect(installProtonAction, &QAction::triggered, this, &MainWindow::installProtonCachyOS);
 
     toolsMenu->addSeparator();
@@ -350,17 +350,13 @@ void MainWindow::installProtonCachyOS()
             return;
         }
 
-        // Show version selection dialog
+        // Show version selection dialog – dialog handles installation internally
         QString currentVersion = ProtonManager::instance().getInstalledVersion();
         ProtonVersionDialog dialog(releases, currentVersion, this);
 
-        if (dialog.exec() == QDialog::Accepted) {
-            ProtonManager::ProtonRelease selectedRelease = dialog.selectedRelease();
-            if (!selectedRelease.downloadUrl.isEmpty()) {
-                statusBar()->showMessage("Starting Proton-CachyOS installation...");
-                ProtonManager::instance().installProtonCachyOS(selectedRelease);
-            }
-        }
+        m_dialogInstallActive = true;
+        dialog.exec();
+        m_dialogInstallActive = false;
     }, Qt::SingleShotConnection);
 
     pm.fetchAvailableVersions();
@@ -439,17 +435,22 @@ void MainWindow::onProtonInstallProgress(qint64 received, qint64 total, const QS
 
 void MainWindow::onProtonInstallComplete(bool success, const QString& message)
 {
-    if (success) {
-        QMessageBox::information(this, "Installation Complete",
-            message + "\n\nProton is now available for use with your games.");
-        statusBar()->showMessage(message, 5000);
+    // Only show a message box when installation was triggered outside the dialog
+    // (e.g. auto-update from checkProtonOnStartup / onProtonUpdateCheck)
+    if (!m_dialogInstallActive) {
+        if (success) {
+            QMessageBox::information(this, "Installation Complete",
+                message + "\n\nProton is now available for use with your games.");
+        } else {
+            QMessageBox::warning(this, "Installation Failed", message);
+        }
+    }
 
-        // Clear dismissed update version since user has successfully updated
+    statusBar()->showMessage(success ? message : "Proton installation failed", 5000);
+
+    if (success) {
         QSettings settings;
         settings.remove("proton/dismissedUpdateVersion");
-    } else {
-        QMessageBox::warning(this, "Installation Failed", message);
-        statusBar()->showMessage("Proton installation failed", 5000);
     }
 }
 
