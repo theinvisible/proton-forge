@@ -27,6 +27,7 @@ private slots:
     void checkProtonCachyOS();
     void installProtonCachyOS();
     void onProtonUpdateCheck(bool updateAvailable, const QString& version);
+    void onProtonGEUpdateCheck(bool updateAvailable, const QString& version);
     void onProtonInstallProgress(qint64 received, qint64 total, const QString& protonName);
     void onProtonInstallComplete(bool success, const QString& message);
     void showGPUInfo();

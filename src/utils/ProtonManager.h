@@ -31,11 +31,20 @@ public:
     // Check if proton-cachyos is installed
     bool isProtonCachyOSInstalled() const;
 
-    // Get currently installed version
+    // Check if any Proton-GE version is installed
+    bool isProtonGEInstalled() const;
+
+    // Get currently installed CachyOS version
     QString getInstalledVersion() const;
+
+    // Get highest installed Proton-GE directory name (e.g. "GE-Proton9-20")
+    QString getInstalledGEVersion() const;
 
     // Check for available updates
     void checkForUpdates();
+
+    // Check for Proton-GE updates (only meaningful when GE is installed)
+    void checkForGEUpdates();
 
     // Fetch available versions (latest 5)
     void fetchAvailableVersions();
@@ -58,6 +67,7 @@ public:
 
 signals:
     void updateCheckComplete(bool updateAvailable, const QString& latestVersion);
+    void geUpdateCheckComplete(bool updateAvailable, const QString& latestVersion);
     void availableVersionsFetched(const QList<ProtonRelease>& releases);
     void downloadProgress(qint64 bytesReceived, qint64 bytesTotal, const QString& protonName);
     void installationComplete(bool success, const QString& message);

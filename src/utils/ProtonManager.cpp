@@ -50,6 +50,43 @@ bool ProtonManager::isProtonCachyOSInstalled() const
     return false;
 }
 
+bool ProtonManager::isProtonGEInstalled() const
+{
+    QDir dir(protonCachyOSPath());
+    if (!dir.exists())
+        return false;
+
+    for (const QString& entry : dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        if (entry.startsWith("GE-Proton", Qt::CaseInsensitive)) {
+            QString protonExe = protonCachyOSPath() + "/" + entry + "/proton";
+            if (QFile::exists(protonExe))
+                return true;
+        }
+    }
+    return false;
+}
+
+QString ProtonManager::getInstalledGEVersion() const
+{
+    QDir dir(protonCachyOSPath());
+    if (!dir.exists())
+        return QString();
+
+    QVersionNumber highest;
+    QString highestName;
+
+    for (const QString& entry : dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        if (entry.startsWith("GE-Proton", Qt::CaseInsensitive)) {
+            QVersionNumber v = parseProtonGEVersion(entry);
+            if (v > highest) {
+                highest     = v;
+                highestName = entry;
+            }
+        }
+    }
+    return highestName;
+}
+
 QString ProtonManager::getInstalledVersion() const
 {
     QDir dir(protonCachyOSPath());
@@ -102,6 +139,47 @@ QVersionNumber ProtonManager::parseVersion(const QString& fileName) const
 void ProtonManager::checkForUpdates()
 {
     fetchLatestRelease();
+}
+
+void ProtonManager::checkForGEUpdates()
+{
+    QNetworkRequest request(
+        QUrl("https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest"));
+    request.setRawHeader("Accept", "application/vnd.github.v3+json");
+    request.setRawHeader("User-Agent", "ProtonForge");
+
+    QNetworkReply* reply = m_networkManager->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit geUpdateCheckComplete(false, QString());
+            return;
+        }
+
+        QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isObject()) {
+            emit geUpdateCheckComplete(false, QString());
+            return;
+        }
+
+        ProtonRelease latest = parseProtonGEReleaseFromJson(doc.object());
+        if (latest.downloadUrl.isEmpty()) {
+            emit geUpdateCheckComplete(false, QString());
+            return;
+        }
+
+        QString installedName = getInstalledGEVersion();
+        bool updateAvailable  = false;
+
+        if (!installedName.isEmpty()) {
+            QVersionNumber installedVer = parseProtonGEVersion(installedName);
+            updateAvailable = latest.versionNumber > installedVer;
+        }
+
+        emit geUpdateCheckComplete(updateAvailable, latest.version);
+    });
 }
 
 void ProtonManager::fetchLatestRelease()

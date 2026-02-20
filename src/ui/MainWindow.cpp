@@ -58,6 +58,8 @@ MainWindow::MainWindow(QWidget* parent)
     // Connect Proton manager signals
     connect(&ProtonManager::instance(), &ProtonManager::updateCheckComplete,
             this, &MainWindow::onProtonUpdateCheck);
+    connect(&ProtonManager::instance(), &ProtonManager::geUpdateCheckComplete,
+            this, &MainWindow::onProtonGEUpdateCheck);
     connect(&ProtonManager::instance(), &ProtonManager::downloadProgress,
             this, &MainWindow::onProtonInstallProgress);
     connect(&ProtonManager::instance(), &ProtonManager::installationComplete,
@@ -318,8 +320,13 @@ void MainWindow::checkProtonOnStartup()
             installProtonCachyOS();
         }
     } else {
-        // Check for updates silently
+        // Check CachyOS for updates silently
         pm.checkForUpdates();
+    }
+
+    // Independently check Proton-GE if it is installed
+    if (pm.isProtonGEInstalled()) {
+        pm.checkForGEUpdates();
     }
 }
 
@@ -422,6 +429,45 @@ void MainWindow::onProtonUpdateCheck(bool updateAvailable, const QString& versio
     }
 }
 
+void MainWindow::onProtonGEUpdateCheck(bool updateAvailable, const QString& version)
+{
+    if (!updateAvailable)
+        return;
+
+    QString currentVersion = ProtonManager::instance().getInstalledGEVersion();
+
+    QSettings settings;
+    QString dismissedVersion = settings.value("proton/dismissedGEUpdateVersion").toString();
+
+    if (!dismissedVersion.isEmpty() && version == dismissedVersion) {
+        statusBar()->showMessage(
+            QString("Proton-GE update available (%1), previously dismissed. Check Tools menu to update.").arg(version), 3000);
+        return;
+    }
+
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Proton-GE Update Available");
+    msgBox.setIcon(QMessageBox::Question);
+    msgBox.setText(QString("A new version of Proton-GE is available!\n\n"
+                           "Installed: %1\n"
+                           "New version: %2\n\n"
+                           "Would you like to open the Proton Manager to update?")
+                       .arg(currentVersion, version));
+    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    msgBox.setDefaultButton(QMessageBox::Yes);
+    msgBox.setInformativeText("Note: If you choose 'No', you won't be notified about this version again "
+                              "until a newer version is released.");
+
+    if (msgBox.exec() == QMessageBox::Yes) {
+        settings.remove("proton/dismissedGEUpdateVersion");
+        installProtonCachyOS();
+    } else {
+        settings.setValue("proton/dismissedGEUpdateVersion", version);
+        statusBar()->showMessage(
+            QString("Proton-GE update to %1 dismissed.").arg(version), 5000);
+    }
+}
+
 void MainWindow::onProtonInstallProgress(qint64 received, qint64 total, const QString& protonName)
 {
     if (total > 0) {
@@ -451,6 +497,7 @@ void MainWindow::onProtonInstallComplete(bool success, const QString& message)
     if (success) {
         QSettings settings;
         settings.remove("proton/dismissedUpdateVersion");
+        settings.remove("proton/dismissedGEUpdateVersion");
     }
 }
 
