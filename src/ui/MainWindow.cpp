@@ -351,9 +351,16 @@ void MainWindow::installProtonCachyOS()
         statusBar()->clearMessage();
 
         if (releases.isEmpty()) {
-            QMessageBox::warning(this, "Error",
-                "Could not fetch available Proton-CachyOS versions.\n"
-                "Please check your internet connection and try again.");
+            QString detail = ProtonManager::instance().lastFetchError();
+            QString msg = "Could not fetch available Proton versions.";
+            if (!detail.isEmpty())
+                msg += "\n\nAPI error: " + detail;
+            if (detail.contains("rate limit", Qt::CaseInsensitive))
+                msg += "\n\nThe GitHub API allows 60 requests/hour for unauthenticated access. "
+                       "Please wait up to an hour and try again.";
+            else
+                msg += "\n\nPlease check your internet connection and try again.";
+            QMessageBox::warning(this, "Error", msg);
             return;
         }
 

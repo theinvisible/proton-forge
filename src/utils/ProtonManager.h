@@ -65,6 +65,9 @@ public:
     // Get available releases
     QList<ProtonRelease> availableReleases() const { return m_availableReleases; }
 
+    // Last error message from a failed fetch (empty if last fetch succeeded)
+    QString lastFetchError() const { return m_lastFetchError; }
+
 signals:
     void updateCheckComplete(bool updateAvailable, const QString& latestVersion);
     void geUpdateCheckComplete(bool updateAvailable, const QString& latestVersion);
@@ -93,11 +96,15 @@ private:
     QVersionNumber parseVersion(const QString& fileName) const;
     QVersionNumber parseProtonGEVersion(const QString& tagName) const;
 
+    // Extract human-readable error from a GitHub API error response
+    static QString extractApiError(QNetworkReply* reply);
+
     QNetworkAccessManager* m_networkManager;
     ProtonRelease m_latestRelease;
     QList<ProtonRelease> m_availableReleases;
     QList<ProtonRelease> m_pendingCachyOSReleases;
     QString m_downloadPath;
+    QString m_lastFetchError;
     int m_pendingRequests = 0;
 };
 

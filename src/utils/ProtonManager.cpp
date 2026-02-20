@@ -305,12 +305,29 @@ QList<ProtonManager::ProtonRelease> ProtonManager::parseReleases(const QByteArra
     return releases;
 }
 
+// ---------------------------------------------------------------------------
+// Extract a human-readable error from a GitHub API error response.
+// GitHub always returns JSON with a "message" field on errors.
+// ---------------------------------------------------------------------------
+QString ProtonManager::extractApiError(QNetworkReply* reply)
+{
+    QByteArray body = reply->readAll();
+    QJsonDocument doc = QJsonDocument::fromJson(body);
+    if (doc.isObject()) {
+        QString msg = doc.object()["message"].toString();
+        if (!msg.isEmpty())
+            return msg;
+    }
+    return reply->errorString();
+}
+
 void ProtonManager::fetchAvailableVersions()
 {
     // Fetch both CachyOS and GE releases
     m_pendingRequests = 2;
     m_pendingCachyOSReleases.clear();
     m_availableReleases.clear();
+    m_lastFetchError.clear();
 
     fetchReleases(5);
     fetchProtonGEReleases(5);
@@ -332,6 +349,8 @@ void ProtonManager::fetchReleases(int count)
         if (reply->error() == QNetworkReply::NoError) {
             QByteArray data = reply->readAll();
             m_pendingCachyOSReleases = parseReleases(data, count);
+        } else {
+            m_lastFetchError = extractApiError(reply);
         }
 
         m_pendingRequests--;
@@ -360,6 +379,8 @@ void ProtonManager::fetchProtonGEReleases(int count)
         if (reply->error() == QNetworkReply::NoError) {
             QByteArray data = reply->readAll();
             geReleases = parseProtonGEReleases(data, count);
+        } else {
+            m_lastFetchError = extractApiError(reply);
         }
 
         m_pendingRequests--;
