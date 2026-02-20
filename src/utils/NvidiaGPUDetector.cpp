@@ -221,8 +221,8 @@ GPUInfo NvidiaGPUDetector::parseNvidiaSmiOutput(const QString& output, int index
     info.displayConnected = (displayActive.toLower() == "enabled" ||
                              displayActive.toLower() == "yes");
 
-    // CUDA Cores (lookup table based on GPU name/architecture)
-    info.cudaCores = getCudaCoreCount(info.name, info.architecture);
+    // CUDA Cores: query SM count from nvidia-smi, multiply by cores/SM for this architecture
+    info.cudaCores = getCudaCoreCount(info.name, info.computeCapability, output);
 
     return info;
 }
@@ -262,12 +262,94 @@ int NvidiaGPUDetector::extractIntValue(const QString& output, const QString& key
     return 0;
 }
 
-int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName, const QString& architecture)
+// Returns CUDA cores per SM for a given compute capability string ("major.minor").
+// Source: CUDA Programming Guide, Compute Capabilities appendix.
+int NvidiaGPUDetector::coresPerSMFromComputeCapability(const QString& computeCapability)
 {
-    // CUDA Core lookup table for common NVIDIA GPUs
-    // Based on GPU name and architecture
+    const QStringList parts = computeCapability.split('.');
+    if (parts.size() < 2)
+        return 0;
 
-    QString name = gpuName.toUpper();
+    const int cc = parts[0].toInt() * 10 + parts[1].toInt();
+
+    switch (cc) {
+        // Kepler
+        case 30: case 32: case 35: case 37: return 192;
+        // Maxwell
+        case 50: case 52: case 53:          return 128;
+        // Pascal – P100 (SM 6.0) has 64, GTX 10 (SM 6.1/6.2) has 128
+        case 60:                            return  64;
+        case 61: case 62:                   return 128;
+        // Volta
+        case 70: case 72:                   return  64;
+        // Turing
+        case 75:                            return  64;
+        // Ampere datacenter (A100) – SM 8.0 has 64; desktop/laptop SM 8.6/8.7 has 128
+        case 80:                            return  64;
+        case 86: case 87:                   return 128;
+        // Ada Lovelace
+        case 89:                            return 128;
+        // Hopper
+        case 90:                            return 128;
+        // Blackwell (GB20x)
+        case 100:                           return 128;
+        default:                            return   0;
+    }
+}
+
+// Primary method: tries to read the SM count directly from the nvidia-smi -q section
+// and multiplies by cores/SM derived from the compute capability.
+// Falls back to the name-based lookup if either value is unavailable.
+int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName,
+                                        const QString& computeCapability,
+                                        const QString& smiOutput)
+{
+    // --- Step 1: extract SM count from nvidia-smi -q output ---
+    // Different driver versions use slightly different field names.
+    int smCount = 0;
+    static const QStringList smFields = {
+        "SM Count",
+        "Multiprocessor Count",
+        "Number of SMs",
+    };
+    for (const QString& field : smFields) {
+        const QString val = extractValue(smiOutput, field);
+        if (!val.isEmpty()) {
+            const int n = val.trimmed().toInt();
+            if (n > 0) { smCount = n; break; }
+        }
+    }
+
+    // --- Step 2: derive cores/SM from compute capability ---
+    const int coresPerSM = coresPerSMFromComputeCapability(computeCapability);
+
+    // --- Step 3: calculate if both values are valid ---
+    if (smCount > 0 && coresPerSM > 0) {
+        qDebug() << "CUDA cores:" << smCount << "SMs x" << coresPerSM
+                 << "cores/SM =" << smCount * coresPerSM
+                 << "(CC" << computeCapability << ")";
+        return smCount * coresPerSM;
+    }
+
+    // --- Fallback: static name-based lookup ---
+    if (smCount == 0) {
+        qDebug() << "nvidia-smi did not report SM count for" << gpuName
+                 << "– using name lookup table";
+    }
+    return getCudaCoreCountFallback(gpuName);
+}
+
+int NvidiaGPUDetector::getCudaCoreCountFallback(const QString& gpuName)
+{
+    const QString name = gpuName.toUpper();
+
+    // Blackwell (RTX 50 Series)  –  SM count × 128 cores/SM
+    if (name.contains("RTX 5090"))    return 21760;  // GB202: 170 SMs
+    if (name.contains("RTX 5080"))    return 10752;  // GB203: 84 SMs
+    if (name.contains("RTX 5070 TI")) return  8960;  // GB203: 70 SMs
+    if (name.contains("RTX 5070"))    return  6144;  // GB205: 48 SMs
+    if (name.contains("RTX 5060 TI")) return  4608;  // GB206: 36 SMs
+    if (name.contains("RTX 5060"))    return  3840;  // GB206: 30 SMs
 
     // Ada Lovelace (RTX 40 Series)
     if (name.contains("RTX 4090")) return 16384;
@@ -319,7 +401,7 @@ int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName, const QString& a
     if (name.contains("GTX 1050 TI")) return 768;
     if (name.contains("GTX 1050")) return 640;
 
-    // Professional/Workstation Cards
+    // Professional / Workstation
     if (name.contains("RTX 6000 ADA")) return 18176;
     if (name.contains("RTX 5880 ADA")) return 14080;
     if (name.contains("RTX 5000 ADA")) return 12800;
@@ -342,6 +424,5 @@ int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName, const QString& a
     if (name.contains("TITAN XP")) return 3840;
     if (name.contains("TITAN X")) return 3584;
 
-    // If not found in table, return 0 (unknown)
     return 0;
 }
