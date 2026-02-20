@@ -191,7 +191,7 @@ void ProtonVersionDialog::setupUI()
     );
     leftLayout->addWidget(variantLabel);
     leftLayout->addWidget(m_variantList);
-    leftPanel->setMinimumWidth(160);
+    leftPanel->setMinimumWidth(210);
     splitter->addWidget(leftPanel);
 
     // Middle panel – version list
