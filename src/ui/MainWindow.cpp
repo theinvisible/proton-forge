@@ -18,6 +18,8 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QSettings>
+#include <QVBoxLayout>
+#include <QLabel>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -78,8 +80,14 @@ void MainWindow::setupUI()
     m_gameList = new GameListWidget(this);
     m_settingsWidget = new DLSSSettingsWidget(this);
 
+    m_rightStack = new QStackedWidget(this);
+    m_welcomeWidget = createWelcomeWidget();
+    m_rightStack->addWidget(m_welcomeWidget);   // Index 0
+    m_rightStack->addWidget(m_settingsWidget);  // Index 1
+    m_rightStack->setCurrentIndex(0);
+
     m_splitter->addWidget(m_gameList);
-    m_splitter->addWidget(m_settingsWidget);
+    m_splitter->addWidget(m_rightStack);
 
     // Set initial sizes (game list: 400px, settings: remaining)
     m_splitter->setSizes({400, 800});
@@ -97,6 +105,90 @@ void MainWindow::setupUI()
 
     // Status bar
     statusBar()->showMessage("Ready");
+}
+
+QWidget* MainWindow::createWelcomeWidget()
+{
+    auto* widget = new QWidget(this);
+    widget->setStyleSheet("background-color: #1a1a1a;");
+
+    auto* layout = new QVBoxLayout(widget);
+    layout->setAlignment(Qt::AlignCenter);
+    layout->setSpacing(24);
+
+    // App title
+    auto* titleLabel = new QLabel("ProtonForge");
+    titleLabel->setAlignment(Qt::AlignCenter);
+    titleLabel->setStyleSheet(
+        "font-size: 36px; font-weight: bold; color: #e0e0e0; background: transparent;");
+
+    // Tagline
+    auto* taglineLabel = new QLabel("NVIDIA DLSS & Proton Manager for Linux");
+    taglineLabel->setAlignment(Qt::AlignCenter);
+    taglineLabel->setStyleSheet("font-size: 14px; color: #999; background: transparent;");
+
+    // Stats card
+    auto* statsCard = new QWidget();
+    statsCard->setFixedWidth(320);
+    statsCard->setStyleSheet(
+        "background-color: #242424; border-radius: 12px; border-left: 3px solid #76B900;");
+    auto* statsLayout = new QHBoxLayout(statsCard);
+    statsLayout->setContentsMargins(20, 16, 20, 16);
+
+    m_gameCountLabel = new QLabel("0");
+    m_gameCountLabel->setStyleSheet(
+        "font-size: 32px; font-weight: bold; color: #76B900; background: transparent;");
+
+    auto* statsText = new QLabel("Games\nDiscovered");
+    statsText->setStyleSheet("font-size: 13px; color: #aaa; background: transparent;");
+
+    statsLayout->addWidget(m_gameCountLabel);
+    statsLayout->addSpacing(12);
+    statsLayout->addWidget(statsText);
+    statsLayout->addStretch();
+
+    // Hint
+    auto* hintLabel = new QLabel("Select a game from the list to configure DLSS settings");
+    hintLabel->setAlignment(Qt::AlignCenter);
+    hintLabel->setStyleSheet("font-size: 13px; color: #888; background: transparent;");
+
+    // Feature list
+    auto* featuresCard = new QWidget();
+    featuresCard->setFixedWidth(320);
+    featuresCard->setStyleSheet("background-color: #242424; border-radius: 12px;");
+    auto* featuresLayout = new QVBoxLayout(featuresCard);
+    featuresLayout->setContentsMargins(20, 16, 20, 16);
+    featuresLayout->setSpacing(10);
+
+    const QStringList features = {
+        "DLSS Super Resolution",
+        "DLSS Ray Reconstruction",
+        "DLSS Frame Generation",
+        "HDR Configuration",
+        "Proton Version Management"
+    };
+
+    for (const auto& feature : features) {
+        auto* featureLabel = new QLabel(
+            QString("<span style='color: #76B900; font-size: 14px;'>&#x25CF;</span>"
+                    "&nbsp;&nbsp;<span style='color: #ccc; font-size: 13px;'>%1</span>")
+                .arg(feature));
+        featureLabel->setStyleSheet("background: transparent;");
+        featuresLayout->addWidget(featureLabel);
+    }
+
+    layout->addStretch();
+    layout->addWidget(titleLabel);
+    layout->addWidget(taglineLabel);
+    layout->addSpacing(8);
+    layout->addWidget(statsCard, 0, Qt::AlignCenter);
+    layout->addSpacing(4);
+    layout->addWidget(hintLabel);
+    layout->addSpacing(4);
+    layout->addWidget(featuresCard, 0, Qt::AlignCenter);
+    layout->addStretch();
+
+    return widget;
 }
 
 void MainWindow::setupMenuBar()
@@ -165,6 +257,7 @@ void MainWindow::loadGames()
 {
     QList<Game> games = LauncherManager::instance().discoverAllGames();
     m_gameList->setGames(games);
+    m_gameCountLabel->setText(QString::number(games.count()));
     statusBar()->showMessage(QString("Found %1 games").arg(games.count()), 3000);
 }
 
@@ -177,6 +270,7 @@ void MainWindow::refreshGameList()
 void MainWindow::onGameSelected(const Game& game)
 {
     m_currentGame = game;
+    m_rightStack->setCurrentIndex(1);
 
     // Load settings for this game
     DLSSSettings settings = SettingsManager::instance().getSettings(game.settingsKey());

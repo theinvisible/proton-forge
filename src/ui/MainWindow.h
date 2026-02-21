@@ -3,6 +3,8 @@
 
 #include <QMainWindow>
 #include <QSplitter>
+#include <QStackedWidget>
+#include <QLabel>
 #include "GameListWidget.h"
 #include "DLSSSettingsWidget.h"
 #include "SystemInfoDialog.h"
@@ -39,10 +41,14 @@ private:
     void setupToolBar();
     void loadGames();
     void checkProtonOnStartup();
+    QWidget* createWelcomeWidget();
 
     QSplitter* m_splitter;
     GameListWidget* m_gameList;
     DLSSSettingsWidget* m_settingsWidget;
+    QStackedWidget* m_rightStack;
+    QWidget* m_welcomeWidget;
+    QLabel* m_gameCountLabel;
     GameRunner* m_gameRunner;
 
     Game m_currentGame;

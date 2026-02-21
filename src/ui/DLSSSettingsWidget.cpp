@@ -34,37 +34,132 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
 
 void DLSSSettingsWidget::setupUI()
 {
+    // Global dark theme stylesheet
+    setStyleSheet(R"(
+        DLSSSettingsWidget {
+            background-color: #1a1a1a;
+        }
+        QGroupBox {
+            background-color: #262626;
+            border: 1px solid #4a4a4a;
+            border-radius: 8px;
+            margin-top: 14px;
+            padding-top: 14px;
+            font-weight: bold;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 2px 8px;
+            color: #e0e0e0;
+        }
+        QComboBox {
+            background-color: #1e1e1e;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: #e0e0e0;
+            combobox-popup: 0;
+        }
+        QComboBox:focus {
+            border-color: #76B900;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #1e1e1e;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            selection-background-color: #76B900;
+        }
+        QSpinBox {
+            background-color: #1e1e1e;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: #e0e0e0;
+        }
+        QSpinBox:focus {
+            border-color: #76B900;
+        }
+        QCheckBox {
+            color: #d0d0d0;
+            spacing: 6px;
+        }
+        QCheckBox::indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            border: 1px solid #555;
+            background-color: #1e1e1e;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #76B900;
+            border-color: #76B900;
+        }
+        QLabel {
+            color: #d0d0d0;
+        }
+        QScrollBar:vertical {
+            background: transparent;
+            width: 8px;
+            margin: 0;
+        }
+        QScrollBar::handle:vertical {
+            background: #555;
+            border-radius: 4px;
+            min-height: 30px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background: #6a6a6a;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: transparent;
+        }
+        QScrollArea {
+            border: none;
+            background: transparent;
+        }
+    )");
+
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(10, 10, 10, 10);
 
-    // Game header
-    QHBoxLayout* headerLayout = new QHBoxLayout();
-    m_gameImageLabel = new QLabel(this);
+    // Game header card
+    QWidget* headerCard = new QWidget(this);
+    headerCard->setStyleSheet(
+        "QWidget#headerCard { background-color: #262626; border: 1px solid #4a4a4a; border-radius: 8px; }");
+    headerCard->setObjectName("headerCard");
+    QHBoxLayout* headerLayout = new QHBoxLayout(headerCard);
+    headerLayout->setContentsMargins(12, 12, 12, 12);
+
+    m_gameImageLabel = new QLabel(headerCard);
     m_gameImageLabel->setFixedSize(230, 107);
     m_gameImageLabel->setScaledContents(true);
-    m_gameImageLabel->setStyleSheet("border: 1px solid #333; background-color: #222;");
+    m_gameImageLabel->setStyleSheet("border-radius: 6px; background-color: #1a1a1a;");
     headerLayout->addWidget(m_gameImageLabel);
 
     QVBoxLayout* gameInfoLayout = new QVBoxLayout();
-    m_gameNameLabel = new QLabel("Select a game", this);
-    m_gameNameLabel->setStyleSheet("font-size: 18px; font-weight: bold;");
+    m_gameNameLabel = new QLabel("Select a game", headerCard);
+    m_gameNameLabel->setStyleSheet("font-size: 18px; font-weight: bold; color: #e0e0e0;");
     m_gameNameLabel->setWordWrap(true);
     gameInfoLayout->addWidget(m_gameNameLabel);
 
-    m_platformBadge = new QLabel("", this);
+    m_platformBadge = new QLabel("", headerCard);
     m_platformBadge->setStyleSheet(
         "font-size: 11px; font-weight: bold; padding: 4px 8px; "
-        "border-radius: 3px; background-color: #555; color: white;");
+        "border-radius: 4px; background-color: #555; color: white;");
     m_platformBadge->setMaximumWidth(120);
-    m_platformBadge->hide();  // Hidden until a game is selected
+    m_platformBadge->hide();
     gameInfoLayout->addWidget(m_platformBadge);
 
     // Proton version selector (container widget for easy show/hide)
-    m_protonSelectorContainer = new QWidget(this);
+    m_protonSelectorContainer = new QWidget(headerCard);
     QHBoxLayout* protonLayout = new QHBoxLayout(m_protonSelectorContainer);
     protonLayout->setContentsMargins(0, 0, 0, 0);
     QLabel* protonLabel = new QLabel("Proton:", m_protonSelectorContainer);
-    protonLabel->setStyleSheet("font-size: 12px; color: #888;");
+    protonLabel->setStyleSheet("font-size: 12px; color: #999;");
     protonLabel->setMinimumWidth(75);
     protonLayout->addWidget(protonLabel);
 
@@ -79,12 +174,12 @@ void DLSSSettingsWidget::setupUI()
 
     // Executable selector
     QHBoxLayout* exeLayout = new QHBoxLayout();
-    QLabel* exeLabel = new QLabel("Executable:", this);
-    exeLabel->setStyleSheet("font-size: 12px; color: #888;");
+    QLabel* exeLabel = new QLabel("Executable:", headerCard);
+    exeLabel->setStyleSheet("font-size: 12px; color: #999;");
     exeLabel->setMinimumWidth(75);
     exeLayout->addWidget(exeLabel);
 
-    m_executableSelector = new QComboBox(this);
+    m_executableSelector = new QComboBox(headerCard);
     m_executableSelector->setStyleSheet("font-size: 11px;");
     m_executableSelector->setToolTip("Select which executable to launch");
     m_executableSelector->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -95,7 +190,7 @@ void DLSSSettingsWidget::setupUI()
 
     headerLayout->addLayout(gameInfoLayout, 1);
 
-    mainLayout->addLayout(headerLayout);
+    mainLayout->addWidget(headerCard);
 
     // Scroll area for settings
     QScrollArea* scrollArea = new QScrollArea(this);
@@ -103,6 +198,7 @@ void DLSSSettingsWidget::setupUI()
     scrollArea->setFrameShape(QFrame::NoFrame);
 
     QWidget* scrollContent = new QWidget();
+    scrollContent->setStyleSheet("background: transparent;");
     QVBoxLayout* scrollLayout = new QVBoxLayout(scrollContent);
     scrollLayout->setSpacing(10);
 
@@ -123,7 +219,9 @@ void DLSSSettingsWidget::setupUI()
     m_launchCommandPreview = new QTextEdit(this);
     m_launchCommandPreview->setReadOnly(true);
     m_launchCommandPreview->setMaximumHeight(80);
-    m_launchCommandPreview->setStyleSheet("font-family: monospace;");
+    m_launchCommandPreview->setStyleSheet(
+        "font-family: monospace; background-color: #1a1a1a; border: 1px solid #4a4a4a; "
+        "border-radius: 4px; color: #c0c0c0; padding: 6px;");
     previewLayout->addWidget(m_launchCommandPreview);
     mainLayout->addWidget(previewGroup);
 
@@ -167,7 +265,7 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
     layout->addWidget(hdrLabel);
 
     m_enableAllHDR = new QCheckBox("Enable All HDR Options (Quick Toggle)", this);
-    m_enableAllHDR->setStyleSheet("font-weight: bold; color: #4CAF50;");
+    m_enableAllHDR->setStyleSheet("font-weight: bold; color: #76B900;");
     m_enableAllHDR->setToolTip(
         "Quick toggle to enable/disable all HDR options at once.\n\n"
         "This is a convenience checkbox that controls all three HDR settings below. "
@@ -507,15 +605,26 @@ QWidget* DLSSSettingsWidget::createActionsSection()
     layout->setContentsMargins(0, 10, 0, 0);
 
     m_playButton = new QPushButton("Play", this);
-    m_playButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 10px 20px; font-weight: bold; }");
+    m_playButton->setStyleSheet(
+        "QPushButton { background-color: #76B900; color: white; padding: 10px 20px; "
+        "font-weight: bold; border-radius: 6px; border: none; }"
+        "QPushButton:hover { background-color: #8fd400; }");
     m_playButton->setToolTip("Launch game directly with DLSS settings via Proton");
     layout->addWidget(m_playButton);
 
     m_copyButton = new QPushButton("Copy to Clipboard", this);
+    m_copyButton->setStyleSheet(
+        "QPushButton { background-color: #2e2e2e; color: #e0e0e0; padding: 10px 20px; "
+        "border: 1px solid #4a4a4a; border-radius: 6px; }"
+        "QPushButton:hover { background-color: #383838; }");
     m_copyButton->setToolTip("Copy launch options to clipboard for manual paste into Steam");
     layout->addWidget(m_copyButton);
 
     m_writeToSteamButton = new QPushButton("Write to Steam", this);
+    m_writeToSteamButton->setStyleSheet(
+        "QPushButton { background-color: #2e2e2e; color: #e0e0e0; padding: 10px 20px; "
+        "border: 1px solid #4a4a4a; border-radius: 6px; }"
+        "QPushButton:hover { background-color: #383838; }");
     m_writeToSteamButton->setToolTip("Write launch options directly to Steam's config (requires Steam restart)");
     layout->addWidget(m_writeToSteamButton);
 
@@ -538,13 +647,13 @@ void DLSSSettingsWidget::setGame(const Game& game)
         m_platformBadge->setText("🐧 Native Linux");
         m_platformBadge->setStyleSheet(
             "font-size: 11px; font-weight: bold; padding: 4px 8px; "
-            "border-radius: 3px; background-color: #28a745; color: white;");
+            "border-radius: 4px; background-color: #e8710a; color: white;");
         m_platformBadge->show();
     } else {
         m_platformBadge->setText("🪟 Windows");
         m_platformBadge->setStyleSheet(
             "font-size: 11px; font-weight: bold; padding: 4px 8px; "
-            "border-radius: 3px; background-color: #0078d4; color: white;");
+            "border-radius: 4px; background-color: #1565c0; color: white;");
         m_platformBadge->show();
     }
 
@@ -578,12 +687,17 @@ void DLSSSettingsWidget::setGameRunning(bool running)
 {
     if (running) {
         m_playButton->setText("Game is running...");
-        m_playButton->setStyleSheet("QPushButton { background-color: #dc3545; color: white; padding: 10px 20px; font-weight: bold; }");
+        m_playButton->setStyleSheet(
+            "QPushButton { background-color: #c0392b; color: white; padding: 10px 20px; "
+            "font-weight: bold; border-radius: 6px; border: none; }");
         m_playButton->setEnabled(false);
         m_playButton->setToolTip("Game is currently running");
     } else {
         m_playButton->setText("Play");
-        m_playButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 10px 20px; font-weight: bold; }");
+        m_playButton->setStyleSheet(
+            "QPushButton { background-color: #76B900; color: white; padding: 10px 20px; "
+            "font-weight: bold; border-radius: 6px; border: none; }"
+            "QPushButton:hover { background-color: #8fd400; }");
         m_playButton->setEnabled(true);
         m_playButton->setToolTip("Launch game directly with DLSS settings via Proton");
     }
