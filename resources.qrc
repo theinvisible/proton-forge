@@ -2,5 +2,14 @@
 <RCC>
     <qresource prefix="/">
         <file alias="icon.svg">org.protonforge.ProtonForge.svg</file>
+        <file>icons/refresh.svg</file>
+        <file>icons/settings.svg</file>
+        <file>icons/exit.svg</file>
+        <file>icons/update.svg</file>
+        <file>icons/package.svg</file>
+        <file>icons/folder-open.svg</file>
+        <file>icons/computer.svg</file>
+        <file>icons/info.svg</file>
+        <file>icons/wine.svg</file>
     </qresource>
 </RCC>

@@ -482,14 +482,14 @@ void GameListWidget::showContextMenu(const QPoint& pos)
     QMenu menu(this);
 
     // Open install location action
-    QAction* openLocationAction = menu.addAction("Open Install Location");
+    QAction* openLocationAction = menu.addAction(QIcon(":/icons/folder-open.svg"), "Open Install Location");
     openLocationAction->setEnabled(QDir(game.installPath()).exists());
 
     // Open compatdata location action (for Steam games)
     QAction* openCompatDataAction = nullptr;
     if (game.launcher() == "Steam") {
         QString compatDataPath = game.libraryPath() + "/compatdata/" + game.id();
-        openCompatDataAction = menu.addAction("Open Proton Prefix");
+        openCompatDataAction = menu.addAction(QIcon(":/icons/wine.svg"), "Open Proton Prefix");
         openCompatDataAction->setEnabled(QDir(compatDataPath).exists());
     }
 

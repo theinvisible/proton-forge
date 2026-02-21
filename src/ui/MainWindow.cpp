@@ -196,33 +196,33 @@ void MainWindow::setupMenuBar()
 {
     QMenu* fileMenu = menuBar()->addMenu("&File");
 
-    QAction* refreshAction = fileMenu->addAction("&Refresh Games");
+    QAction* refreshAction = fileMenu->addAction(QIcon(":/icons/refresh.svg"), "&Refresh Games");
     refreshAction->setShortcut(QKeySequence::Refresh);
     connect(refreshAction, &QAction::triggered, this, &MainWindow::refreshGameList);
 
     fileMenu->addSeparator();
 
-    QAction* settingsAction = fileMenu->addAction("&Settings...");
+    QAction* settingsAction = fileMenu->addAction(QIcon(":/icons/settings.svg"), "&Settings...");
     settingsAction->setShortcut(QKeySequence::Preferences);
     connect(settingsAction, &QAction::triggered, this, &MainWindow::showSettings);
 
     fileMenu->addSeparator();
 
-    QAction* quitAction = fileMenu->addAction("&Quit");
+    QAction* quitAction = fileMenu->addAction(QIcon(":/icons/exit.svg"), "&Quit");
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QMainWindow::close);
 
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
 
-    QAction* checkProtonAction = toolsMenu->addAction("Check for Proton-CachyOS Updates");
+    QAction* checkProtonAction = toolsMenu->addAction(QIcon(":/icons/update.svg"), "Check for Proton-CachyOS Updates");
     connect(checkProtonAction, &QAction::triggered, this, &MainWindow::checkProtonCachyOS);
 
-    QAction* installProtonAction = toolsMenu->addAction("Proton-Manager");
+    QAction* installProtonAction = toolsMenu->addAction(QIcon(":/icons/package.svg"), "Proton-Manager");
     connect(installProtonAction, &QAction::triggered, this, &MainWindow::installProtonCachyOS);
 
     toolsMenu->addSeparator();
 
-    QAction* openProtonFolderAction = toolsMenu->addAction("Open Proton Folder...");
+    QAction* openProtonFolderAction = toolsMenu->addAction(QIcon(":/icons/folder-open.svg"), "Open Proton Folder...");
     connect(openProtonFolderAction, &QAction::triggered, this, []() {
         QString path = ProtonManager::protonCachyOSPath();
         QDir().mkpath(path);  // Ensure directory exists
@@ -233,12 +233,12 @@ void MainWindow::setupMenuBar()
 
     // GPU Information menu item (only shown if NVIDIA GPU detected)
     if (GPUDetector::hasNvidiaGPU()) {
-        QAction* gpuInfoAction = helpMenu->addAction("&System Information");
+        QAction* gpuInfoAction = helpMenu->addAction(QIcon(":/icons/computer.svg"), "&System Information");
         connect(gpuInfoAction, &QAction::triggered, this, &MainWindow::showSystemInfo);
         helpMenu->addSeparator();
     }
 
-    QAction* aboutAction = helpMenu->addAction("&About");
+    QAction* aboutAction = helpMenu->addAction(QIcon(":/icons/info.svg"), "&About");
     connect(aboutAction, &QAction::triggered, this, [this]() {
         AboutDialog dlg(this);
         dlg.exec();
