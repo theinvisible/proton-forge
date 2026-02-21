@@ -14,6 +14,7 @@ SettingsDialog::SettingsDialog(QWidget* parent)
 {
     setWindowTitle("Settings");
     setMinimumSize(600, 400);
+    resize(840, 560);
     setupUI();
     loadSettings();
 }
@@ -162,8 +163,9 @@ QWidget* SettingsDialog::buildGithubPage()
     // Card frame
     auto* frame = new QFrame;
     frame->setStyleSheet(
-        "QFrame { border: 1px solid #444; border-radius: 6px; background: #1e1e1e; padding: 12px; }");
+        "QFrame { border: 1px solid #444; border-radius: 6px; background: #1e1e1e; }");
     auto* frameLayout = new QVBoxLayout(frame);
+    frameLayout->setContentsMargins(16, 16, 16, 16);
     frameLayout->setSpacing(6);
 
     auto* headerLabel = new QLabel("GitHub API Token");
@@ -185,16 +187,18 @@ QWidget* SettingsDialog::buildGithubPage()
     tokenLabel->setStyleSheet("color: #ccc; border: none; background: transparent;");
 
     auto* tokenRow = new QHBoxLayout;
+    tokenRow->setSpacing(8);
     m_tokenEdit = new QLineEdit;
     m_tokenEdit->setEchoMode(QLineEdit::Password);
     m_tokenEdit->setPlaceholderText("ghp_...");
+    m_tokenEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_tokenEdit->setStyleSheet(
         "QLineEdit { background: #2a2a2a; border: 1px solid #555; border-radius: 4px;"
         " padding: 4px 8px; color: #e0e0e0; }");
 
     m_toggleTokenBtn = new QPushButton("Show");
     m_toggleTokenBtn->setFlat(true);
-    m_toggleTokenBtn->setFixedWidth(50);
+    m_toggleTokenBtn->setMinimumWidth(60);
     m_toggleTokenBtn->setStyleSheet(
         "QPushButton { color: #76B900; border: none; background: transparent; }"
         "QPushButton:hover { color: #9fe02a; }");
@@ -205,8 +209,8 @@ QWidget* SettingsDialog::buildGithubPage()
         m_toggleTokenBtn->setText(hidden ? "Hide" : "Show");
     });
 
-    tokenRow->addWidget(m_tokenEdit);
-    tokenRow->addWidget(m_toggleTokenBtn);
+    tokenRow->addWidget(m_tokenEdit, 1);
+    tokenRow->addWidget(m_toggleTokenBtn, 0);
 
     auto* spacer12 = new QSpacerItem(0, 12, QSizePolicy::Minimum, QSizePolicy::Fixed);
 
