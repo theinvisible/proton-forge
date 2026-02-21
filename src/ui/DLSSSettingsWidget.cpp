@@ -9,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QFormLayout>
 #include <QScrollArea>
+#include <QAbstractItemView>
 #include <QFileInfo>
 #include <QDir>
 #include <QDirIterator>
@@ -121,6 +122,13 @@ void DLSSSettingsWidget::setupUI()
             border: none;
             background: transparent;
         }
+        QComboBox QAbstractItemView {
+            background-color: #2a2a2a;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            selection-background-color: #76B900;
+            selection-color: #fff;
+        }
     )");
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -227,6 +235,27 @@ void DLSSSettingsWidget::setupUI()
 
     // Action buttons
     mainLayout->addWidget(createActionsSection());
+
+    // Style combo popups directly on their views (stylesheet on parent doesn't reach top-level popups)
+    styleComboBoxPopups();
+}
+
+void DLSSSettingsWidget::styleComboBoxPopups()
+{
+    const QString viewStyle =
+        "QAbstractItemView {"
+        "  background-color: #2a2a2a;"
+        "  border: 1px solid #555;"
+        "  color: #e0e0e0;"
+        "  selection-background-color: #76B900;"
+        "  selection-color: #fff;"
+        "  outline: 0;"
+        "}";
+
+    const auto combos = findChildren<QComboBox*>();
+    for (QComboBox* combo : combos) {
+        combo->view()->setStyleSheet(viewStyle);
+    }
 }
 
 QGroupBox* DLSSSettingsWidget::createGeneralGroup()

@@ -98,6 +98,7 @@ void MainWindow::setupUI()
 
     // Connections
     connect(m_gameList, &GameListWidget::gameSelected, this, &MainWindow::onGameSelected);
+    connect(m_gameList, &GameListWidget::refreshRequested, this, &MainWindow::refreshGameList);
     connect(m_settingsWidget, &DLSSSettingsWidget::settingsChanged, this, &MainWindow::onSettingsChanged);
     connect(m_settingsWidget, &DLSSSettingsWidget::playClicked, this, &MainWindow::onPlayClicked);
     connect(m_settingsWidget, &DLSSSettingsWidget::copyClicked, this, &MainWindow::onCopyToClipboard);
@@ -246,11 +247,6 @@ void MainWindow::setupMenuBar()
 
 void MainWindow::setupToolBar()
 {
-    QToolBar* toolBar = addToolBar("Main");
-    toolBar->setMovable(false);
-
-    QAction* refreshAction = toolBar->addAction("Refresh");
-    connect(refreshAction, &QAction::triggered, this, &MainWindow::refreshGameList);
 }
 
 void MainWindow::loadGames()

@@ -13,6 +13,7 @@
 #include <QFontMetrics>
 #include <QLinearGradient>
 #include <QAction>
+#include <QHBoxLayout>
 #include <QEvent>
 
 // ---------------------------------------------------------------------------
@@ -192,7 +193,11 @@ GameListWidget::GameListWidget(QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(5);
 
-    // Search box with custom styling and margin
+    // Search row: search box + refresh button
+    QHBoxLayout* searchRow = new QHBoxLayout();
+    searchRow->setContentsMargins(6, 6, 6, 2);
+    searchRow->setSpacing(4);
+
     m_searchBox = new QLineEdit(this);
     m_searchBox->setPlaceholderText("Search games...");
     m_searchBox->setClearButtonEnabled(true);
@@ -205,7 +210,6 @@ GameListWidget::GameListWidget(QWidget* parent)
         "  padding: 8px 10px;"
         "  color: #e0e0e0;"
         "  font-size: 13px;"
-        "  margin: 6px 6px 2px 6px;"
         "}"
         "QLineEdit:focus {"
         "  border: 1px solid #76B900;"
@@ -218,7 +222,33 @@ GameListWidget::GameListWidget(QWidget* parent)
     // Paint magnifying glass icon directly on the search box
     m_searchBox->installEventFilter(this);
 
-    layout->addWidget(m_searchBox);
+    auto* refreshButton = new QPushButton(this);
+    refreshButton->setFixedSize(36, 36);
+    refreshButton->setToolTip("Refresh game list");
+    refreshButton->setText("\xe2\x9f\xb3");  // Unicode ⟳
+    refreshButton->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #2a2a2a;"
+        "  border: 1px solid #3a3a3a;"
+        "  border-radius: 6px;"
+        "  color: #ccc;"
+        "  font-size: 18px;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #383838;"
+        "  border-color: #76B900;"
+        "  color: #76B900;"
+        "}"
+        "QPushButton:pressed {"
+        "  background-color: #1e1e1e;"
+        "}"
+    );
+    connect(refreshButton, &QPushButton::clicked, this, &GameListWidget::refreshRequested);
+
+    searchRow->addWidget(m_searchBox, 1);
+    searchRow->addWidget(refreshButton);
+
+    layout->addLayout(searchRow);
 
     // Game list
     m_listWidget = new QListWidget(this);

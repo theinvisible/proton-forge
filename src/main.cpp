@@ -60,6 +60,17 @@ int main(int argc, char *argv[])
     darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(127, 127, 127));
     app.setPalette(darkPalette);
 
+    app.setStyleSheet(R"(
+        QComboBox QAbstractItemView {
+            background-color: #2a2a2a;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            selection-background-color: #76B900;
+            selection-color: #fff;
+            outline: 0;
+        }
+    )");
+
     MainWindow window;
     window.show();
 

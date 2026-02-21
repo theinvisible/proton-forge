@@ -47,6 +47,7 @@ private:
     QGroupBox* createSmoothMotionGroup();
     QWidget* createActionsSection();
 
+    void styleComboBoxPopups();
     void blockSignalsForAll(bool block);
     void populateExecutableSelector(const Game& game);
     void updateExecutableSelectorWithResults(const QStringList& executables);

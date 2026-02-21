@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QListWidget>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QVBoxLayout>
 #include <QTimer>
 #include "core/Game.h"
@@ -22,6 +23,7 @@ public:
 
 signals:
     void gameSelected(const Game& game);
+    void refreshRequested();
 
 private slots:
     void onSearchTextChanged(const QString& text);
