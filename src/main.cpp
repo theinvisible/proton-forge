@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QMessageBox>
 #include "ui/MainWindow.h"
+#include "ui/OpaqueTooltip.h"
 #include "core/Game.h"
 #include "utils/ProtonManager.h"
 #include "Version.h"
@@ -70,6 +71,9 @@ int main(int argc, char *argv[])
             outline: 0;
         }
     )");
+
+    // Install custom opaque tooltip to bypass compositor transparency
+    OpaqueTooltip::instance().install(&app);
 
     MainWindow window;
     window.show();
