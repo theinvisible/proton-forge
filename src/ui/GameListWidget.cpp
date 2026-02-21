@@ -42,7 +42,7 @@ public:
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
 
-        const QRect r        = option.rect.adjusted(4, 3, -4, -3);
+        const QRect r        = option.rect.adjusted(4, 1, -4, -1);
         const bool  selected = option.state & QStyle::State_Selected;
         const bool  hovered  = option.state & QStyle::State_MouseOver;
 
@@ -223,7 +223,7 @@ GameListWidget::GameListWidget(QWidget* parent)
     // Game list
     m_listWidget = new QListWidget(this);
     m_listWidget->setIconSize(QSize(0, 0));
-    m_listWidget->setSpacing(2);
+    m_listWidget->setSpacing(0);
     m_listWidget->setAlternatingRowColors(false);
     m_listWidget->setMouseTracking(true);
     m_listWidget->setContextMenuPolicy(Qt::CustomContextMenu);
