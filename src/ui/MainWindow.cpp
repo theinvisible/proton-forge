@@ -390,14 +390,27 @@ void MainWindow::installProtonCachyOS()
 {
     ProtonManager& pm = ProtonManager::instance();
 
-    statusBar()->showMessage("Fetching available Proton-CachyOS versions...");
+    statusBar()->showMessage("Fetching available Proton versions...");
+
+    // Show a loading dialog while fetching from GitHub
+    auto* loadingDialog = new QProgressDialog(this);
+    loadingDialog->setWindowTitle("Proton-Manager");
+    loadingDialog->setLabelText("Fetching available versions from GitHub...");
+    loadingDialog->setRange(0, 0); // indeterminate
+    loadingDialog->setMinimumDuration(0);
+    loadingDialog->setCancelButton(nullptr);
+    loadingDialog->setMinimumWidth(350);
+    loadingDialog->setWindowModality(Qt::WindowModal);
+    loadingDialog->show();
 
     // Fetch available versions and show selection dialog
     connect(&pm, &ProtonManager::availableVersionsFetched, this,
-            [this](const QList<ProtonManager::ProtonRelease>& releases) {
+            [this, loadingDialog](const QList<ProtonManager::ProtonRelease>& releases) {
         // Disconnect to avoid multiple calls
         disconnect(&ProtonManager::instance(), &ProtonManager::availableVersionsFetched, this, nullptr);
 
+        loadingDialog->close();
+        loadingDialog->deleteLater();
         statusBar()->clearMessage();
 
         if (releases.isEmpty()) {
