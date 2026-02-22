@@ -2,6 +2,7 @@
 #include <QIcon>
 #include <QLockFile>
 #include <QDir>
+#include <QFile>
 #include <QMessageBox>
 #include "ui/MainWindow.h"
 #include "ui/OpaqueTooltip.h"
@@ -61,16 +62,12 @@ int main(int argc, char *argv[])
     darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(127, 127, 127));
     app.setPalette(darkPalette);
 
-    app.setStyleSheet(R"(
-        QComboBox QAbstractItemView {
-            background-color: #2a2a2a;
-            border: 1px solid #555;
-            color: #e0e0e0;
-            selection-background-color: #76B900;
-            selection-color: #fff;
-            outline: 0;
-        }
-    )");
+    // Load centralized stylesheet from Qt resource
+    QFile styleFile(":/style.qss");
+    if (styleFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        app.setStyleSheet(styleFile.readAll());
+        styleFile.close();
+    }
 
     // Install custom opaque tooltip to bypass compositor transparency
     OpaqueTooltip::instance().install(&app);

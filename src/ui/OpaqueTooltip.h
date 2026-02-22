@@ -9,6 +9,7 @@
 #include <QScreen>
 #include <QGuiApplication>
 #include <QApplication>
+#include "AppStyle.h"
 
 // Application-wide event filter that replaces Qt's native tooltips
 // with a custom opaque QLabel window to avoid compositor transparency issues.
@@ -51,13 +52,7 @@ private:
         m_label->setMaximumWidth(400);
         m_label->setTextFormat(Qt::PlainText);
         m_label->setMargin(6);
-        m_label->setStyleSheet(
-            "background-color: #2a2a2a;"
-            "color: #e0e0e0;"
-            "border: 1px solid #555;"
-            "padding: 4px 8px;"
-            "font-size: 12px;"
-        );
+        m_label->setStyleSheet(AppStyle::tooltipStyle());
         m_label->setAttribute(Qt::WA_TranslucentBackground, false);
 
         m_hideTimer = new QTimer(m_label);

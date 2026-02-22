@@ -1,0 +1,230 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ProtonForge – Centralized Dark Theme Stylesheet
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Global Combo Popup ────────────────────────────────────────────────── */
+QComboBox QAbstractItemView {
+    background-color: #2a2a2a;
+    border: 1px solid #555;
+    color: #e0e0e0;
+    selection-background-color: #76B900;
+    selection-color: #fff;
+    outline: 0;
+}
+
+/* ── DLSSSettingsWidget ────────────────────────────────────────────────── */
+DLSSSettingsWidget {
+    background-color: #1a1a1a;
+}
+
+DLSSSettingsWidget QGroupBox {
+    background-color: #262626;
+    border: 1px solid #4a4a4a;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding-top: 14px;
+    font-weight: bold;
+}
+
+DLSSSettingsWidget QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 2px 8px;
+    color: #e0e0e0;
+}
+
+DLSSSettingsWidget QComboBox {
+    background-color: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #e0e0e0;
+    combobox-popup: 0;
+}
+
+DLSSSettingsWidget QComboBox:focus {
+    border-color: #76B900;
+}
+
+DLSSSettingsWidget QComboBox QAbstractItemView {
+    background-color: #1e1e1e;
+    border: 1px solid #555;
+    color: #e0e0e0;
+    selection-background-color: #76B900;
+}
+
+DLSSSettingsWidget QSpinBox {
+    background-color: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #e0e0e0;
+}
+
+DLSSSettingsWidget QSpinBox:focus {
+    border-color: #76B900;
+}
+
+DLSSSettingsWidget QCheckBox {
+    color: #d0d0d0;
+    spacing: 6px;
+}
+
+DLSSSettingsWidget QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid #555;
+    background-color: #1e1e1e;
+}
+
+DLSSSettingsWidget QCheckBox::indicator:checked {
+    background-color: #76B900;
+    border-color: #76B900;
+}
+
+DLSSSettingsWidget QLabel {
+    color: #d0d0d0;
+}
+
+DLSSSettingsWidget QScrollArea {
+    border: none;
+    background: transparent;
+}
+
+/* ── Thin Scrollbar (shared) ───────────────────────────────────────────── */
+DLSSSettingsWidget QScrollBar:vertical,
+GameListWidget QScrollBar:vertical {
+    background: transparent;
+    width: 8px;
+    margin: 0;
+}
+
+DLSSSettingsWidget QScrollBar::handle:vertical,
+GameListWidget QScrollBar::handle:vertical {
+    background: #555;
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+DLSSSettingsWidget QScrollBar::handle:vertical:hover,
+GameListWidget QScrollBar::handle:vertical:hover {
+    background: #6a6a6a;
+}
+
+DLSSSettingsWidget QScrollBar::add-line:vertical,
+DLSSSettingsWidget QScrollBar::sub-line:vertical,
+GameListWidget QScrollBar::add-line:vertical,
+GameListWidget QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+DLSSSettingsWidget QScrollBar::add-page:vertical,
+DLSSSettingsWidget QScrollBar::sub-page:vertical,
+GameListWidget QScrollBar::add-page:vertical,
+GameListWidget QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+/* ── SystemInfoDialog ──────────────────────────────────────────────────── */
+SystemInfoDialog {
+    background-color: #1e1e1e;
+    color: #cccccc;
+}
+
+SystemInfoDialog QGroupBox {
+    font-weight: bold;
+    border: 1px solid #444;
+    border-radius: 4px;
+    margin-top: 12px;
+    padding-top: 8px;
+    background-color: #2a2a2a;
+    color: #cccccc;
+}
+
+SystemInfoDialog QGroupBox::title {
+    color: #76B900;
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px 0 5px;
+}
+
+SystemInfoDialog QLabel {
+    color: #cccccc;
+}
+
+SystemInfoDialog QCheckBox {
+    color: #cccccc;
+    spacing: 8px;
+}
+
+SystemInfoDialog QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    background-color: #2a2a2a;
+}
+
+SystemInfoDialog QCheckBox::indicator:checked {
+    background-color: #76B900;
+    border: 1px solid #76B900;
+}
+
+SystemInfoDialog QCheckBox::indicator:hover {
+    border: 1px solid #76B900;
+}
+
+SystemInfoDialog QScrollArea {
+    border: none;
+    background-color: #1e1e1e;
+}
+
+/* ── Tab Widget (SystemInfoDialog) ─────────────────────────────────────── */
+SystemInfoDialog QTabWidget::pane {
+    border: 1px solid #444;
+    background-color: #1e1e1e;
+}
+
+SystemInfoDialog QTabBar::tab {
+    background-color: #2a2a2a;
+    color: #cccccc;
+    padding: 8px 16px;
+    border: 1px solid #444;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+SystemInfoDialog QTabBar::tab:selected {
+    background-color: #333333;
+    border-bottom: 2px solid #76B900;
+}
+
+SystemInfoDialog QTabBar::tab:hover {
+    background-color: #404040;
+}
+
+/* ── Dark QPushButton (shared: dialogs) ────────────────────────────────── */
+SystemInfoDialog QPushButton,
+AboutDialog QPushButton,
+SettingsDialog QPushButton {
+    background-color: #333333;
+    color: #cccccc;
+    border: 1px solid #555555;
+    padding: 6px 16px;
+    border-radius: 4px;
+}
+
+SystemInfoDialog QPushButton:hover,
+AboutDialog QPushButton:hover,
+SettingsDialog QPushButton:hover {
+    background-color: #404040;
+    border: 1px solid #76B900;
+}
+
+SystemInfoDialog QPushButton:pressed,
+AboutDialog QPushButton:pressed,
+SettingsDialog QPushButton:pressed {
+    background-color: #2a2a2a;
+}

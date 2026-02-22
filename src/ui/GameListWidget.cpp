@@ -264,6 +264,7 @@ GameListWidget::GameListWidget(QWidget* parent)
     m_listWidget->setItemDelegate(new GameItemDelegate(this));
 
     // Transparent background so delegate draws everything
+    // Scrollbar styles are loaded from style.qss via class name "GameListWidget"
     m_listWidget->setStyleSheet(
         "QListWidget {"
         "  background-color: transparent;"
@@ -278,25 +279,6 @@ GameListWidget::GameListWidget(QWidget* parent)
         "  background: transparent;"
         "}"
         "QListWidget::item:hover {"
-        "  background: transparent;"
-        "}"
-        "QScrollBar:vertical {"
-        "  background: transparent;"
-        "  width: 8px;"
-        "  margin: 0;"
-        "}"
-        "QScrollBar::handle:vertical {"
-        "  background: #555;"
-        "  border-radius: 4px;"
-        "  min-height: 30px;"
-        "}"
-        "QScrollBar::handle:vertical:hover {"
-        "  background: #6a6a6a;"
-        "}"
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
-        "  height: 0;"
-        "}"
-        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
         "  background: transparent;"
         "}"
     );

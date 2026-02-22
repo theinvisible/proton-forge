@@ -294,6 +294,11 @@ void ProtonVersionDialog::setupUI()
     buttonLayout->addStretch();
 
     m_cancelButton = new QPushButton("Cancel", this);
+    m_cancelButton->setStyleSheet(
+        "QPushButton { background-color: #333333; color: #cccccc; padding: 8px 16px;"
+        " border: 1px solid #555555; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #404040; border: 1px solid #76B900; }"
+        "QPushButton:pressed { background-color: #2a2a2a; }");
     buttonLayout->addWidget(m_cancelButton);
 
     m_installButton = new QPushButton("Install Selected", this);

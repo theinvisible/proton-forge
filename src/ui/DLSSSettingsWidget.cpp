@@ -1,4 +1,5 @@
 #include "DLSSSettingsWidget.h"
+#include "AppStyle.h"
 #include "network/ImageCache.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
@@ -35,102 +36,6 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
 
 void DLSSSettingsWidget::setupUI()
 {
-    // Global dark theme stylesheet
-    setStyleSheet(R"(
-        DLSSSettingsWidget {
-            background-color: #1a1a1a;
-        }
-        QGroupBox {
-            background-color: #262626;
-            border: 1px solid #4a4a4a;
-            border-radius: 8px;
-            margin-top: 14px;
-            padding-top: 14px;
-            font-weight: bold;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            padding: 2px 8px;
-            color: #e0e0e0;
-        }
-        QComboBox {
-            background-color: #1e1e1e;
-            border: 1px solid #555;
-            border-radius: 4px;
-            padding: 4px 8px;
-            color: #e0e0e0;
-            combobox-popup: 0;
-        }
-        QComboBox:focus {
-            border-color: #76B900;
-        }
-        QComboBox QAbstractItemView {
-            background-color: #1e1e1e;
-            border: 1px solid #555;
-            color: #e0e0e0;
-            selection-background-color: #76B900;
-        }
-        QSpinBox {
-            background-color: #1e1e1e;
-            border: 1px solid #555;
-            border-radius: 4px;
-            padding: 4px 8px;
-            color: #e0e0e0;
-        }
-        QSpinBox:focus {
-            border-color: #76B900;
-        }
-        QCheckBox {
-            color: #d0d0d0;
-            spacing: 6px;
-        }
-        QCheckBox::indicator {
-            width: 16px;
-            height: 16px;
-            border-radius: 3px;
-            border: 1px solid #555;
-            background-color: #1e1e1e;
-        }
-        QCheckBox::indicator:checked {
-            background-color: #76B900;
-            border-color: #76B900;
-        }
-        QLabel {
-            color: #d0d0d0;
-        }
-        QScrollBar:vertical {
-            background: transparent;
-            width: 8px;
-            margin: 0;
-        }
-        QScrollBar::handle:vertical {
-            background: #555;
-            border-radius: 4px;
-            min-height: 30px;
-        }
-        QScrollBar::handle:vertical:hover {
-            background: #6a6a6a;
-        }
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-            height: 0;
-        }
-        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-            background: transparent;
-        }
-        QScrollArea {
-            border: none;
-            background: transparent;
-        }
-        QComboBox QAbstractItemView {
-            background-color: #2a2a2a;
-            border: 1px solid #555;
-            color: #e0e0e0;
-            selection-background-color: #76B900;
-            selection-color: #fff;
-        }
-    )");
-
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(10, 10, 10, 10);
 
@@ -242,16 +147,7 @@ void DLSSSettingsWidget::setupUI()
 
 void DLSSSettingsWidget::styleComboBoxPopups()
 {
-    const QString viewStyle =
-        "QAbstractItemView {"
-        "  background-color: #2a2a2a;"
-        "  border: 1px solid #555;"
-        "  color: #e0e0e0;"
-        "  selection-background-color: #76B900;"
-        "  selection-color: #fff;"
-        "  outline: 0;"
-        "}";
-
+    const QString viewStyle = AppStyle::comboPopupStyle();
     const auto combos = findChildren<QComboBox*>();
     for (QComboBox* combo : combos) {
         combo->view()->setStyleSheet(viewStyle);
@@ -634,26 +530,17 @@ QWidget* DLSSSettingsWidget::createActionsSection()
     layout->setContentsMargins(0, 10, 0, 0);
 
     m_playButton = new QPushButton("Play", this);
-    m_playButton->setStyleSheet(
-        "QPushButton { background-color: #76B900; color: white; padding: 10px 20px; "
-        "font-weight: bold; border-radius: 6px; border: none; }"
-        "QPushButton:hover { background-color: #8fd400; }");
+    m_playButton->setStyleSheet(AppStyle::playButtonStyle());
     m_playButton->setToolTip("Launch game directly with DLSS settings via Proton");
     layout->addWidget(m_playButton);
 
     m_copyButton = new QPushButton("Copy to Clipboard", this);
-    m_copyButton->setStyleSheet(
-        "QPushButton { background-color: #2e2e2e; color: #e0e0e0; padding: 10px 20px; "
-        "border: 1px solid #4a4a4a; border-radius: 6px; }"
-        "QPushButton:hover { background-color: #383838; }");
+    m_copyButton->setStyleSheet(AppStyle::secondaryButtonStyle());
     m_copyButton->setToolTip("Copy launch options to clipboard for manual paste into Steam");
     layout->addWidget(m_copyButton);
 
     m_writeToSteamButton = new QPushButton("Write to Steam", this);
-    m_writeToSteamButton->setStyleSheet(
-        "QPushButton { background-color: #2e2e2e; color: #e0e0e0; padding: 10px 20px; "
-        "border: 1px solid #4a4a4a; border-radius: 6px; }"
-        "QPushButton:hover { background-color: #383838; }");
+    m_writeToSteamButton->setStyleSheet(AppStyle::secondaryButtonStyle());
     m_writeToSteamButton->setToolTip("Write launch options directly to Steam's config (requires Steam restart)");
     layout->addWidget(m_writeToSteamButton);
 
@@ -674,15 +561,11 @@ void DLSSSettingsWidget::setGame(const Game& game)
     // Platform badge
     if (game.isNativeLinux()) {
         m_platformBadge->setText("🐧 Native Linux");
-        m_platformBadge->setStyleSheet(
-            "font-size: 11px; font-weight: bold; padding: 4px 8px; "
-            "border-radius: 4px; background-color: #e8710a; color: white;");
+        m_platformBadge->setStyleSheet(AppStyle::platformBadgeStyle(true));
         m_platformBadge->show();
     } else {
         m_platformBadge->setText("🪟 Windows");
-        m_platformBadge->setStyleSheet(
-            "font-size: 11px; font-weight: bold; padding: 4px 8px; "
-            "border-radius: 4px; background-color: #1565c0; color: white;");
+        m_platformBadge->setStyleSheet(AppStyle::platformBadgeStyle(false));
         m_platformBadge->show();
     }
 
@@ -716,17 +599,12 @@ void DLSSSettingsWidget::setGameRunning(bool running)
 {
     if (running) {
         m_playButton->setText("Game is running...");
-        m_playButton->setStyleSheet(
-            "QPushButton { background-color: #c0392b; color: white; padding: 10px 20px; "
-            "font-weight: bold; border-radius: 6px; border: none; }");
+        m_playButton->setStyleSheet(AppStyle::playButtonRunningStyle());
         m_playButton->setEnabled(false);
         m_playButton->setToolTip("Game is currently running");
     } else {
         m_playButton->setText("Play");
-        m_playButton->setStyleSheet(
-            "QPushButton { background-color: #76B900; color: white; padding: 10px 20px; "
-            "font-weight: bold; border-radius: 6px; border: none; }"
-            "QPushButton:hover { background-color: #8fd400; }");
+        m_playButton->setStyleSheet(AppStyle::playButtonStyle());
         m_playButton->setEnabled(true);
         m_playButton->setToolTip("Launch game directly with DLSS settings via Proton");
     }

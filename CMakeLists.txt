@@ -64,6 +64,7 @@ set(HEADERS
     src/ui/SystemInfoDialog.h
     src/ui/SettingsDialog.h
     src/ui/AboutDialog.h
+    src/ui/AppStyle.h
 )
 
 set(RESOURCES
