@@ -11,6 +11,9 @@
 #include <QFormLayout>
 #include <QScrollArea>
 #include <QAbstractItemView>
+#include <QStandardItemModel>
+#include <QStyledItemDelegate>
+#include <QPainter>
 #include <QFileInfo>
 #include <QDir>
 #include <QDirIterator>
@@ -943,38 +946,101 @@ void DLSSSettingsWidget::updateExecutableSelectorWithResults(const QStringList& 
     });
 }
 
+// Delegate that indents selectable items in the Proton combo popup
+static constexpr int ProtonGroupRole = Qt::UserRole + 100;
+
+class ProtonComboDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override
+    {
+        QStyleOptionViewItem opt = option;
+        // Indent non-header items in the popup
+        bool isHeader = !index.flags().testFlag(Qt::ItemIsSelectable);
+        if (!isHeader) {
+            opt.rect.adjust(14, 0, 0, 0);
+        }
+        QStyledItemDelegate::paint(painter, opt, index);
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem& option,
+                   const QModelIndex& index) const override
+    {
+        QSize s = QStyledItemDelegate::sizeHint(option, index);
+        bool isHeader = !index.flags().testFlag(Qt::ItemIsSelectable);
+        if (isHeader) {
+            s.setHeight(s.height() + 4);  // slightly taller headers
+        }
+        return s;
+    }
+};
+
 void DLSSSettingsWidget::populateProtonVersionSelector()
 {
     m_protonVersionSelector->blockSignals(true);
     m_protonVersionSelector->clear();
 
-    // Add special options
-    m_protonVersionSelector->addItem("Latest Proton-CachyOS (Recommended)", "auto");
-    m_protonVersionSelector->addItem("Latest Proton-GE", "latest-ge");
-    m_protonVersionSelector->addItem("Latest Steam Proton", "steam-proton");
+    auto* model = qobject_cast<QStandardItemModel*>(m_protonVersionSelector->model());
+    if (!model) {
+        m_protonVersionSelector->setModel(new QStandardItemModel(m_protonVersionSelector));
+        model = qobject_cast<QStandardItemModel*>(m_protonVersionSelector->model());
+    }
 
-    m_protonVersionSelector->insertSeparator(3);
+    // Install the indent delegate on the popup view (only once)
+    static bool delegateInstalled = false;
+    if (!delegateInstalled) {
+        m_protonVersionSelector->view()->setItemDelegate(
+            new ProtonComboDelegate(m_protonVersionSelector));
+        delegateInstalled = true;
+    }
 
-    // Get installed Proton versions from compatibilitytools.d
+    // Helper: add a non-selectable group header
+    auto addGroupHeader = [&](const QString& title) {
+        m_protonVersionSelector->addItem(title);
+        int idx = m_protonVersionSelector->count() - 1;
+        if (auto* item = model->item(idx)) {
+            item->setEnabled(false);
+            item->setSelectable(false);
+            item->setData(QColor(AppStyle::ColorAccent), Qt::ForegroundRole);
+            QFont f = item->font();
+            f.setBold(true);
+            f.setPointSizeF(f.pointSizeF() > 0 ? f.pointSizeF() * 0.95 : 9);
+            item->setFont(f);
+        }
+    };
+
+    // Helper: add a selectable version item (indent handled by delegate)
+    auto addVersionItem = [&](const QString& displayName, const QVariant& data) {
+        m_protonVersionSelector->addItem(displayName, data);
+    };
+
+    // ── Automatic / Latest ──────────────────────────────────────────────────
+    addGroupHeader("— Automatic —");
+    addVersionItem("Latest Proton-CachyOS (Recommended)", "auto");
+    addVersionItem("Latest Proton-GE", "latest-ge");
+    addVersionItem("Latest Steam Proton", "steam-proton");
+
+    // ── Discover installed versions ─────────────────────────────────────────
     QString protonPath = ProtonManager::protonCachyOSPath();
     QDir dir(protonPath);
 
-    QMap<QString, QString> cachyosVersions;  // displayName -> directoryPath
-    QMap<QString, QString> geVersions;  // displayName -> directoryPath
-    QList<QPair<QString, QString>> steamProtonVersions;  // List of (entry, fullPath) pairs
+    QMap<QString, QString> cachyosVersions;
+    QMap<QString, QString> geVersions;
+    QList<QPair<QString, QString>> steamProtonVersions;
 
     if (dir.exists()) {
         QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
 
         for (const QString& entry : entries) {
-            // Check if it's a valid Proton installation
             QString protonExe = protonPath + "/" + entry + "/proton";
             if (QFile::exists(protonExe)) {
                 if (entry.startsWith("proton-cachyos-")) {
-                    QString displayName = entry.mid(15);  // Remove "proton-cachyos-" prefix
+                    QString displayName = entry.mid(15);
                     cachyosVersions[displayName] = entry;
                 } else if (entry.startsWith("GE-Proton")) {
-                    QString displayName = entry.mid(3);  // Remove "GE-" prefix
+                    QString displayName = entry.mid(3);
                     geVersions[displayName] = entry;
                 }
             }
@@ -1010,42 +1076,40 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
             }
         }
 
-        // Limit to 3 newest Steam Proton versions
         if (steamProtonVersions.size() >= 3) {
             break;
         }
     }
 
-    // Add CachyOS versions (sorted by version number, newest first)
+    // ── Proton-CachyOS ─────────────────────────────────────────────────────
     if (!cachyosVersions.isEmpty()) {
+        addGroupHeader("— Proton-CachyOS —");
         QStringList sortedCachyos = cachyosVersions.keys();
         sortedCachyos.sort(Qt::CaseInsensitive);
         std::reverse(sortedCachyos.begin(), sortedCachyos.end());
 
         for (const QString& displayName : sortedCachyos) {
-            m_protonVersionSelector->addItem(displayName, cachyosVersions[displayName]);
+            addVersionItem(displayName, cachyosVersions[displayName]);
         }
-
-        m_protonVersionSelector->insertSeparator(m_protonVersionSelector->count());
     }
 
-    // Add GE-Proton versions (sorted by version number, newest first)
+    // ── GE-Proton ───────────────────────────────────────────────────────────
     if (!geVersions.isEmpty()) {
+        addGroupHeader("— GE-Proton —");
         QStringList sortedGe = geVersions.keys();
         sortedGe.sort(Qt::CaseInsensitive);
         std::reverse(sortedGe.begin(), sortedGe.end());
 
         for (const QString& displayName : sortedGe) {
-            m_protonVersionSelector->addItem(displayName, geVersions[displayName]);
+            addVersionItem(displayName, geVersions[displayName]);
         }
-
-        m_protonVersionSelector->insertSeparator(m_protonVersionSelector->count());
     }
 
-    // Add Steam Proton versions (limited to 3 newest)
+    // ── Steam Proton ────────────────────────────────────────────────────────
     if (!steamProtonVersions.isEmpty()) {
+        addGroupHeader("— Steam Proton —");
         for (const auto& pair : steamProtonVersions) {
-            m_protonVersionSelector->addItem(pair.first, pair.second);
+            addVersionItem(pair.first, pair.second);
         }
     }
 
