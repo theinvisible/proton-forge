@@ -42,9 +42,18 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Executable Selection**: Automatically detect or manually choose the correct game executable
 - **Launch Preview**: See exactly what environment variables will be set before launching
 
+### Proton Tweaks
+- **High Priority**: Set game process to high CPU scheduling priority (PROTON_PRIORITY_HIGH)
+- **NTSync**: Enable kernel-level Windows synchronization primitives for better multi-threaded performance (PROTON_USE_NTSYNC, requires Linux 6.14+)
+- **Debug Logging**: Enable Proton log output for troubleshooting (PROTON_LOG)
+
+### Overlay
+- **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues
+- **MangoHud**: Enable the MangoHud performance overlay for real-time FPS, CPU/GPU usage, temperatures, and frame time metrics
+
 ### Performance Tuning
 - **Frame Rate Limiting**: Set precise FPS caps (DXVK_FRAME_RATE)
-- **Smooth Motion**: Enable vsync enhancements for tear-free gaming
+- **Smooth Motion**: Enable driver level frame generation
 - **DLSS Upgrade**: Force newer DLSS DLL versions
 
 ### User Interface
