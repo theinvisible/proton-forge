@@ -415,23 +415,25 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
     if (!env.contains("DISPLAY")) {
         env.insert("DISPLAY", ":0");
     }
-    QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
-    QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
+    if (settings.enableSteamOverlay) {
+        QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
+        QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
 
-    QStringList preloads;
-    if (env.contains("LD_PRELOAD")) {
-        preloads << env.value("LD_PRELOAD");
-    }
+        QStringList preloads;
+        if (env.contains("LD_PRELOAD")) {
+            preloads << env.value("LD_PRELOAD");
+        }
 
-    if (QFile::exists(overlay64)) {
-        preloads << overlay64;
-    }
-    if (QFile::exists(overlay32)) {
-        preloads << overlay32;
-    }
+        if (QFile::exists(overlay64)) {
+            preloads << overlay64;
+        }
+        if (QFile::exists(overlay32)) {
+            preloads << overlay32;
+        }
 
-    if (!preloads.isEmpty()) {
-        env.insert("LD_PRELOAD", preloads.join(":"));
+        if (!preloads.isEmpty()) {
+            env.insert("LD_PRELOAD", preloads.join(":"));
+        }
     }
 
     // Create compat data directory if needed
@@ -566,24 +568,26 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
         env.insert("SteamGameId", game.id());
 
         // Setup Steam Overlay
-        QString steamRoot = steamPath();
-        QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
-        QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
+        if (settings.enableSteamOverlay) {
+            QString steamRoot = steamPath();
+            QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
+            QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
 
-        QStringList preloads;
-        if (env.contains("LD_PRELOAD")) {
-            preloads << env.value("LD_PRELOAD");
-        }
+            QStringList preloads;
+            if (env.contains("LD_PRELOAD")) {
+                preloads << env.value("LD_PRELOAD");
+            }
 
-        if (QFile::exists(overlay64)) {
-            preloads << overlay64;
-        }
-        if (QFile::exists(overlay32)) {
-            preloads << overlay32;
-        }
+            if (QFile::exists(overlay64)) {
+                preloads << overlay64;
+            }
+            if (QFile::exists(overlay32)) {
+                preloads << overlay32;
+            }
 
-        if (!preloads.isEmpty()) {
-            env.insert("LD_PRELOAD", preloads.join(":"));
+            if (!preloads.isEmpty()) {
+                env.insert("LD_PRELOAD", preloads.join(":"));
+            }
         }
     }
 

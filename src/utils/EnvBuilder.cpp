@@ -128,6 +128,11 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << "PROTON_LOG=1";
     }
 
+    // Overlay
+    if (settings.enableMangoHud) {
+        envVars << "MANGOHUD=1";
+    }
+
     // Append %command% for Steam launch options
     envVars << "%command%";
 
@@ -193,6 +198,11 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     }
     if (settings.protonLog) {
         env.insert("PROTON_LOG", "1");
+    }
+
+    // Overlay
+    if (settings.enableMangoHud) {
+        env.insert("MANGOHUD", "1");
     }
 
     return env;

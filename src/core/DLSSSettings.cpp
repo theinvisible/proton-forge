@@ -46,6 +46,10 @@ QJsonObject DLSSSettings::toJson() const
     json["protonUseNTSync"] = protonUseNTSync;
     json["protonLog"] = protonLog;
 
+    // Overlay
+    json["enableSteamOverlay"] = enableSteamOverlay;
+    json["enableMangoHud"] = enableMangoHud;
+
     // Executable Selection
     if (!executablePath.isEmpty()) {
         json["executablePath"] = executablePath;
@@ -104,6 +108,10 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.protonPriorityHigh = json["protonPriorityHigh"].toBool(false);
     settings.protonUseNTSync = json["protonUseNTSync"].toBool(false);
     settings.protonLog = json["protonLog"].toBool(false);
+
+    // Overlay
+    settings.enableSteamOverlay = json["enableSteamOverlay"].toBool(true);
+    settings.enableMangoHud = json["enableMangoHud"].toBool(false);
 
     // Executable Selection
     settings.executablePath = json["executablePath"].toString();
@@ -188,6 +196,8 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            protonPriorityHigh == other.protonPriorityHigh &&
            protonUseNTSync == other.protonUseNTSync &&
            protonLog == other.protonLog &&
+           enableSteamOverlay == other.enableSteamOverlay &&
+           enableMangoHud == other.enableMangoHud &&
            executablePath == other.executablePath &&
            protonVersion == other.protonVersion;
 }

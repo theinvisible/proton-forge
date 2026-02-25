@@ -124,6 +124,7 @@ void DLSSSettingsWidget::setupUI()
     scrollLayout->addWidget(createFrameGenerationGroup());
     scrollLayout->addWidget(createUpgradeGroup());
     scrollLayout->addWidget(createSmoothMotionGroup());
+    scrollLayout->addWidget(createOverlayGroup());
     scrollLayout->addStretch();
 
     scrollArea->setWidget(scrollContent);
@@ -560,6 +561,35 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
     return group;
 }
 
+QGroupBox* DLSSSettingsWidget::createOverlayGroup()
+{
+    QGroupBox* group = new QGroupBox("Overlay", this);
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    m_enableSteamOverlay = new QCheckBox("Steam Overlay (gameoverlayrenderer.so)", this);
+    m_enableSteamOverlay->setToolTip(
+        "Enable the Steam Performance Overlay.\n\n"
+        "When enabled, gameoverlayrenderer.so is injected into the game via LD_PRELOAD. "
+        "It provides the Shift+Tab interface, notifications, and FPS counter.\n\n"
+        "When disabled, the .so is not loaded at all, which can improve performance "
+        "and fix compatibility issues in some games.");
+    layout->addWidget(m_enableSteamOverlay);
+
+    m_enableMangoHud = new QCheckBox("MangoHud (MANGOHUD)", this);
+    m_enableMangoHud->setToolTip(
+        "Enable MangoHud performance overlay.\n\n"
+        "MangoHud displays real-time performance metrics including FPS, CPU/GPU usage, "
+        "temperatures, frame times, and more. It is a Vulkan/OpenGL overlay similar to "
+        "MSI Afterburner.\n\n"
+        "Requires: MangoHud must be installed on your system (mangohud package).");
+    layout->addWidget(m_enableMangoHud);
+
+    connect(m_enableSteamOverlay, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableMangoHud, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+
+    return group;
+}
+
 QWidget* DLSSSettingsWidget::createActionsSection()
 {
     QWidget* widget = new QWidget(this);
@@ -670,6 +700,8 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_protonPriorityHigh->blockSignals(block);
     m_protonUseNTSync->blockSignals(block);
     m_protonLog->blockSignals(block);
+    m_enableSteamOverlay->blockSignals(block);
+    m_enableMangoHud->blockSignals(block);
 }
 
 void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
@@ -694,6 +726,10 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_protonPriorityHigh->setChecked(settings.protonPriorityHigh);
     m_protonUseNTSync->setChecked(settings.protonUseNTSync);
     m_protonLog->setChecked(settings.protonLog);
+
+    // Overlay
+    m_enableSteamOverlay->setChecked(settings.enableSteamOverlay);
+    m_enableMangoHud->setChecked(settings.enableMangoHud);
 
     // Super Resolution
     m_srOverride->setChecked(settings.srOverride);
@@ -785,6 +821,10 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.protonPriorityHigh = m_protonPriorityHigh->isChecked();
     settings.protonUseNTSync = m_protonUseNTSync->isChecked();
     settings.protonLog = m_protonLog->isChecked();
+
+    // Overlay
+    settings.enableSteamOverlay = m_enableSteamOverlay->isChecked();
+    settings.enableMangoHud = m_enableMangoHud->isChecked();
 
     // Super Resolution
     settings.srOverride = m_srOverride->isChecked();

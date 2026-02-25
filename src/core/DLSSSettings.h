@@ -51,6 +51,10 @@ public:
     bool protonUseNTSync = false;
     bool protonLog = false;
 
+    // Overlay
+    bool enableSteamOverlay = true;
+    bool enableMangoHud = false;
+
     // Executable Selection (user preference)
     QString executablePath;
 

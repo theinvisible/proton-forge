@@ -45,6 +45,7 @@ private:
     QGroupBox* createFrameGenerationGroup();
     QGroupBox* createUpgradeGroup();
     QGroupBox* createSmoothMotionGroup();
+    QGroupBox* createOverlayGroup();
     QWidget* createActionsSection();
 
     void styleComboBoxPopups();
@@ -105,6 +106,10 @@ private:
     QCheckBox* m_enableSmoothMotion;
     QCheckBox* m_enableFrameRateLimit;
     QSpinBox* m_targetFrameRate;
+
+    // Overlay
+    QCheckBox* m_enableSteamOverlay;
+    QCheckBox* m_enableMangoHud;
 
     // Launch command preview
     QTextEdit* m_launchCommandPreview;
