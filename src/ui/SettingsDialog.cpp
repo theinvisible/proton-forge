@@ -1,4 +1,5 @@
 #include "SettingsDialog.h"
+#include "AppStyle.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSplitter>
@@ -43,7 +44,7 @@ QIcon SettingsDialog::makeCategoryIcon(const QColor& color, const QString& lette
 
 void SettingsDialog::setupUI()
 {
-    // QPushButton styles are loaded from style.qss via class name "SettingsDialog"
+    setStyleSheet(AppStyle::dialogButtonStyle());
 
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 12);
@@ -187,8 +188,9 @@ QWidget* SettingsDialog::buildGithubPage()
     m_toggleTokenBtn->setFlat(true);
     m_toggleTokenBtn->setMinimumWidth(60);
     m_toggleTokenBtn->setStyleSheet(
-        "QPushButton { color: #76B900; border: none; background: transparent; }"
-        "QPushButton:hover { color: #9fe02a; }");
+        QString("QPushButton { color: %1; border: none; background: transparent; }"
+        "QPushButton:hover { color: %2; }")
+        .arg(AppStyle::ColorAccent, AppStyle::ColorAccentHover));
 
     connect(m_toggleTokenBtn, &QPushButton::clicked, this, [this]() {
         bool hidden = m_tokenEdit->echoMode() == QLineEdit::Password;

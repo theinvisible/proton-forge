@@ -1,4 +1,5 @@
 #include "GameListWidget.h"
+#include "AppStyle.h"
 #include "network/ImageCache.h"
 #include <QLabel>
 #include <QMenu>
@@ -227,6 +228,7 @@ GameListWidget::GameListWidget(QWidget* parent)
     refreshButton->setToolTip("Refresh game list");
     refreshButton->setText("\xe2\x9f\xb3");  // Unicode ⟳
     refreshButton->setStyleSheet(
+        QString(
         "QPushButton {"
         "  background-color: #2a2a2a;"
         "  border: 1px solid #3a3a3a;"
@@ -235,13 +237,14 @@ GameListWidget::GameListWidget(QWidget* parent)
         "  font-size: 18px;"
         "}"
         "QPushButton:hover {"
-        "  background-color: #383838;"
-        "  border-color: #76B900;"
-        "  color: #76B900;"
+        "  background-color: %1;"
+        "  border-color: %2;"
+        "  color: %2;"
         "}"
         "QPushButton:pressed {"
-        "  background-color: #1e1e1e;"
-        "}"
+        "  background-color: %3;"
+        "}")
+        .arg(AppStyle::ColorBgButtonHover, AppStyle::ColorAccent, AppStyle::ColorBgInput)
     );
     connect(refreshButton, &QPushButton::clicked, this, &GameListWidget::refreshRequested);
 

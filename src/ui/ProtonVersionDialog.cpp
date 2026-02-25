@@ -1,4 +1,5 @@
 #include "ProtonVersionDialog.h"
+#include "AppStyle.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QRegularExpression>
@@ -288,22 +289,18 @@ void ProtonVersionDialog::setupUI()
     QHBoxLayout* buttonLayout = new QHBoxLayout();
 
     m_deleteButton = new QPushButton("Delete Selected", this);
-    m_deleteButton->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px 16px; }");
+    m_deleteButton->setStyleSheet(AppStyle::dangerButtonStyle());
     buttonLayout->addWidget(m_deleteButton);
 
     buttonLayout->addStretch();
 
     m_cancelButton = new QPushButton("Cancel", this);
-    m_cancelButton->setStyleSheet(
-        "QPushButton { background-color: #333333; color: #cccccc; padding: 8px 16px;"
-        " border: 1px solid #555555; border-radius: 4px; }"
-        "QPushButton:hover { background-color: #404040; border: 1px solid #76B900; }"
-        "QPushButton:pressed { background-color: #2a2a2a; }");
+    m_cancelButton->setStyleSheet(AppStyle::dialogButtonStyle());
     buttonLayout->addWidget(m_cancelButton);
 
     m_installButton = new QPushButton("Install Selected", this);
     m_installButton->setDefault(true);
-    m_installButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 8px 16px; }");
+    m_installButton->setStyleSheet(AppStyle::successButtonStyle());
     buttonLayout->addWidget(m_installButton);
 
     mainLayout->addLayout(buttonLayout);

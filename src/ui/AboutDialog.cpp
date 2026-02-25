@@ -1,4 +1,5 @@
 #include "AboutDialog.h"
+#include "AppStyle.h"
 #include "Version.h"
 #include <QPainter>
 #include <QPainterPath>
@@ -176,7 +177,7 @@ AboutDialog::AboutDialog(QWidget* parent)
     setWindowTitle("About ProtonForge");
     setFixedWidth(420);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    // QPushButton styles are loaded from style.qss via class name "AboutDialog"
+    setStyleSheet(AppStyle::dialogButtonStyle());
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 16);

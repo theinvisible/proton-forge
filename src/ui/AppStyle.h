@@ -56,6 +56,33 @@ inline QString secondaryButtonStyle() {
         .arg(ColorBgButton, ColorTextPrimary, ColorBorder, ColorBgButtonHover, ColorAccent);
 }
 
+inline QString dangerButtonStyle() {
+    return QString(
+        "QPushButton { background-color: %1; color: white; padding: 8px 16px; "
+        "border: none; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #ff5252; }"
+        "QPushButton:pressed { background-color: #d32f2f; }")
+        .arg(ColorDangerButton);
+}
+
+inline QString successButtonStyle() {
+    return QString(
+        "QPushButton { background-color: %1; color: white; padding: 8px 16px; "
+        "border: none; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #66BB6A; }"
+        "QPushButton:pressed { background-color: #388E3C; }")
+        .arg(ColorSuccessButton);
+}
+
+inline QString dialogButtonStyle() {
+    return QString(
+        "QPushButton { background-color: #333333; color: #cccccc; padding: 8px 16px; "
+        "border: 1px solid #555555; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #404040; border: 1px solid %1; }"
+        "QPushButton:pressed { background-color: #2a2a2a; }")
+        .arg(ColorAccent);
+}
+
 inline QString comboPopupStyle() {
     return QString(
         "QAbstractItemView {"
