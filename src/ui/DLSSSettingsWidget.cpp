@@ -226,6 +226,37 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
 
     layout->addWidget(hdrOptionsWidget);
 
+    // Proton Tweaks
+    layout->addSpacing(10);
+    QLabel* tweaksLabel = new QLabel("Proton Tweaks:", this);
+    tweaksLabel->setStyleSheet("font-weight: bold; margin-top: 5px;");
+    layout->addWidget(tweaksLabel);
+
+    m_protonPriorityHigh = new QCheckBox("High Priority (PROTON_PRIORITY_HIGH)", this);
+    m_protonPriorityHigh->setToolTip(
+        "Set the game process to high scheduling priority.\n\n"
+        "Can reduce stuttering and improve frame pacing by giving the game "
+        "higher CPU priority over background processes.\n\n"
+        "Recommended: Enable if you experience micro-stutters or inconsistent frame times.");
+    layout->addWidget(m_protonPriorityHigh);
+
+    m_protonUseNTSync = new QCheckBox("Use NTSync (PROTON_USE_NTSYNC)", this);
+    m_protonUseNTSync->setToolTip(
+        "Enable NTSync for faster Windows synchronization primitives.\n\n"
+        "NTSync is a kernel-level replacement for wineserver-based synchronization. "
+        "It significantly reduces CPU overhead for thread synchronization, "
+        "which can improve performance in multi-threaded games.\n\n"
+        "Requires: Linux kernel 6.14+ with NTSync support enabled.");
+    layout->addWidget(m_protonUseNTSync);
+
+    m_protonLog = new QCheckBox("Enable Logging (PROTON_LOG)", this);
+    m_protonLog->setToolTip(
+        "Enable Proton debug logging.\n\n"
+        "Writes detailed log output to help diagnose issues with games running under Proton. "
+        "Log files are typically written to the game's prefix directory.\n\n"
+        "Note: May impact performance. Only enable for troubleshooting.");
+    layout->addWidget(m_protonLog);
+
     connect(m_enableNVAPI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
@@ -233,6 +264,9 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
     connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
     connect(m_enableProtonHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
     connect(m_enableHDRWSI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
+    connect(m_protonPriorityHigh, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_protonUseNTSync, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_protonLog, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
 
     return group;
 }
@@ -633,6 +667,9 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_enableSmoothMotion->blockSignals(block);
     m_enableFrameRateLimit->blockSignals(block);
     m_targetFrameRate->blockSignals(block);
+    m_protonPriorityHigh->blockSignals(block);
+    m_protonUseNTSync->blockSignals(block);
+    m_protonLog->blockSignals(block);
 }
 
 void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
@@ -652,6 +689,11 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_enableAllHDR->setChecked(settings.enableProtonWayland &&
                                settings.enableProtonHDR &&
                                settings.enableHDRWSI);
+
+    // Proton Tweaks
+    m_protonPriorityHigh->setChecked(settings.protonPriorityHigh);
+    m_protonUseNTSync->setChecked(settings.protonUseNTSync);
+    m_protonLog->setChecked(settings.protonLog);
 
     // Super Resolution
     m_srOverride->setChecked(settings.srOverride);
@@ -738,6 +780,11 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableProtonWayland = m_enableProtonWayland->isChecked();
     settings.enableProtonHDR = m_enableProtonHDR->isChecked();
     settings.enableHDRWSI = m_enableHDRWSI->isChecked();
+
+    // Proton Tweaks
+    settings.protonPriorityHigh = m_protonPriorityHigh->isChecked();
+    settings.protonUseNTSync = m_protonUseNTSync->isChecked();
+    settings.protonLog = m_protonLog->isChecked();
 
     // Super Resolution
     settings.srOverride = m_srOverride->isChecked();

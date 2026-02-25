@@ -117,6 +117,17 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << "ENABLE_HDR_WSI=1";
     }
 
+    // Proton Tweaks
+    if (settings.protonPriorityHigh) {
+        envVars << "PROTON_PRIORITY_HIGH=1";
+    }
+    if (settings.protonUseNTSync) {
+        envVars << "PROTON_USE_NTSYNC=1";
+    }
+    if (settings.protonLog) {
+        envVars << "PROTON_LOG=1";
+    }
+
     // Append %command% for Steam launch options
     envVars << "%command%";
 
@@ -171,6 +182,17 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     }
     if (settings.enableHDRWSI) {
         env.insert("ENABLE_HDR_WSI", "1");
+    }
+
+    // Proton Tweaks
+    if (settings.protonPriorityHigh) {
+        env.insert("PROTON_PRIORITY_HIGH", "1");
+    }
+    if (settings.protonUseNTSync) {
+        env.insert("PROTON_USE_NTSYNC", "1");
+    }
+    if (settings.protonLog) {
+        env.insert("PROTON_LOG", "1");
     }
 
     return env;

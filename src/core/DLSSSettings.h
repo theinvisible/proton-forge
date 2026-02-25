@@ -46,6 +46,11 @@ public:
     bool enableProtonHDR = false;
     bool enableHDRWSI = false;
 
+    // Proton Tweaks
+    bool protonPriorityHigh = false;
+    bool protonUseNTSync = false;
+    bool protonLog = false;
+
     // Executable Selection (user preference)
     QString executablePath;
 

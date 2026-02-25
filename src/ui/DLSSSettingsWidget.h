@@ -77,6 +77,11 @@ private:
     QCheckBox* m_enableProtonHDR;
     QCheckBox* m_enableHDRWSI;
 
+    // Proton Tweaks
+    QCheckBox* m_protonPriorityHigh;
+    QCheckBox* m_protonUseNTSync;
+    QCheckBox* m_protonLog;
+
     // Super Resolution
     QCheckBox* m_srOverride;
     QComboBox* m_srMode;

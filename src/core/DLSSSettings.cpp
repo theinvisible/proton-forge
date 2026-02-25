@@ -41,6 +41,11 @@ QJsonObject DLSSSettings::toJson() const
     json["enableProtonHDR"] = enableProtonHDR;
     json["enableHDRWSI"] = enableHDRWSI;
 
+    // Proton Tweaks
+    json["protonPriorityHigh"] = protonPriorityHigh;
+    json["protonUseNTSync"] = protonUseNTSync;
+    json["protonLog"] = protonLog;
+
     // Executable Selection
     if (!executablePath.isEmpty()) {
         json["executablePath"] = executablePath;
@@ -94,6 +99,11 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableProtonWayland = json["enableProtonWayland"].toBool(false);
     settings.enableProtonHDR = json["enableProtonHDR"].toBool(false);
     settings.enableHDRWSI = json["enableHDRWSI"].toBool(false);
+
+    // Proton Tweaks
+    settings.protonPriorityHigh = json["protonPriorityHigh"].toBool(false);
+    settings.protonUseNTSync = json["protonUseNTSync"].toBool(false);
+    settings.protonLog = json["protonLog"].toBool(false);
 
     // Executable Selection
     settings.executablePath = json["executablePath"].toString();
@@ -175,6 +185,9 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            enableProtonWayland == other.enableProtonWayland &&
            enableProtonHDR == other.enableProtonHDR &&
            enableHDRWSI == other.enableHDRWSI &&
+           protonPriorityHigh == other.protonPriorityHigh &&
+           protonUseNTSync == other.protonUseNTSync &&
+           protonLog == other.protonLog &&
            executablePath == other.executablePath &&
            protonVersion == other.protonVersion;
 }
