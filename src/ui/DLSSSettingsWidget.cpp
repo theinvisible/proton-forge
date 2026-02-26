@@ -1,4 +1,5 @@
 #include "DLSSSettingsWidget.h"
+#include "MangoHudDialog.h"
 #include "AppStyle.h"
 #include "network/ImageCache.h"
 #include "utils/EnvBuilder.h"
@@ -586,7 +587,28 @@ QGroupBox* DLSSSettingsWidget::createOverlayGroup()
         "temperatures, frame times, and more. It is a Vulkan/OpenGL overlay similar to "
         "MSI Afterburner.\n\n"
         "Requires: MangoHud must be installed on your system (mangohud package).");
-    layout->addWidget(m_enableMangoHud);
+
+    m_mangoHudConfigBtn = new QPushButton("Configure", this);
+    m_mangoHudConfigBtn->setStyleSheet(
+        QString("QPushButton { background-color: %1; color: %2; padding: 4px 12px; "
+                "border: 1px solid %3; border-radius: 4px; font-size: 11px; }"
+                "QPushButton:hover { background-color: %4; border: 1px solid %5; }")
+            .arg(AppStyle::ColorBgButton, AppStyle::ColorTextPrimary,
+                 AppStyle::ColorBorder, AppStyle::ColorBgButtonHover, AppStyle::ColorAccent));
+    m_mangoHudConfigBtn->setVisible(false);
+
+    auto* mangoRow = new QHBoxLayout;
+    mangoRow->setSpacing(8);
+    mangoRow->addWidget(m_enableMangoHud);
+    mangoRow->addWidget(m_mangoHudConfigBtn);
+    mangoRow->addStretch();
+    layout->addLayout(mangoRow);
+
+    connect(m_enableMangoHud, &QCheckBox::toggled, m_mangoHudConfigBtn, &QPushButton::setVisible);
+    connect(m_mangoHudConfigBtn, &QPushButton::clicked, this, [this]() {
+        MangoHudDialog dialog(this);
+        dialog.exec();
+    });
 
     connect(m_enableSteamOverlay, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableMangoHud, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
@@ -734,6 +756,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     // Overlay
     m_enableSteamOverlay->setChecked(settings.enableSteamOverlay);
     m_enableMangoHud->setChecked(settings.enableMangoHud);
+    m_mangoHudConfigBtn->setVisible(settings.enableMangoHud);
 
     // Super Resolution
     m_srOverride->setChecked(settings.srOverride);

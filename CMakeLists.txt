@@ -39,6 +39,7 @@ set(SOURCES
     src/ui/SystemInfoDialog.cpp
     src/ui/SettingsDialog.cpp
     src/ui/AboutDialog.cpp
+    src/ui/MangoHudDialog.cpp
 )
 
 set(HEADERS
@@ -65,6 +66,7 @@ set(HEADERS
     src/ui/SettingsDialog.h
     src/ui/AboutDialog.h
     src/ui/AppStyle.h
+    src/ui/MangoHudDialog.h
 )
 
 set(RESOURCES

@@ -6,6 +6,7 @@
 #include "ui/ProtonVersionDialog.h"
 #include "ui/SettingsDialog.h"
 #include "ui/AboutDialog.h"
+#include "ui/MangoHudDialog.h"
 #include "Version.h"
 #include <QMenuBar>
 #include <QToolBar>
@@ -227,6 +228,14 @@ void MainWindow::setupMenuBar()
         QString path = ProtonManager::protonCachyOSPath();
         QDir().mkpath(path);  // Ensure directory exists
         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    });
+
+    toolsMenu->addSeparator();
+
+    QAction* mangoHudAction = toolsMenu->addAction(QIcon(":/icons/settings.svg"), "MangoHud Configuration...");
+    connect(mangoHudAction, &QAction::triggered, this, [this]() {
+        MangoHudDialog dialog(this);
+        dialog.exec();
     });
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");

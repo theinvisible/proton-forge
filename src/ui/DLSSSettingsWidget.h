@@ -112,6 +112,7 @@ private:
     // Overlay
     QCheckBox* m_enableSteamOverlay;
     QCheckBox* m_enableMangoHud;
+    QPushButton* m_mangoHudConfigBtn;
 
     // Launch command preview
     QTextEdit* m_launchCommandPreview;
