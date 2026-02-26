@@ -32,6 +32,10 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
     // Connect executable watcher to update UI when search completes
     connect(m_executableWatcher, &QFutureWatcher<QStringList>::finished,
             this, [this]() {
+        // Ignore results from a cancelled/outdated search
+        if (m_cancelFlag && m_cancelFlag->load()) {
+            return;
+        }
         QStringList executables = m_executableWatcher->result();
         updateExecutableSelectorWithResults(executables);
     });
@@ -959,19 +963,23 @@ void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
     m_executableSelector->setEnabled(false);
     m_executableSelector->blockSignals(false);
 
-    // Cancel any previous search
-    if (m_executableWatcher->isRunning()) {
-        m_executableWatcher->cancel();
-        m_executableWatcher->waitForFinished();
+    // Signal any previous search to stop
+    if (m_cancelFlag) {
+        m_cancelFlag->store(true);
     }
+
+    // Increment generation so stale results are ignored
+    unsigned int generation = ++m_searchGeneration;
+    auto cancelFlag = std::make_shared<std::atomic<bool>>(false);
+    m_cancelFlag = cancelFlag;
 
     // Start async search in background thread
     QString installPath = game.installPath();
     bool isLinux = game.isNativeLinux();
 
-    QFuture<QStringList> future = QtConcurrent::run([this, installPath, isLinux]() {
+    QFuture<QStringList> future = QtConcurrent::run([this, installPath, isLinux, cancelFlag]() {
         if (isLinux) {
-            return findLinuxExecutables(installPath);
+            return findLinuxExecutables(installPath, cancelFlag);
         } else {
             return findWindowsExecutables(installPath);
         }
@@ -1283,12 +1291,15 @@ bool DLSSSettingsWidget::isElfExecutable(const QString& filePath) const
     return false;
 }
 
-QStringList DLSSSettingsWidget::findLinuxExecutables(const QString& installPath) const
+QStringList DLSSSettingsWidget::findLinuxExecutables(const QString& installPath, std::shared_ptr<std::atomic<bool>> cancelFlag) const
 {
     QStringList executables;
     QDirIterator it(installPath, QDir::Files, QDirIterator::Subdirectories);
 
     while (it.hasNext()) {
+        if (cancelFlag && cancelFlag->load()) {
+            return executables;
+        }
         QString path = it.next();
         QFileInfo fileInfo(path);
         QString filename = fileInfo.fileName().toLower();

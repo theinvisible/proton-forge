@@ -10,6 +10,8 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QFutureWatcher>
+#include <atomic>
+#include <memory>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
 
@@ -54,7 +56,7 @@ private:
     void updateExecutableSelectorWithResults(const QStringList& executables);
     void populateProtonVersionSelector();
     QStringList findWindowsExecutables(const QString& installPath) const;
-    QStringList findLinuxExecutables(const QString& installPath) const;
+    QStringList findLinuxExecutables(const QString& installPath, std::shared_ptr<std::atomic<bool>> cancelFlag = nullptr) const;
     QString findBestExecutable(const Game& game, const QStringList& executables) const;
     bool isElfExecutable(const QString& filePath) const;
     bool checkAndWarnHDRStatus();
@@ -122,6 +124,8 @@ private:
     Game m_currentGame;
     QFutureWatcher<QStringList>* m_executableWatcher;
     QString m_savedExecutablePath;  // Store saved selection during async search
+    unsigned int m_searchGeneration = 0;
+    std::shared_ptr<std::atomic<bool>> m_cancelFlag;
 };
 
 #endif // DLSSSETTINGSWIDGET_H
