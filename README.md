@@ -50,6 +50,8 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 ### Overlay
 - **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues
 - **MangoHud**: Enable the MangoHud performance overlay for real-time FPS, CPU/GPU usage, temperatures, and frame time metrics
+- **MangoHud Configuration**: Built-in GUI editor for `~/.config/MangoHud/MangoHud.conf` — configure display metrics, appearance, position, logging, and more without editing config files manually (accessible per-game via Configure button or globally via Tools menu)
+- **Installation Detection**: Automatically detects whether MangoHud is installed and disables the option with a helpful message if not
 
 ### Performance Tuning
 - **Frame Rate Limiting**: Set precise FPS caps (DXVK_FRAME_RATE)

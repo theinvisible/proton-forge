@@ -7,6 +7,11 @@
 #include <QLabel>
 #include <QScrollArea>
 #include <QProcess>
+#include <QRegularExpression>
+#include <QFileDialog>
+#include "utils/CPUDetector.h"
+#include "utils/GPUDetector.h"
+#include "utils/NvidiaGPUDetector.h"
 #include <QPushButton>
 #include <QFile>
 #include <QTextStream>
@@ -136,12 +141,44 @@ static void addRow(QVBoxLayout* layout, const QString& label, QWidget* widget)
     layout->addLayout(row);
 }
 
+static QPushButton* makeDetectButton()
+{
+    auto* btn = new QPushButton("Detect");
+    btn->setStyleSheet(
+        QString("QPushButton { background-color: %1; color: %2; padding: 4px 10px; "
+                "border: 1px solid %3; border-radius: 4px; font-size: 11px; }"
+                "QPushButton:hover { background-color: %4; border: 1px solid %5; }")
+            .arg(AppStyle::ColorBgButton, AppStyle::ColorTextPrimary,
+                 AppStyle::ColorBorder, AppStyle::ColorBgButtonHover, AppStyle::ColorAccent));
+    return btn;
+}
+
+static QString shortenCpuName(const QString& name)
+{
+    QString s = name;
+    // Remove common verbose suffixes
+    s.remove(QRegularExpression("\\s*\\d+-Core Processor$", QRegularExpression::CaseInsensitiveOption));
+    s.remove(QRegularExpression("\\s*with Radeon.*$", QRegularExpression::CaseInsensitiveOption));
+    s.remove(QRegularExpression("\\s*@ \\d+\\.\\d+GHz$"));
+    s.remove("(R)").remove("(TM)").remove("(tm)");
+    s.remove("CPU ");
+    return s.simplified();
+}
+
+static QString shortenGpuName(const QString& name)
+{
+    QString s = name;
+    s.remove("NVIDIA ").remove("GeForce ");
+    return s.simplified();
+}
+
 QGroupBox* MangoHudDialog::createPerformanceGroup()
 {
     auto* group = makeGroup("Performance");
     auto* layout = new QVBoxLayout(group);
 
     m_fpsLimitEnabled = new QCheckBox("FPS Limit:");
+    m_fpsLimitEnabled->setMinimumWidth(110);
     m_fpsLimit = makeLineEdit("e.g. 0,30,60");
     m_fpsLimit->setEnabled(false);
     auto* fpsRow = new QHBoxLayout;
@@ -151,6 +188,7 @@ QGroupBox* MangoHudDialog::createPerformanceGroup()
     connect(m_fpsLimitEnabled, &QCheckBox::toggled, m_fpsLimit, &QWidget::setEnabled);
 
     m_vsyncEnabled = new QCheckBox("VSync:");
+    m_vsyncEnabled->setMinimumWidth(110);
     m_vsync = new QComboBox;
     m_vsync->addItem("Adaptive", 0);
     m_vsync->addItem("Off", 1);
@@ -182,7 +220,21 @@ QGroupBox* MangoHudDialog::createCpuGroup()
     layout->addWidget(m_cpuMhz);
 
     m_cpuText = makeLineEdit("e.g. Ryzen 9 7950X");
-    addRow(layout, "CPU Label:", m_cpuText);
+    auto* cpuDetectBtn = makeDetectButton();
+    auto* cpuLabelRow = new QHBoxLayout;
+    auto* cpuLbl = new QLabel("CPU Label:");
+    cpuLbl->setStyleSheet(QString("color: %1;").arg(AppStyle::ColorTextSecondary));
+    cpuLbl->setMinimumWidth(130);
+    cpuLabelRow->addWidget(cpuLbl);
+    cpuLabelRow->addWidget(m_cpuText, 1);
+    cpuLabelRow->addWidget(cpuDetectBtn);
+    layout->addLayout(cpuLabelRow);
+
+    connect(cpuDetectBtn, &QPushButton::clicked, this, [this]() {
+        CPUInfo info = CPUDetector::detect();
+        if (!info.modelName.isEmpty())
+            m_cpuText->setText(shortenCpuName(info.modelName));
+    });
 
     return group;
 }
@@ -209,7 +261,21 @@ QGroupBox* MangoHudDialog::createGpuGroup()
     layout->addWidget(m_vulkanDriver);
 
     m_gpuText = makeLineEdit("e.g. RTX 4090");
-    addRow(layout, "GPU Label:", m_gpuText);
+    auto* gpuDetectBtn = makeDetectButton();
+    auto* gpuLabelRow = new QHBoxLayout;
+    auto* gpuLbl = new QLabel("GPU Label:");
+    gpuLbl->setStyleSheet(QString("color: %1;").arg(AppStyle::ColorTextSecondary));
+    gpuLbl->setMinimumWidth(130);
+    gpuLabelRow->addWidget(gpuLbl);
+    gpuLabelRow->addWidget(m_gpuText, 1);
+    gpuLabelRow->addWidget(gpuDetectBtn);
+    layout->addLayout(gpuLabelRow);
+
+    connect(gpuDetectBtn, &QPushButton::clicked, this, [this]() {
+        QList<GPUInfo> gpus = GPUDetector::detectAllGPUs();
+        if (!gpus.isEmpty())
+            m_gpuText->setText(shortenGpuName(gpus.first().name));
+    });
 
     return group;
 }
@@ -300,6 +366,7 @@ QGroupBox* MangoHudDialog::createLoggingGroup()
     auto* layout = new QVBoxLayout(group);
 
     m_autostartLogEnabled = new QCheckBox("Auto-start Log:");
+    m_autostartLogEnabled->setMinimumWidth(130);
     m_autostartLog = new QSpinBox;
     m_autostartLog->setRange(0, 3600);
     m_autostartLog->setSpecialValueText("Disabled");
@@ -312,6 +379,7 @@ QGroupBox* MangoHudDialog::createLoggingGroup()
     connect(m_autostartLogEnabled, &QCheckBox::toggled, m_autostartLog, &QWidget::setEnabled);
 
     m_logDurationEnabled = new QCheckBox("Log Duration:");
+    m_logDurationEnabled->setMinimumWidth(130);
     m_logDuration = new QSpinBox;
     m_logDuration->setRange(0, 86400);
     m_logDuration->setSpecialValueText("Unlimited");
@@ -324,13 +392,25 @@ QGroupBox* MangoHudDialog::createLoggingGroup()
     connect(m_logDurationEnabled, &QCheckBox::toggled, m_logDuration, &QWidget::setEnabled);
 
     m_outputFolderEnabled = new QCheckBox("Output Folder:");
+    m_outputFolderEnabled->setMinimumWidth(130);
     m_outputFolder = makeLineEdit("/home/user/mangologs");
     m_outputFolder->setEnabled(false);
+    auto* browseBtn = makeDetectButton();
+    browseBtn->setText("Browse");
+    browseBtn->setEnabled(false);
     auto* outFolderRow = new QHBoxLayout;
     outFolderRow->addWidget(m_outputFolderEnabled);
     outFolderRow->addWidget(m_outputFolder, 1);
+    outFolderRow->addWidget(browseBtn);
     layout->addLayout(outFolderRow);
     connect(m_outputFolderEnabled, &QCheckBox::toggled, m_outputFolder, &QWidget::setEnabled);
+    connect(m_outputFolderEnabled, &QCheckBox::toggled, browseBtn, &QWidget::setEnabled);
+    connect(browseBtn, &QPushButton::clicked, this, [this]() {
+        QString dir = QFileDialog::getExistingDirectory(this, "Select Log Output Folder",
+            m_outputFolder->text().isEmpty() ? QDir::homePath() : m_outputFolder->text());
+        if (!dir.isEmpty())
+            m_outputFolder->setText(dir);
+    });
 
     return group;
 }
