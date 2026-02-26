@@ -588,6 +588,12 @@ QGroupBox* DLSSSettingsWidget::createOverlayGroup()
         "MSI Afterburner.\n\n"
         "Requires: MangoHud must be installed on your system (mangohud package).");
 
+    if (!MangoHudDialog::isMangoHudInstalled()) {
+        m_enableMangoHud->setEnabled(false);
+        m_enableMangoHud->setToolTip("MangoHud is not installed.\n\n"
+            "Install the mangohud package to enable this feature.");
+    }
+
     m_mangoHudConfigBtn = new QPushButton("Configure", this);
     m_mangoHudConfigBtn->setStyleSheet(
         QString("QPushButton { background-color: %1; color: %2; padding: 4px 12px; "
@@ -755,8 +761,9 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
 
     // Overlay
     m_enableSteamOverlay->setChecked(settings.enableSteamOverlay);
-    m_enableMangoHud->setChecked(settings.enableMangoHud);
-    m_mangoHudConfigBtn->setVisible(settings.enableMangoHud);
+    bool mangoAvailable = MangoHudDialog::isMangoHudInstalled();
+    m_enableMangoHud->setChecked(mangoAvailable && settings.enableMangoHud);
+    m_mangoHudConfigBtn->setVisible(mangoAvailable && settings.enableMangoHud);
 
     // Super Resolution
     m_srOverride->setChecked(settings.srOverride);

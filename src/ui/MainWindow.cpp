@@ -234,6 +234,12 @@ void MainWindow::setupMenuBar()
 
     QAction* mangoHudAction = toolsMenu->addAction(QIcon(":/icons/settings.svg"), "MangoHud Configuration...");
     connect(mangoHudAction, &QAction::triggered, this, [this]() {
+        if (!MangoHudDialog::isMangoHudInstalled()) {
+            QMessageBox::warning(this, "MangoHud Not Found",
+                "MangoHud is not installed on your system.\n\n"
+                "Please install the mangohud package to use this feature.");
+            return;
+        }
         MangoHudDialog dialog(this);
         dialog.exec();
     });

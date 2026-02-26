@@ -6,6 +6,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QScrollArea>
+#include <QProcess>
 #include <QPushButton>
 #include <QFile>
 #include <QTextStream>
@@ -17,10 +18,18 @@ MangoHudDialog::MangoHudDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle("MangoHud Configuration");
-    setMinimumSize(520, 600);
-    resize(560, 720);
+    setMinimumSize(850, 550);
+    resize(920, 650);
     setupUI();
     loadConfig();
+}
+
+bool MangoHudDialog::isMangoHudInstalled()
+{
+    QProcess process;
+    process.start("which", {"mangohud"});
+    process.waitForFinished(1000);
+    return process.exitCode() == 0;
 }
 
 QString MangoHudDialog::configFilePath() const
@@ -48,18 +57,29 @@ void MangoHudDialog::setupUI()
             .arg(AppStyle::ColorBgBase, AppStyle::ColorBorder));
 
     auto* contentWidget = new QWidget;
-    auto* contentLayout = new QVBoxLayout(contentWidget);
+    auto* contentLayout = new QHBoxLayout(contentWidget);
     contentLayout->setContentsMargins(16, 16, 16, 16);
-    contentLayout->setSpacing(12);
+    contentLayout->setSpacing(16);
 
-    contentLayout->addWidget(createPerformanceGroup());
-    contentLayout->addWidget(createCpuGroup());
-    contentLayout->addWidget(createGpuGroup());
-    contentLayout->addWidget(createMetricsGroup());
-    contentLayout->addWidget(createSystemGroup());
-    contentLayout->addWidget(createAppearanceGroup());
-    contentLayout->addWidget(createLoggingGroup());
-    contentLayout->addStretch();
+    // Left column
+    auto* leftColumn = new QVBoxLayout;
+    leftColumn->setSpacing(12);
+    leftColumn->addWidget(createPerformanceGroup());
+    leftColumn->addWidget(createCpuGroup());
+    leftColumn->addWidget(createGpuGroup());
+    leftColumn->addStretch();
+
+    // Right column
+    auto* rightColumn = new QVBoxLayout;
+    rightColumn->setSpacing(12);
+    rightColumn->addWidget(createMetricsGroup());
+    rightColumn->addWidget(createSystemGroup());
+    rightColumn->addWidget(createAppearanceGroup());
+    rightColumn->addWidget(createLoggingGroup());
+    rightColumn->addStretch();
+
+    contentLayout->addLayout(leftColumn, 1);
+    contentLayout->addLayout(rightColumn, 1);
 
     scrollArea->setWidget(contentWidget);
     mainLayout->addWidget(scrollArea, 1);

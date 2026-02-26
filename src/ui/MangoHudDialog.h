@@ -16,6 +16,8 @@ class MangoHudDialog : public QDialog {
 public:
     explicit MangoHudDialog(QWidget* parent = nullptr);
 
+    static bool isMangoHudInstalled();
+
 private slots:
     void saveConfig();
 
