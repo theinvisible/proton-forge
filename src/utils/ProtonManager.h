@@ -86,6 +86,10 @@ private:
     void fetchLatestRelease();
     void fetchReleases(int count = 5);
     void fetchProtonGEReleases(int count = 5);
+    // Append locally installed Proton-CachyOS and Proton-GE versions that are not
+    // present in `releases` as entries with an empty downloadUrl (non-installable,
+    // but still deletable via deleteProtonVersion).
+    void appendInstalledOnlyReleases(QList<ProtonRelease>& releases) const;
     void downloadRelease(const ProtonRelease& release);
     void extractArchive(const QString& archivePath, const ProtonRelease& release);
     ProtonRelease parseLatestRelease(const QByteArray& jsonData);

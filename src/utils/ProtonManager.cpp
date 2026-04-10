@@ -10,6 +10,8 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QRegularExpression>
+#include <QSet>
+#include <algorithm>
 
 ProtonManager& ProtonManager::instance()
 {
@@ -366,6 +368,7 @@ void ProtonManager::fetchReleases(int count)
         if (m_pendingRequests == 0) {
             // Combine CachyOS and GE releases
             m_availableReleases = m_pendingCachyOSReleases + m_availableReleases;
+            appendInstalledOnlyReleases(m_availableReleases);
             emit availableVersionsFetched(m_availableReleases);
         }
     });
@@ -395,12 +398,88 @@ void ProtonManager::fetchProtonGEReleases(int count)
         if (m_pendingRequests == 0) {
             // Combine CachyOS and GE releases
             m_availableReleases = m_pendingCachyOSReleases + geReleases;
+            appendInstalledOnlyReleases(m_availableReleases);
             emit availableVersionsFetched(m_availableReleases);
         } else {
             // Store GE releases temporarily
             m_availableReleases = geReleases;
         }
     });
+}
+
+void ProtonManager::appendInstalledOnlyReleases(QList<ProtonRelease>& releases) const
+{
+    QDir dir(protonCachyOSPath());
+    if (!dir.exists())
+        return;
+
+    QSet<QString> fetchedCachyOS;
+    QSet<QString> fetchedGE;
+    for (const ProtonRelease& r : releases) {
+        if (r.versionNumber.isNull())
+            continue;
+        const QString key = r.versionNumber.toString();
+        if (r.type == ProtonCachyOS)
+            fetchedCachyOS.insert(key);
+        else if (r.type == ProtonGE)
+            fetchedGE.insert(key);
+    }
+
+    QList<ProtonRelease> installedCachyOS;
+    QList<ProtonRelease> installedGE;
+
+    const QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& entry : entries) {
+        const QString protonExe = protonCachyOSPath() + "/" + entry + "/proton";
+        if (!QFile::exists(protonExe))
+            continue;
+
+        if (entry.startsWith("proton-cachyos", Qt::CaseInsensitive)) {
+            QVersionNumber v = parseVersion(entry);
+            if (v.isNull() || fetchedCachyOS.contains(v.toString()))
+                continue;
+
+            ProtonRelease r;
+            r.type          = ProtonCachyOS;
+            r.fileName      = entry + ".tar.xz";
+            r.versionNumber = v;
+
+            QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+))");
+            QRegularExpressionMatch match = regex.match(entry);
+            if (match.hasMatch()) {
+                r.version     = match.captured(1) + "-" + match.captured(2);
+                r.displayName = QString("Proton-CachyOS %1 (%2)")
+                                    .arg(match.captured(1), match.captured(2));
+            } else {
+                r.version     = entry;
+                r.displayName = QString("Proton-CachyOS %1").arg(entry);
+            }
+
+            installedCachyOS.append(r);
+        } else if (entry.startsWith("GE-Proton", Qt::CaseInsensitive)) {
+            QVersionNumber v = parseProtonGEVersion(entry);
+            if (v.isNull() || fetchedGE.contains(v.toString()))
+                continue;
+
+            ProtonRelease r;
+            r.type          = ProtonGE;
+            r.fileName      = entry + ".tar.gz";
+            r.versionNumber = v;
+            r.version       = entry;
+            r.displayName   = QString("Proton-GE %1").arg(entry);
+
+            installedGE.append(r);
+        }
+    }
+
+    auto byVersionDesc = [](const ProtonRelease& a, const ProtonRelease& b) {
+        return a.versionNumber > b.versionNumber;
+    };
+    std::sort(installedCachyOS.begin(), installedCachyOS.end(), byVersionDesc);
+    std::sort(installedGE.begin(), installedGE.end(), byVersionDesc);
+
+    releases.append(installedCachyOS);
+    releases.append(installedGE);
 }
 
 QList<ProtonManager::ProtonRelease> ProtonManager::parseProtonGEReleases(const QByteArray& jsonData, int maxCount)

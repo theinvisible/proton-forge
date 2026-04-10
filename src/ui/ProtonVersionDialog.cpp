@@ -351,13 +351,18 @@ void ProtonVersionDialog::updateVersionList()
 {
     m_versionList->clear();
 
-    bool isFirst = true;
+    bool latestAssigned = false;
     for (const ProtonManager::ProtonRelease& release : m_releases) {
         if (release.type != m_selectedType) {
             continue;
         }
 
-        const bool installed = isVersionInstalled(release);
+        const bool installed   = isVersionInstalled(release);
+        const bool installable = !release.downloadUrl.isEmpty();
+        const bool isLatest    = installable && !latestAssigned;
+        if (isLatest) {
+            latestAssigned = true;
+        }
         QString versionText, dateText;
 
         if (release.type == ProtonManager::ProtonCachyOS) {
@@ -379,11 +384,9 @@ void ProtonVersionDialog::updateVersionList()
         QListWidgetItem* item = new QListWidgetItem(versionText, m_versionList);
         item->setData(Qt::UserRole,      QVariant::fromValue(release));
         item->setData(RoleIsInstalled,   installed);
-        item->setData(RoleIsLatest,      isFirst);
+        item->setData(RoleIsLatest,      isLatest);
         item->setData(RoleVersionText,   versionText);
         item->setData(RoleDateText,      dateText);
-
-        isFirst = false;
     }
 
     if (m_versionList->count() > 0) {
@@ -544,9 +547,10 @@ void ProtonVersionDialog::updateButtonStates()
 
     if (hasSelection) {
         ProtonManager::ProtonRelease release = item->data(Qt::UserRole).value<ProtonManager::ProtonRelease>();
-        bool installed = isVersionInstalled(release);
+        bool installed   = isVersionInstalled(release);
+        bool installable = !release.downloadUrl.isEmpty();
 
-        m_installButton->setEnabled(true);
+        m_installButton->setEnabled(installable);
         m_deleteButton->setEnabled(installed);
     } else {
         m_installButton->setEnabled(false);
