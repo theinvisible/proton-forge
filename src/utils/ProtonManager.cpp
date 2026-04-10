@@ -1,4 +1,5 @@
 #include "ProtonManager.h"
+#include "SteamPaths.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -31,7 +32,10 @@ ProtonManager::ProtonManager()
 
 QString ProtonManager::protonCachyOSPath()
 {
-    return QDir::homePath() + "/.steam/root/compatibilitytools.d";
+    // Despite the historical name, this returns the compatibilitytools.d
+    // directory of whichever Steam install (native or Flatpak) was detected.
+    // New Proton installs land here via extractArchive().
+    return SteamPaths::defaultInstallCompatPath();
 }
 
 bool ProtonManager::isProtonCachyOSInstalled() const

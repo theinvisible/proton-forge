@@ -26,6 +26,7 @@ set(SOURCES
     src/launchers/SteamLauncher.cpp
     src/utils/EnvBuilder.cpp
     src/utils/ProtonManager.cpp
+    src/utils/SteamPaths.cpp
     src/utils/CPUDetector.cpp
     src/utils/HDRChecker.cpp
     src/utils/GPUDetector.cpp
@@ -52,6 +53,7 @@ set(HEADERS
     src/launchers/SteamLauncher.h
     src/utils/EnvBuilder.h
     src/utils/ProtonManager.h
+    src/utils/SteamPaths.h
     src/utils/CPUDetector.h
     src/utils/HDRChecker.h
     src/utils/GPUDetector.h

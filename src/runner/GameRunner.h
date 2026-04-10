@@ -26,7 +26,6 @@ signals:
     void launchError(const Game& game, const QString& error);
 
 private:
-    QString steamPath() const;
     QString findDefaultProton() const;
     QString findLatestSteamProton() const;
     QString findProtonFromConfig(const QString& appId) const;

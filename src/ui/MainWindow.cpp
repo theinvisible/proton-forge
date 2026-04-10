@@ -3,6 +3,7 @@
 #include "core/SettingsManager.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/SteamPaths.h"
 #include "ui/ProtonVersionDialog.h"
 #include "ui/SettingsDialog.h"
 #include "ui/AboutDialog.h"
@@ -277,6 +278,7 @@ void MainWindow::loadGames()
 void MainWindow::refreshGameList()
 {
     statusBar()->showMessage("Refreshing game list...");
+    SteamPaths::invalidateCache();
     loadGames();
 }
 

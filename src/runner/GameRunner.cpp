@@ -1,6 +1,7 @@
 #include "GameRunner.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/SteamPaths.h"
 #include "parsers/VDFParser.h"
 #include "launchers/SteamLauncher.h"
 #include <QDir>
@@ -15,23 +16,6 @@ GameRunner::GameRunner(QObject* parent)
 {
 }
 
-QString GameRunner::steamPath() const
-{
-    QStringList possiblePaths = {
-        QDir::homePath() + "/.steam/steam",
-        QDir::homePath() + "/.local/share/Steam",
-        QDir::homePath() + "/.steam/debian-installation"
-    };
-
-    for (const QString& path : possiblePaths) {
-        if (QDir(path).exists()) {
-            return path;
-        }
-    }
-
-    return QDir::homePath() + "/.steam/steam";
-}
-
 QString GameRunner::getCompatDataPath(const Game& game)
 {
     // Compat data is stored in the same library as the game
@@ -40,23 +24,19 @@ QString GameRunner::getCompatDataPath(const Game& game)
 
 QString GameRunner::findDefaultProton() const
 {
-    QString steam = steamPath();
-
     // Get all Steam library paths
     QStringList libraryPaths = SteamLauncher::libraryPaths();
 
     // Build list of directories to check for Proton
     QStringList protonDirs;
-    // First check compatibilitytools.d in main Steam directory
-    protonDirs << steam + "/compatibilitytools.d";
+    // First check compatibilitytools.d in the detected Steam directory
+    const QString compatTools = SteamPaths::compatibilityToolsPath();
+    if (!compatTools.isEmpty()) {
+        protonDirs << compatTools;
+    }
 
     // Add common folders from all libraries
     for (const QString& libPath : libraryPaths) {
-        // Extract base path (remove /steamapps)
-        QString basePath = libPath;
-        if (basePath.endsWith("/steamapps")) {
-            basePath.chop(10); // Remove "/steamapps"
-        }
         protonDirs << libPath + "/common";
     }
 
@@ -97,8 +77,6 @@ QString GameRunner::findDefaultProton() const
 
 QString GameRunner::findLatestSteamProton() const
 {
-    QString steam = steamPath();
-
     // Get all Steam library paths
     QStringList libraryPaths = SteamLauncher::libraryPaths();
 
@@ -143,7 +121,10 @@ QString GameRunner::findLatestSteamProton() const
 QString GameRunner::findProtonFromConfig(const QString& appId) const
 {
     // Check Steam config for per-game Proton setting
-    QString configPath = steamPath() + "/config/config.vdf";
+    const QString configPath = SteamPaths::configVdfPath();
+    if (configPath.isEmpty()) {
+        return QString();
+    }
 
     VDFParser parser;
     if (!parser.parseFile(configPath)) {
@@ -178,8 +159,8 @@ QString GameRunner::findProtonFromConfig(const QString& appId) const
     }
 
     // Find the tool path
-    QString steamApps = steamPath() + "/steamapps/common";
-    QString compatTools = steamPath() + "/compatibilitytools.d";
+    const QString steamApps = SteamPaths::steamAppsPath() + "/common";
+    const QString compatTools = SteamPaths::compatibilityToolsPath();
 
     // Check steamapps/common first
     QString toolPath = steamApps + "/" + toolName;
@@ -188,9 +169,11 @@ QString GameRunner::findProtonFromConfig(const QString& appId) const
     }
 
     // Check compatibilitytools.d
-    toolPath = compatTools + "/" + toolName;
-    if (QFile::exists(toolPath + "/proton")) {
-        return toolPath;
+    if (!compatTools.isEmpty()) {
+        toolPath = compatTools + "/" + toolName;
+        if (QFile::exists(toolPath + "/proton")) {
+            return toolPath;
+        }
     }
 
     return QString();
@@ -403,21 +386,20 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
 
     // Required Proton environment variables
     env.insert("STEAM_COMPAT_DATA_PATH", compatDataPath);
-    env.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH", steamPath());
+    env.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH", SteamPaths::steamRoot());
     env.insert("SteamAppId", game.id());
     env.insert("SteamGameId", game.id());
 
     // Setup Steam Overlay and runtime
-    QString steamRoot = steamPath();
-    env.insert("STEAM_RUNTIME", steamRoot + "/ubuntu12_32/steam-runtime");
+    env.insert("STEAM_RUNTIME", SteamPaths::steamRuntimePath());
 
     // Inherit current user's DISPLAY and other X11 variables
     if (!env.contains("DISPLAY")) {
         env.insert("DISPLAY", ":0");
     }
     if (settings.enableSteamOverlay) {
-        QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
-        QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
+        const QString overlay64 = SteamPaths::overlayLibPath(true);
+        const QString overlay32 = SteamPaths::overlayLibPath(false);
 
         QStringList preloads;
         if (env.contains("LD_PRELOAD")) {
@@ -569,9 +551,8 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
 
         // Setup Steam Overlay
         if (settings.enableSteamOverlay) {
-            QString steamRoot = steamPath();
-            QString overlay64 = steamRoot + "/ubuntu12_64/gameoverlayrenderer.so";
-            QString overlay32 = steamRoot + "/ubuntu12_32/gameoverlayrenderer.so";
+            const QString overlay64 = SteamPaths::overlayLibPath(true);
+            const QString overlay32 = SteamPaths::overlayLibPath(false);
 
             QStringList preloads;
             if (env.contains("LD_PRELOAD")) {

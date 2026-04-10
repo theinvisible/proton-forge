@@ -1,6 +1,7 @@
 #include "SteamLauncher.h"
 #include "parsers/VDFParser.h"
 #include "utils/EnvBuilder.h"
+#include "utils/SteamPaths.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -14,44 +15,33 @@ SteamLauncher::SteamLauncher()
 
 bool SteamLauncher::isAvailable() const
 {
-    return QDir(steamPath()).exists();
+    return !SteamPaths::steamRoot().isEmpty();
 }
 
 QString SteamLauncher::steamPath()
 {
-    // Check common Steam installation paths
-    QStringList possiblePaths = {
-        QDir::homePath() + "/.steam/steam",
-        QDir::homePath() + "/.local/share/Steam",
-        QDir::homePath() + "/.steam/debian-installation"
-    };
-
-    for (const QString& path : possiblePaths) {
-        if (QDir(path).exists()) {
-            return path;
-        }
-    }
-
-    return QDir::homePath() + "/.steam/steam";
+    return SteamPaths::steamRoot();
 }
 
 QString SteamLauncher::steamAppsPath()
 {
-    return steamPath() + "/steamapps";
+    return SteamPaths::steamAppsPath();
 }
 
 QStringList SteamLauncher::libraryPaths()
 {
     QStringList paths;
 
-    // Always include default path
-    QString defaultPath = steamAppsPath();
+    const QString defaultPath = SteamPaths::steamAppsPath();
+    if (defaultPath.isEmpty()) {
+        return paths;
+    }
     if (QDir(defaultPath).exists()) {
         paths << defaultPath;
     }
 
     // Parse libraryfolders.vdf for additional library folders
-    QString libraryFoldersPath = steamAppsPath() + "/libraryfolders.vdf";
+    QString libraryFoldersPath = defaultPath + "/libraryfolders.vdf";
     VDFParser parser;
     if (parser.parseFile(libraryFoldersPath)) {
         VDFNode root = parser.root();
@@ -200,7 +190,7 @@ bool SteamLauncher::applySettings(const Game& game, const DLSSSettings& settings
 
 QString SteamLauncher::localConfigPath() const
 {
-    return steamPath() + "/userdata";
+    return SteamPaths::userDataPath();
 }
 
 bool SteamLauncher::writeToLocalConfig(const QString& appId, const QString& launchOptions)

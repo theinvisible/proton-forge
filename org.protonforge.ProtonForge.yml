@@ -18,8 +18,13 @@ finish-args:
 
   # File system access
   - --filesystem=home
+  # Native Steam (~/.steam is a hidden dotdir; keep explicit so the symlink
+  # target stays reachable on hosts that don't expose it via --filesystem=home)
   - --filesystem=~/.steam:rw
-  - --filesystem=~/.local/share/Steam:rw
+  - --filesystem=xdg-data/Steam:rw
+  # Flatpak Steam — NOT covered by --filesystem=home because Flatpak protects
+  # other apps' data dirs under ~/.var/app
+  - --filesystem=~/.var/app/com.valvesoftware.Steam:rw
 
   # DBus access for desktop integration
   - --socket=session-bus
