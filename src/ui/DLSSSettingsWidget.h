@@ -27,6 +27,7 @@ public:
 
     void updateLaunchCommand(const QString& command);
     void setGameRunning(bool running);
+    void updateGameStatus(const Game& game);
 
 signals:
     void settingsChanged(const DLSSSettings& settings);
@@ -65,6 +66,7 @@ private:
     QLabel* m_gameNameLabel;
     QLabel* m_gameImageLabel;
     QLabel* m_platformBadge;
+    QLabel* m_updateAvailableLabel;
     QWidget* m_protonSelectorContainer;
     QComboBox* m_protonVersionSelector;
     QComboBox* m_executableSelector;

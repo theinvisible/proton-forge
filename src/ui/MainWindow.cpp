@@ -100,6 +100,8 @@ void MainWindow::setupUI()
     // Connections
     connect(m_gameList, &GameListWidget::gameSelected, this, &MainWindow::onGameSelected);
     connect(m_gameList, &GameListWidget::refreshRequested, this, &MainWindow::refreshGameList);
+    connect(m_gameList, &GameListWidget::gameUpdateStatusChanged,
+            m_settingsWidget, &DLSSSettingsWidget::updateGameStatus);
     connect(m_settingsWidget, &DLSSSettingsWidget::settingsChanged, this, &MainWindow::onSettingsChanged);
     connect(m_settingsWidget, &DLSSSettingsWidget::playClicked, this, &MainWindow::onPlayClicked);
     connect(m_settingsWidget, &DLSSSettingsWidget::copyClicked, this, &MainWindow::onCopyToClipboard);

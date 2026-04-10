@@ -113,6 +113,17 @@ void DLSSSettingsWidget::setupUI()
 
     mainLayout->addWidget(headerCard);
 
+    // Update available banner (shown when Steam has flagged the game for update)
+    m_updateAvailableLabel = new QLabel(this);
+    m_updateAvailableLabel->setText("Update available — Steam has flagged this game for update");
+    m_updateAvailableLabel->setAlignment(Qt::AlignCenter);
+    m_updateAvailableLabel->setStyleSheet(
+        QString("background-color: %1; color: white; font-weight: bold; "
+                "padding: 8px 12px; border-radius: 6px; font-size: 12px;")
+            .arg(AppStyle::ColorBadgeUpdate));
+    m_updateAvailableLabel->hide();
+    mainLayout->addWidget(m_updateAvailableLabel);
+
     // Scroll area for settings
     QScrollArea* scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(true);
@@ -668,6 +679,8 @@ void DLSSSettingsWidget::setGame(const Game& game)
         m_platformBadge->show();
     }
 
+    m_updateAvailableLabel->setVisible(game.needsUpdate());
+
     // Show/hide Proton version selector based on game type
     if (game.isNativeLinux()) {
         // Hide Proton-specific UI for native Linux games
@@ -692,6 +705,16 @@ void DLSSSettingsWidget::setGame(const Game& game)
             m_gameImageLabel->setPixmap(pixmap);
         }
     });
+}
+
+void DLSSSettingsWidget::updateGameStatus(const Game& game)
+{
+    if (m_currentGame.id() != game.id() || m_currentGame.launcher() != game.launcher()) {
+        return;
+    }
+    m_currentGame.setStateFlags(game.stateFlags());
+    m_currentGame.setBuildId(game.buildId());
+    m_updateAvailableLabel->setVisible(m_currentGame.needsUpdate());
 }
 
 void DLSSSettingsWidget::setGameRunning(bool running)

@@ -26,6 +26,7 @@ public:
 signals:
     void gameSelected(const Game& game);
     void refreshRequested();
+    void gameUpdateStatusChanged(const Game& game);
 
 private slots:
     void onSearchTextChanged(const QString& text);

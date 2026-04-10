@@ -573,6 +573,7 @@ void GameListWidget::applyUpdateResults(const QMap<QString, int>& results)
         if (newFlags != m_games[i].stateFlags()) {
             m_games[i].setStateFlags(newFlags);
             anyChanged = true;
+            emit gameUpdateStatusChanged(m_games[i]);
         }
     }
 
