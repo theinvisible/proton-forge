@@ -1,6 +1,9 @@
 #include "NvidiaGPUDetector.h"
 #include <QProcess>
 #include <QRegularExpression>
+#include <QFile>
+#include <QDateTime>
+#include <QLocale>
 #include <QDebug>
 
 QList<GPUInfo> NvidiaGPUDetector::detect()
@@ -30,14 +33,103 @@ QList<GPUInfo> NvidiaGPUDetector::detect()
     // Split output by GPU sections
     QStringList sections = output.split(QRegularExpression("GPU \\d+:"), Qt::SkipEmptyParts);
 
+    // Driver info is system-wide; detect once and share across all NVIDIA GPUs.
+    DriverInfo sharedDriverInfo;
+    bool driverInfoDetected = false;
+
     for (int i = 0; i < sections.size(); ++i) {
         GPUInfo info = parseNvidiaSmiOutput(sections[i], i);
         if (!info.name.isEmpty()) {
+            if (!driverInfoDetected) {
+                sharedDriverInfo = detectDriverInfo(info.driverVersion);
+                driverInfoDetected = true;
+            }
+            info.driverInfo = sharedDriverInfo;
             gpus.append(info);
         }
     }
 
     return gpus;
+}
+
+DriverInfo NvidiaGPUDetector::detectDriverInfo(const QString& smiDriverVersion)
+{
+    DriverInfo info;
+    info.moduleName = "nvidia";
+
+    // Primary source: /proc/driver/nvidia/version
+    // Typical line (proprietary):
+    //   NVRM version: NVIDIA UNIX x86_64 Kernel Module  550.127.05  Tue Oct  8 16:30:26 UTC 2024
+    // Typical line (open):
+    //   NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  550.127.05  Tue Oct  8 16:30:26 UTC 2024
+    QFile versionFile("/proc/driver/nvidia/version");
+    QString procContent;
+    if (versionFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        procContent = QString::fromUtf8(versionFile.readAll());
+        versionFile.close();
+    }
+
+    if (!procContent.isEmpty()) {
+        // Extract version + build date from the NVRM line. Accept any text
+        // between "NVRM version:" and the version number to stay robust
+        // across driver variants (proprietary / open / arch suffixes).
+        QRegularExpression nvrmRe(
+            "NVRM version:.*?(\\d+(?:\\.\\d+)+)\\s+(.+)$",
+            QRegularExpression::MultilineOption);
+        const QRegularExpressionMatch m = nvrmRe.match(procContent);
+        if (m.hasMatch()) {
+            info.version = m.captured(1);
+            const QString rawDate = m.captured(2).trimmed();
+
+            // Try to parse the build date (e.g. "Tue Oct  8 16:30:26 UTC 2024").
+            // The double-space padding before single-digit days trips
+            // QDateTime::fromString, so normalize whitespace first.
+            QString normalizedDate = rawDate;
+            normalizedDate.replace(QRegularExpression("\\s+"), " ");
+            QLocale cLocale(QLocale::C);
+            QDateTime dt = cLocale.toDateTime(normalizedDate, "ddd MMM d HH:mm:ss 'UTC' yyyy");
+            if (dt.isValid()) {
+                info.releaseDate = dt.toString("yyyy-MM-dd");
+            } else {
+                info.releaseDate = rawDate; // fall back to raw string
+            }
+        }
+
+        if (procContent.contains("Open Kernel Module", Qt::CaseInsensitive)) {
+            info.moduleType = "Open Kernel Module";
+        } else if (procContent.contains("Kernel Module", Qt::CaseInsensitive)) {
+            info.moduleType = "Proprietary";
+        }
+    }
+
+    // Fallback: if /proc was unreadable (sandboxed environments, flatpak
+    // without --filesystem=host), at least report the version from nvidia-smi.
+    if (info.version.isEmpty() && !smiDriverVersion.isEmpty()) {
+        info.version = smiDriverVersion;
+    }
+
+    // Branch is the leading version component (driver "major") — useful to
+    // distinguish production vs. new-feature branches at a glance.
+    if (!info.version.isEmpty()) {
+        info.branch = info.version.section('.', 0, 0);
+    }
+
+    // Cross-check module type via modinfo if /proc didn't tell us. The open
+    // module is dual-licensed MIT/GPL, the proprietary one reports "NVIDIA".
+    if (info.moduleType.isEmpty()) {
+        QProcess modinfo;
+        modinfo.start("modinfo", QStringList() << "-F" << "license" << "nvidia");
+        if (modinfo.waitForFinished(1000)) {
+            const QString license = QString::fromUtf8(modinfo.readAllStandardOutput()).trimmed();
+            if (license.contains("MIT/GPL", Qt::CaseInsensitive)) {
+                info.moduleType = "Open Kernel Module";
+            } else if (license.contains("NVIDIA", Qt::CaseInsensitive)) {
+                info.moduleType = "Proprietary";
+            }
+        }
+    }
+
+    return info;
 }
 
 GPUInfo NvidiaGPUDetector::parseNvidiaSmiOutput(const QString& output, int index)

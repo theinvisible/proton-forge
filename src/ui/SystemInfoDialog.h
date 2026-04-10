@@ -55,6 +55,7 @@ private:
     QWidget*    createGPUTab(const GPUInfo& gpu, int gpuIndex);
     QGroupBox*  createGraphicsCardGroup(const GPUInfo& gpu);
     QGroupBox*  createMemoryGroup(const GPUInfo& gpu);
+    QGroupBox*  createDriverInfoGroup(const GPUInfo& gpu);
     QGroupBox*  createDriverBiosGroup(const GPUInfo& gpu);
     QGroupBox*  createPCIeGroup(const GPUInfo& gpu);
     QGroupBox*  createClocksPowerGroup(const GPUInfo& gpu, int gpuIndex);

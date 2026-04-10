@@ -289,6 +289,7 @@ QWidget* SystemInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
 
     layout->addWidget(createGraphicsCardGroup(gpu));
     layout->addWidget(createMemoryGroup(gpu));
+    layout->addWidget(createDriverInfoGroup(gpu));
     layout->addWidget(createDriverBiosGroup(gpu));
     layout->addWidget(createPCIeGroup(gpu));
     layout->addWidget(createUtilizationGroup(gpu, gpuIndex));
@@ -338,15 +339,38 @@ QGroupBox* SystemInfoDialog::createMemoryGroup(const GPUInfo& gpu)
     return group;
 }
 
-QGroupBox* SystemInfoDialog::createDriverBiosGroup(const GPUInfo& gpu)
+QGroupBox* SystemInfoDialog::createDriverInfoGroup(const GPUInfo& gpu)
 {
-    QGroupBox* group = new QGroupBox("Driver & BIOS");
+    QGroupBox* group = new QGroupBox("Driver Information");
     QVBoxLayout* layout = new QVBoxLayout(group);
 
-    if (!gpu.driverVersion.isEmpty())
-        addInfoRow(layout, "Driver Version:", gpu.driverVersion);
+    const DriverInfo& driver = gpu.driverInfo;
+
+    // Prefer the richer driverInfo.version, fall back to the plain
+    // driverVersion reported by the vendor tool (nvidia-smi) so we still
+    // show something useful when /proc/driver/nvidia/version is unavailable.
+    const QString version = !driver.version.isEmpty() ? driver.version : gpu.driverVersion;
+    if (!version.isEmpty())
+        addInfoRow(layout, "Driver Version:", version);
+    if (!driver.branch.isEmpty())
+        addInfoRow(layout, "Driver Branch:", driver.branch);
+    if (!driver.releaseDate.isEmpty())
+        addInfoRow(layout, "Release Date:", driver.releaseDate);
+    if (!driver.moduleType.isEmpty())
+        addInfoRow(layout, "Kernel Module:", driver.moduleType);
+    if (!driver.moduleName.isEmpty())
+        addInfoRow(layout, "Module Name:", driver.moduleName);
     if (!gpu.cudaVersion.isEmpty())
         addInfoRow(layout, "CUDA Version:", gpu.cudaVersion);
+
+    return group;
+}
+
+QGroupBox* SystemInfoDialog::createDriverBiosGroup(const GPUInfo& gpu)
+{
+    QGroupBox* group = new QGroupBox("BIOS & Identifiers");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
     if (!gpu.vbiosVersion.isEmpty())
         addInfoRow(layout, "VBIOS Version:", gpu.vbiosVersion);
     if (!gpu.uuid.isEmpty())
@@ -585,8 +609,18 @@ void SystemInfoDialog::copyToClipboard()
                 .arg(gpu.memoryTotalMB)
                 .arg(gpu.memoryTotalMB / 1024.0, 0, 'f', 2);
 
-        if (!gpu.driverVersion.isEmpty())
-            text += QString("Driver Version: %1\n").arg(gpu.driverVersion);
+        const DriverInfo& driver = gpu.driverInfo;
+        const QString driverVer = !driver.version.isEmpty() ? driver.version : gpu.driverVersion;
+        if (!driverVer.isEmpty())
+            text += QString("Driver Version: %1\n").arg(driverVer);
+        if (!driver.branch.isEmpty())
+            text += QString("Driver Branch: %1\n").arg(driver.branch);
+        if (!driver.releaseDate.isEmpty())
+            text += QString("Release Date: %1\n").arg(driver.releaseDate);
+        if (!driver.moduleType.isEmpty())
+            text += QString("Kernel Module: %1\n").arg(driver.moduleType);
+        if (!driver.moduleName.isEmpty())
+            text += QString("Module Name: %1\n").arg(driver.moduleName);
         if (!gpu.cudaVersion.isEmpty())
             text += QString("CUDA Version: %1\n").arg(gpu.cudaVersion);
         if (!gpu.vbiosVersion.isEmpty())

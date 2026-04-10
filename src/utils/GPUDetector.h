@@ -5,6 +5,17 @@
 #include <QList>
 #include <QMap>
 
+// Vendor-agnostic driver details. Populated per-GPU by the vendor-specific
+// detector (currently only NVIDIA). AMD/Intel detectors should map their own
+// data onto the same fields so the UI can treat them uniformly.
+struct DriverInfo {
+    QString version;          // e.g. "550.127.05"
+    QString branch;           // e.g. "550" (major branch)
+    QString releaseDate;      // build/release date as reported by the vendor
+    QString moduleName;       // kernel module name, e.g. "nvidia", "amdgpu", "i915"
+    QString moduleType;       // e.g. "Proprietary", "Open Kernel Module", "Mesa"
+};
+
 struct GPUInfo {
     enum Vendor { Unknown, NVIDIA, AMD, Intel };
 
@@ -17,6 +28,7 @@ struct GPUInfo {
     QString driverVersion;
     QString vbiosVersion;
     QString cudaVersion;
+    DriverInfo driverInfo;
 
     QString gpuPartNumber;
     QString computeCapability;
