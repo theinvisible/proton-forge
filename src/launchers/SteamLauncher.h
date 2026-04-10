@@ -19,6 +19,10 @@ public:
     static QString steamAppsPath();
     static QStringList libraryPaths();
 
+    // Re-reads ACF file for a game and updates stateFlags/buildId.
+    // Returns true if the update status changed.
+    static bool checkUpdateStatus(Game& game);
+
 private:
     Game parseAppManifest(const QString& manifestPath, const QString& libraryPath);
     QString localConfigPath() const;

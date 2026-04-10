@@ -1,6 +1,8 @@
 #include "GameListWidget.h"
 #include "AppStyle.h"
 #include "network/ImageCache.h"
+#include "launchers/SteamLauncher.h"
+#include "parsers/VDFParser.h"
 #include <QLabel>
 #include <QMenu>
 #include <QDesktopServices>
@@ -16,6 +18,7 @@
 #include <QAction>
 #include <QHBoxLayout>
 #include <QEvent>
+#include <QtConcurrent>
 
 // ---------------------------------------------------------------------------
 // Custom roles stored on each game list item
@@ -25,6 +28,7 @@ static constexpr int RoleImageLoaded = Qt::UserRole + 1;
 static constexpr int RoleIsNative    = Qt::UserRole + 2;
 static constexpr int RoleGameName    = Qt::UserRole + 3;
 static constexpr int RoleImageUrl    = Qt::UserRole + 4;
+static constexpr int RoleNeedsUpdate = Qt::UserRole + 5;
 
 // ---------------------------------------------------------------------------
 // GameItemDelegate – paints each game as a modern card with artwork
@@ -138,6 +142,22 @@ public:
         p->setFont(badgeFont);
         p->setPen(Qt::white);
         p->drawText(badgeRect, Qt::AlignCenter, badgeText);
+
+        // --- Update badge ---
+        const bool needsUpdate = index.data(RoleNeedsUpdate).toBool();
+        if (needsUpdate) {
+            const QString updateText = "UPDATE";
+            const int updateBadgeW = bfm.horizontalAdvance(updateText) + badgePad * 2;
+            const QRect updateBadgeRect(textLeft + badgeW + 6, badgeY, updateBadgeW, badgeH);
+
+            p->setPen(Qt::NoPen);
+            p->setBrush(QColor(AppStyle::ColorBadgeUpdate));
+            p->drawRoundedRect(updateBadgeRect, 3, 3);
+
+            p->setFont(badgeFont);
+            p->setPen(Qt::white);
+            p->drawText(updateBadgeRect, Qt::AlignCenter, updateText);
+        }
 
         p->restore();
     }
@@ -298,6 +318,11 @@ GameListWidget::GameListWidget(QWidget* parent)
         m_listWidget->viewport()->update();
     });
 
+    // Update check timer (re-reads ACF files every 60s in background thread)
+    m_updateCheckTimer = new QTimer(this);
+    m_updateCheckTimer->setInterval(60000);
+    connect(m_updateCheckTimer, &QTimer::timeout, this, &GameListWidget::checkForUpdates);
+
     // Connections
     connect(m_searchBox, &QLineEdit::textChanged, this, &GameListWidget::onSearchTextChanged);
     connect(m_listWidget, &QListWidget::itemClicked, this, &GameListWidget::onItemClicked);
@@ -342,6 +367,12 @@ void GameListWidget::setGames(const QList<Game>& games)
     m_shimmerPhase = 0.0;
     updateFilter();
     ensureShimmerRunning();
+
+    if (!m_games.isEmpty()) {
+        m_updateCheckTimer->start();
+    } else {
+        m_updateCheckTimer->stop();
+    }
 }
 
 void GameListWidget::addGame(const Game& game)
@@ -358,6 +389,7 @@ void GameListWidget::clear()
     m_games.clear();
     m_listWidget->clear();
     m_shimmerTimer->stop();
+    m_updateCheckTimer->stop();
 }
 
 void GameListWidget::onSearchTextChanged(const QString& text)
@@ -385,6 +417,7 @@ QListWidgetItem* GameListWidget::createGameItem(const Game& game)
     item->setData(RoleGameName, game.name());
     item->setData(RoleIsNative, game.isNativeLinux());
     item->setData(RoleImageUrl, game.imageUrl());
+    item->setData(RoleNeedsUpdate, game.needsUpdate());
 
     // Check if image is already cached
     bool cached = ImageCache::instance().hasImage(game.imageUrl());
@@ -396,10 +429,10 @@ QListWidgetItem* GameListWidget::createGameItem(const Game& game)
     }
 
     // Set tooltip with game info
-    QString tooltip = QString("%1\nApp ID: %2\nPath: %3")
-        .arg(game.name())
-        .arg(game.id())
-        .arg(game.installPath());
+    QString tooltip = QString("%1\nApp ID: %2\nBuild ID: %3\nPath: %4%5")
+        .arg(game.name(), game.id(), QString::number(game.buildId()),
+             game.installPath(),
+             game.needsUpdate() ? "\n\nUpdate available" : "");
     item->setToolTip(tooltip);
 
     return item;
@@ -486,4 +519,85 @@ void GameListWidget::showContextMenu(const QPoint& pos)
         QString compatDataPath = game.libraryPath() + "/compatdata/" + game.id();
         QDesktopServices::openUrl(QUrl::fromLocalFile(compatDataPath));
     }
+}
+
+void GameListWidget::checkForUpdates()
+{
+    if (m_updateCheckRunning || m_games.isEmpty()) {
+        return;
+    }
+
+    m_updateCheckRunning = true;
+
+    // Copy game list for the worker thread
+    QList<Game> gamesCopy = m_games;
+
+    auto* watcher = new QFutureWatcher<QMap<QString, int>>(this);
+    connect(watcher, &QFutureWatcher<QMap<QString, int>>::finished, this, [this, watcher]() {
+        applyUpdateResults(watcher->result());
+        watcher->deleteLater();
+        m_updateCheckRunning = false;
+    });
+
+    watcher->setFuture(QtConcurrent::run([gamesCopy]() -> QMap<QString, int> {
+        QMap<QString, int> results;
+        for (const Game& game : gamesCopy) {
+            if (game.launcher() != "Steam" || game.libraryPath().isEmpty()) {
+                continue;
+            }
+            QString manifestPath = game.libraryPath() + "/appmanifest_" + game.id() + ".acf";
+            VDFParser parser;
+            if (parser.parseFile(manifestPath)) {
+                VDFNode root = parser.root();
+                if (root.hasChild("AppState")) {
+                    VDFNode appState = root.child("AppState");
+                    results[game.id()] = static_cast<int>(appState.getInt("StateFlags", 4));
+                }
+            }
+        }
+        return results;
+    }));
+}
+
+void GameListWidget::applyUpdateResults(const QMap<QString, int>& results)
+{
+    bool anyChanged = false;
+
+    for (int i = 0; i < m_games.size(); ++i) {
+        auto it = results.find(m_games[i].id());
+        if (it == results.end()) {
+            continue;
+        }
+
+        int newFlags = it.value();
+        if (newFlags != m_games[i].stateFlags()) {
+            m_games[i].setStateFlags(newFlags);
+            anyChanged = true;
+        }
+    }
+
+    if (!anyChanged) {
+        return;
+    }
+
+    // Update the visible list items
+    for (int i = 0; i < m_listWidget->count(); ++i) {
+        QListWidgetItem* item = m_listWidget->item(i);
+        Game game = item->data(RoleGame).value<Game>();
+        auto it = results.find(game.id());
+        if (it != results.end() && game.stateFlags() != it.value()) {
+            game.setStateFlags(it.value());
+            item->setData(RoleGame, QVariant::fromValue(game));
+            item->setData(RoleNeedsUpdate, game.needsUpdate());
+
+            // Update tooltip
+            QString tooltip = QString("%1\nApp ID: %2\nBuild ID: %3\nPath: %4%5")
+                .arg(game.name(), game.id(), QString::number(game.buildId()),
+                     game.installPath(),
+                     game.needsUpdate() ? "\n\nUpdate available" : "");
+            item->setToolTip(tooltip);
+        }
+    }
+
+    m_listWidget->viewport()->update();
 }

@@ -36,6 +36,14 @@ public:
     bool isNativeLinux() const { return m_isNativeLinux; }
     void setIsNativeLinux(bool isNative) { m_isNativeLinux = isNative; }
 
+    int stateFlags() const { return m_stateFlags; }
+    void setStateFlags(int flags) { m_stateFlags = flags; }
+
+    qint64 buildId() const { return m_buildId; }
+    void setBuildId(qint64 id) { m_buildId = id; }
+
+    bool needsUpdate() const { return (m_stateFlags & 2) != 0; }
+
     // Unique key for settings lookup
     QString settingsKey() const;
 
@@ -51,6 +59,8 @@ private:
     QString m_imageUrl;
     QString m_libraryPath;
     bool m_isNativeLinux = false;
+    int m_stateFlags = 4;      // Default: StateFullyInstalled
+    qint64 m_buildId = 0;
 };
 
 Q_DECLARE_METATYPE(Game)

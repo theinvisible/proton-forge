@@ -148,6 +148,8 @@ Game SteamLauncher::parseAppManifest(const QString& manifestPath, const QString&
     QString name = appState.getString("name");
     QString installDir = appState.getString("installdir");
     qint64 sizeOnDisk = appState.getInt("SizeOnDisk");
+    int stateFlags = static_cast<int>(appState.getInt("StateFlags", 4));
+    qint64 buildId = appState.getInt("buildid", 0);
 
     if (appId.isEmpty() || name.isEmpty()) {
         return game;
@@ -158,6 +160,8 @@ Game SteamLauncher::parseAppManifest(const QString& manifestPath, const QString&
     game.setLauncher("Steam");
     game.setInstallPath(libraryPath + "/common/" + installDir);
     game.setSizeOnDisk(sizeOnDisk);
+    game.setStateFlags(stateFlags);
+    game.setBuildId(buildId);
     game.setLibraryPath(libraryPath);
 
     // Detect if this is a native Linux game or Windows game running via Proton
@@ -265,4 +269,35 @@ bool SteamLauncher::writeToLocalConfig(const QString& appId, const QString& laun
     }
 
     return success;
+}
+
+bool SteamLauncher::checkUpdateStatus(Game& game)
+{
+    if (game.launcher() != "Steam" || game.libraryPath().isEmpty() || game.id().isEmpty()) {
+        return false;
+    }
+
+    QString manifestPath = game.libraryPath() + "/appmanifest_" + game.id() + ".acf";
+
+    VDFParser parser;
+    if (!parser.parseFile(manifestPath)) {
+        return false;
+    }
+
+    VDFNode root = parser.root();
+    if (!root.hasChild("AppState")) {
+        return false;
+    }
+
+    VDFNode appState = root.child("AppState");
+    int newStateFlags = static_cast<int>(appState.getInt("StateFlags", 4));
+    qint64 newBuildId = appState.getInt("buildid", 0);
+
+    bool changed = (newStateFlags != game.stateFlags()) || (newBuildId != game.buildId());
+    if (changed) {
+        game.setStateFlags(newStateFlags);
+        game.setBuildId(newBuildId);
+    }
+
+    return changed;
 }

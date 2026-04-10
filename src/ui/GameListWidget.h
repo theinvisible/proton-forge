@@ -7,6 +7,8 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QTimer>
+#include <QFutureWatcher>
+#include <QMap>
 #include "core/Game.h"
 
 class GameListWidget : public QWidget {
@@ -37,6 +39,8 @@ private:
     void updateFilter();
     QListWidgetItem* createGameItem(const Game& game);
     void ensureShimmerRunning();
+    void checkForUpdates();
+    void applyUpdateResults(const QMap<QString, int>& results);
 
     QLineEdit* m_searchBox;
     QListWidget* m_listWidget;
@@ -45,6 +49,9 @@ private:
 
     QTimer* m_shimmerTimer;
     qreal m_shimmerPhase = 0.0;
+
+    QTimer* m_updateCheckTimer;
+    bool m_updateCheckRunning = false;
 };
 
 #endif // GAMELISTWIDGET_H

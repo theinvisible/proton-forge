@@ -20,6 +20,7 @@ inline constexpr const char* ColorTextSecondary = "#d0d0d0";
 inline constexpr const char* ColorTextMuted     = "#999";
 inline constexpr const char* ColorBadgeLinux    = "#e8710a";
 inline constexpr const char* ColorBadgeWindows  = "#1565c0";
+inline constexpr const char* ColorBadgeUpdate   = "#00acc1";
 inline constexpr const char* ColorDanger        = "#c0392b";
 inline constexpr const char* ColorDangerButton  = "#f44336";
 inline constexpr const char* ColorSuccessButton = "#4CAF50";
