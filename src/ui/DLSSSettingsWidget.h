@@ -52,6 +52,7 @@ private:
     QWidget* createActionsSection();
 
     void styleComboBoxPopups();
+    void updateFeatureWarnings();
     void blockSignalsForAll(bool block);
     void populateExecutableSelector(const Game& game);
     void updateExecutableSelectorWithResults(const QStringList& executables);
@@ -74,7 +75,11 @@ private:
     // General settings
     QCheckBox* m_enableNVAPI;
     QCheckBox* m_enableNGXUpdater;
+    QCheckBox* m_enableReflex;
     QCheckBox* m_showIndicator;
+
+    // Feature gating warnings (driver/Proton requirements not met)
+    QLabel* m_featureWarnings;
 
     // HDR settings
     QCheckBox* m_enableAllHDR;  // Master checkbox
@@ -102,6 +107,8 @@ private:
     // Frame Generation
     QCheckBox* m_fgOverride;
     QComboBox* m_fgMultiFrameCount;
+    QComboBox* m_fgMode;
+    QComboBox* m_fgPreset;
 
     // DLSS Upgrade
     QCheckBox* m_dlssUpgrade;

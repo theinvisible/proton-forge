@@ -3,6 +3,7 @@
 #include "core/SettingsManager.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/GpuInfoCache.h"
 #include "utils/SteamPaths.h"
 #include "ui/ProtonVersionDialog.h"
 #include "ui/SettingsDialog.h"
@@ -31,6 +32,10 @@ MainWindow::MainWindow(QWidget* parent)
     setupMenuBar();
     setupToolBar();
     loadGames();
+
+    // Kick off a one-shot background driver detection so feature gating in the
+    // settings panel can compare against the real NVIDIA driver version.
+    GpuInfoCache::instance().refreshAsync();
 
     setWindowTitle("ProtonForge - DLSS & Proton Manager");
     resize(1200, 800);

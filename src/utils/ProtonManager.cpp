@@ -127,6 +127,49 @@ QString ProtonManager::getInstalledVersion() const
     return highestVersionString;
 }
 
+QVersionNumber ProtonManager::resolveSelectedVersion(const QString& key, bool* known) const
+{
+    auto setKnown = [known](bool value) { if (known) *known = value; };
+
+    const QString k = key.trimmed();
+
+    // "auto" / empty -> latest installed Proton-CachyOS.
+    // getInstalledVersion() returns e.g. "11.0-20260521" (no prefix), so
+    // re-prefix it for the parser.
+    if (k.isEmpty() || k.compare("auto", Qt::CaseInsensitive) == 0) {
+        const QString installed = getInstalledVersion();
+        if (installed.isEmpty()) { setKnown(false); return QVersionNumber(); }
+        const QVersionNumber v = parseVersion("proton-cachyos-" + installed);
+        setKnown(!v.isNull());
+        return v;
+    }
+
+    // "latest-ge" -> latest installed Proton-GE.
+    if (k.compare("latest-ge", Qt::CaseInsensitive) == 0) {
+        const QString name = getInstalledGEVersion();
+        if (name.isEmpty()) { setKnown(false); return QVersionNumber(); }
+        const QVersionNumber v = parseProtonGEVersion(name);
+        setKnown(!v.isNull());
+        return v;
+    }
+
+    // Specific folder names.
+    if (k.startsWith("proton-cachyos", Qt::CaseInsensitive)) {
+        const QVersionNumber v = parseVersion(k);
+        setKnown(!v.isNull());
+        return v;
+    }
+    if (k.startsWith("GE-Proton", Qt::CaseInsensitive)) {
+        const QVersionNumber v = parseProtonGEVersion(k);
+        setKnown(!v.isNull());
+        return v;
+    }
+
+    // "steam-proton", absolute paths, or anything else -> unknown (lenient).
+    setKnown(false);
+    return QVersionNumber();
+}
+
 QVersionNumber ProtonManager::parseVersion(const QString& fileName) const
 {
     // Extract version from filename like: proton-cachyos-10.0-20260127-slr-x86_64.tar.xz

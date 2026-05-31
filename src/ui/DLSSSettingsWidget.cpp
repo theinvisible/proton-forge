@@ -2,8 +2,10 @@
 #include "MangoHudDialog.h"
 #include "AppStyle.h"
 #include "network/ImageCache.h"
+#include "core/FeatureGate.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/GpuInfoCache.h"
 #include "utils/HDRChecker.h"
 #include "runner/GameRunner.h"
 #include "launchers/SteamLauncher.h"
@@ -40,6 +42,11 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
         QStringList executables = m_executableWatcher->result();
         updateExecutableSelectorWithResults(executables);
     });
+
+    // Re-evaluate feature warnings once the NVIDIA driver version is detected
+    // (detection runs asynchronously after startup).
+    connect(&GpuInfoCache::instance(), &GpuInfoCache::updated,
+            this, &DLSSSettingsWidget::updateFeatureWarnings);
 }
 
 void DLSSSettingsWidget::setupUI()
@@ -134,6 +141,17 @@ void DLSSSettingsWidget::setupUI()
     QVBoxLayout* scrollLayout = new QVBoxLayout(scrollContent);
     scrollLayout->setSpacing(10);
 
+    // Feature gating warnings — shown when an enabled option needs a newer
+    // NVIDIA driver / Proton version than detected. Non-blocking (warn only).
+    m_featureWarnings = new QLabel(this);
+    m_featureWarnings->setWordWrap(true);
+    m_featureWarnings->setStyleSheet(
+        QString("background-color: rgba(224,160,48,0.12); color: %1; "
+                "border: 1px solid %1; border-radius: 6px; padding: 8px 12px; font-size: 12px;")
+            .arg(AppStyle::ColorWarning));
+    m_featureWarnings->hide();
+    scrollLayout->addWidget(m_featureWarnings);
+
     scrollLayout->addWidget(createGeneralGroup());
     scrollLayout->addWidget(createSuperResolutionGroup());
     scrollLayout->addWidget(createRayReconstructionGroup());
@@ -194,6 +212,15 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "This may improve quality and performance in some games.\n\n"
         "Note: Requires internet connection and may increase loading times.");
     layout->addWidget(m_enableNGXUpdater);
+
+    m_enableReflex = new QCheckBox("Enable Reflex (DXVK_NVAPI_VKREFLEX)", this);
+    m_enableReflex->setToolTip(
+        "Enable NVIDIA Reflex for Vulkan games via DXVK-NVAPI's Reflex layer.\n\n"
+        "Reduces input latency and is the recommended companion to Frame Generation "
+        "and Smooth Motion. Needed for Reflex in native Vulkan titles "
+        "(e.g. Portal RTX, Path of Exile).\n\n"
+        "Sets DXVK_NVAPI_VKREFLEX=1.");
+    layout->addWidget(m_enableReflex);
 
     m_showIndicator = new QCheckBox("Show DLSS Indicator (PROTON_DLSS_INDICATOR)", this);
     m_showIndicator->setToolTip(
@@ -276,6 +303,7 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
 
     connect(m_enableNVAPI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableReflex, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableAllHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onEnableAllHDRToggled);
     connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
@@ -464,21 +492,53 @@ QGroupBox* DLSSSettingsWidget::createFrameGenerationGroup()
     m_fgMultiFrameCount->addItem("2x Frame Generation", 1);
     m_fgMultiFrameCount->addItem("3x Frame Generation", 2);
     m_fgMultiFrameCount->addItem("4x Frame Generation", 3);
+    m_fgMultiFrameCount->addItem("5x Frame Generation", 4);
+    m_fgMultiFrameCount->addItem("6x Frame Generation", 5);
     m_fgMultiFrameCount->setToolTip(
         "Number of AI-generated frames inserted between each rendered frame:\n\n"
         "• 0 (App Default): Let the game decide\n"
         "• 1 (2x): Generate 1 frame → 2x total FPS\n"
         "• 2 (3x): Generate 2 frames → 3x total FPS\n"
-        "• 3 (4x): Generate 3 frames → 4x total FPS\n\n"
+        "• 3 (4x): Generate 3 frames → 4x total FPS\n"
+        "• 4 (5x): Generate 4 frames → 5x total FPS\n"
+        "• 5 (6x): Generate 5 frames → 6x total FPS\n\n"
         "Higher values give more FPS but increase input latency. "
-        "DLSS 3.5+ required for 3x/4x modes.\n\n"
+        "DLSS 3.5+ required for 3x/4x; 5x/6x need a very recent DXVK-NVAPI/driver "
+        "and may be ignored if unsupported.\n\n"
         "Example: 60 rendered FPS + 2x FG = 120 displayed FPS");
     formLayout->addRow("Multi-Frame Count:", m_fgMultiFrameCount);
+
+    m_fgMode = new QComboBox(this);
+    for (const QString& mode : DLSSSettings::availableFGModes()) {
+        m_fgMode->addItem(mode.isEmpty() ? "(App Default)" : mode, mode);
+    }
+    m_fgMode->setToolTip(
+        "DLSS Frame Generation mode (NGX_DLSSG_MODE):\n\n"
+        "• (App Default): Let the game decide\n"
+        "• On / Off: Force FG enabled or disabled\n"
+        "• Auto: Driver decides based on conditions\n"
+        "• Dynamic: Dynamically scale generated frames toward a target frame rate\n\n"
+        "Requires the FG override above to be enabled.");
+    formLayout->addRow("FG Mode:", m_fgMode);
+
+    m_fgPreset = new QComboBox(this);
+    for (const QString& preset : DLSSSettings::availablePresets()) {
+        m_fgPreset->addItem(preset.isEmpty() ? "(App Default)" : preset, preset);
+    }
+    m_fgPreset->setToolTip(
+        "Frame Generation render preset (NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION):\n\n"
+        "Selects the FG AI model variant. Most setups work best with "
+        "RENDER_PRESET_LATEST.\n\n"
+        "Requires the FG override above to be enabled.");
+    formLayout->addRow("FG Render Preset:", m_fgPreset);
 
     layout->addLayout(formLayout);
 
     auto updateFGEnabled = [this]() {
-        m_fgMultiFrameCount->setEnabled(m_fgOverride->isChecked());
+        bool enabled = m_fgOverride->isChecked();
+        m_fgMultiFrameCount->setEnabled(enabled);
+        m_fgMode->setEnabled(enabled);
+        m_fgPreset->setEnabled(enabled);
     };
 
     connect(m_fgOverride, &QCheckBox::toggled, this, [updateFGEnabled, this]() {
@@ -486,6 +546,8 @@ QGroupBox* DLSSSettingsWidget::createFrameGenerationGroup()
         onSettingChanged();
     });
     connect(m_fgMultiFrameCount, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_fgMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_fgPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
 
     updateFGEnabled();
 
@@ -736,6 +798,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
 {
     m_enableNVAPI->blockSignals(block);
     m_enableNGXUpdater->blockSignals(block);
+    m_enableReflex->blockSignals(block);
     m_showIndicator->blockSignals(block);
     m_srOverride->blockSignals(block);
     m_srMode->blockSignals(block);
@@ -747,6 +810,8 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_rrScalingRatio->blockSignals(block);
     m_fgOverride->blockSignals(block);
     m_fgMultiFrameCount->blockSignals(block);
+    m_fgMode->blockSignals(block);
+    m_fgPreset->blockSignals(block);
     m_dlssUpgrade->blockSignals(block);
     m_protonVersionSelector->blockSignals(block);
     m_enableSmoothMotion->blockSignals(block);
@@ -766,6 +831,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     // General
     m_enableNVAPI->setChecked(settings.enableNVAPI);
     m_enableNGXUpdater->setChecked(settings.enableNGXUpdater);
+    m_enableReflex->setChecked(settings.enableReflex);
     m_showIndicator->setChecked(settings.showIndicator);
 
     // HDR
@@ -818,6 +884,12 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     int fgIndex = m_fgMultiFrameCount->findData(settings.fgMultiFrameCount);
     m_fgMultiFrameCount->setCurrentIndex(fgIndex >= 0 ? fgIndex : 0);
     m_fgMultiFrameCount->setEnabled(settings.fgOverride);
+    int fgModeIndex = m_fgMode->findData(settings.fgMode);
+    m_fgMode->setCurrentIndex(fgModeIndex >= 0 ? fgModeIndex : 0);
+    m_fgMode->setEnabled(settings.fgOverride);
+    int fgPresetIndex = m_fgPreset->findData(settings.fgPreset);
+    m_fgPreset->setCurrentIndex(fgPresetIndex >= 0 ? fgPresetIndex : 0);
+    m_fgPreset->setEnabled(settings.fgOverride);
 
     // DLSS Upgrade
     m_dlssUpgrade->setChecked(settings.dlssUpgrade);
@@ -858,6 +930,9 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
 
     // Update launch command preview
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(settings));
+
+    // Refresh driver/Proton requirement warnings for the loaded settings
+    updateFeatureWarnings();
 }
 
 DLSSSettings DLSSSettingsWidget::settings() const
@@ -867,6 +942,7 @@ DLSSSettings DLSSSettingsWidget::settings() const
     // General
     settings.enableNVAPI = m_enableNVAPI->isChecked();
     settings.enableNGXUpdater = m_enableNGXUpdater->isChecked();
+    settings.enableReflex = m_enableReflex->isChecked();
     settings.showIndicator = m_showIndicator->isChecked();
 
     // HDR
@@ -898,6 +974,8 @@ DLSSSettings DLSSSettingsWidget::settings() const
     // Frame Generation
     settings.fgOverride = m_fgOverride->isChecked();
     settings.fgMultiFrameCount = m_fgMultiFrameCount->currentData().toInt();
+    settings.fgMode = m_fgMode->currentData().toString();
+    settings.fgPreset = m_fgPreset->currentData().toString();
 
     // DLSS Upgrade
     settings.dlssUpgrade = m_dlssUpgrade->isChecked();
@@ -933,7 +1011,47 @@ void DLSSSettingsWidget::onSettingChanged()
 {
     DLSSSettings s = settings();
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(s));
+    updateFeatureWarnings();
     emit settingsChanged(s);
+}
+
+void DLSSSettingsWidget::updateFeatureWarnings()
+{
+    using namespace FeatureGate;
+
+    Context ctx;
+    ctx.driver = GpuInfoCache::instance().nvidiaDriverVersion();
+    bool protonKnown = false;
+    ctx.proton = ProtonManager::instance().resolveSelectedVersion(
+        m_protonVersionSelector->currentData().toString(), &protonKnown);
+    ctx.protonKnown = protonKnown;
+
+    QStringList lines;
+    auto check = [&](bool active, Feature f, const QString& label) {
+        if (!active)
+            return;
+        Result r = evaluate(requirementFor(f), ctx);
+        if (r.status != Status::Supported)
+            lines << QString("⚠ %1: %2").arg(label, r.message);
+    };
+
+    const bool fgOn = m_fgOverride->isChecked();
+    check(m_enableSmoothMotion->isChecked(), Feature::SmoothMotion, "Smooth Motion");
+    check(fgOn && m_fgMultiFrameCount->currentData().toInt() >= 2,
+          Feature::MultiFrameGen, "Multi-Frame Generation (3x/4x)");
+    check(m_rrOverride->isChecked(), Feature::RayReconstruction, "Ray Reconstruction");
+    check(fgOn && !m_fgMode->currentData().toString().isEmpty(),
+          Feature::DlssgMode, "FG Mode");
+    check(fgOn && !m_fgPreset->currentData().toString().isEmpty(),
+          Feature::FgPreset, "FG Render Preset");
+    check(m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
+
+    if (lines.isEmpty()) {
+        m_featureWarnings->hide();
+    } else {
+        m_featureWarnings->setText(lines.join("\n"));
+        m_featureWarnings->show();
+    }
 }
 
 void DLSSSettingsWidget::onEnableAllHDRToggled(bool checked)

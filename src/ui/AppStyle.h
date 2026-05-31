@@ -24,6 +24,7 @@ inline constexpr const char* ColorBadgeUpdate   = "#00acc1";
 inline constexpr const char* ColorDanger        = "#c0392b";
 inline constexpr const char* ColorDangerButton  = "#f44336";
 inline constexpr const char* ColorSuccessButton = "#4CAF50";
+inline constexpr const char* ColorWarning       = "#e0a030";
 
 // ── Dynamic style builders ──────────────────────────────────────────────────
 

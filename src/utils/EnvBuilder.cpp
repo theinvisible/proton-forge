@@ -62,6 +62,14 @@ QString EnvBuilder::buildDRSSettings(const DLSSSettings& settings)
         if (settings.fgMultiFrameCount > 0) {
             drsSettings << QString("NGX_DLSSG_MULTI_FRAME_COUNT=%1").arg(settings.fgMultiFrameCount);
         }
+
+        if (!settings.fgMode.isEmpty()) {
+            drsSettings << QString("NGX_DLSSG_MODE=%1").arg(settings.fgMode.toLower());
+        }
+
+        if (!settings.fgPreset.isEmpty()) {
+            drsSettings << QString("NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION=%1").arg(settings.fgPreset);
+        }
     }
 
     return drsSettings.join(",");
@@ -78,6 +86,10 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
 
     if (settings.enableNGXUpdater) {
         envVars << "PROTON_ENABLE_NGX_UPDATER=1";
+    }
+
+    if (settings.enableReflex) {
+        envVars << "DXVK_NVAPI_VKREFLEX=1";
     }
 
     // DLSS Upgrade
@@ -150,6 +162,10 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
 
     if (settings.enableNGXUpdater) {
         env.insert("PROTON_ENABLE_NGX_UPDATER", "1");
+    }
+
+    if (settings.enableReflex) {
+        env.insert("DXVK_NVAPI_VKREFLEX", "1");
     }
 
     // DLSS Upgrade

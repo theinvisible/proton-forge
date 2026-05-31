@@ -40,6 +40,12 @@ public:
     // Get highest installed Proton-GE directory name (e.g. "GE-Proton9-20")
     QString getInstalledGEVersion() const;
 
+    // Resolve a per-game protonVersion selection key ("", "auto", "latest-ge",
+    // "steam-proton", or a folder name) to a comparable version number for
+    // feature gating. Sets *known to false when it can't be determined
+    // (e.g. "steam-proton", absolute paths, nothing installed).
+    QVersionNumber resolveSelectedVersion(const QString& key, bool* known = nullptr) const;
+
     // Check for available updates
     void checkForUpdates();
 

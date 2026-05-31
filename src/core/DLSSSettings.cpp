@@ -7,6 +7,7 @@ QJsonObject DLSSSettings::toJson() const
     // General
     json["enableNVAPI"] = enableNVAPI;
     json["enableNGXUpdater"] = enableNGXUpdater;
+    json["enableReflex"] = enableReflex;
 
     // Super Resolution
     json["srOverride"] = srOverride;
@@ -23,6 +24,8 @@ QJsonObject DLSSSettings::toJson() const
     // Frame Generation
     json["fgOverride"] = fgOverride;
     json["fgMultiFrameCount"] = fgMultiFrameCount;
+    json["fgMode"] = fgMode;
+    json["fgPreset"] = fgPreset;
 
     // DLSS Upgrade
     json["dlssUpgrade"] = dlssUpgrade;
@@ -70,6 +73,7 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     // General
     settings.enableNVAPI = json["enableNVAPI"].toBool(true);
     settings.enableNGXUpdater = json["enableNGXUpdater"].toBool(false);
+    settings.enableReflex = json["enableReflex"].toBool(false);
 
     // Super Resolution
     settings.srOverride = json["srOverride"].toBool(false);
@@ -86,6 +90,8 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     // Frame Generation
     settings.fgOverride = json["fgOverride"].toBool(false);
     settings.fgMultiFrameCount = json["fgMultiFrameCount"].toInt(0);
+    settings.fgMode = json["fgMode"].toString();
+    settings.fgPreset = json["fgPreset"].toString();
 
     // DLSS Upgrade
     settings.dlssUpgrade = json["dlssUpgrade"].toBool(false);
@@ -170,10 +176,22 @@ QStringList DLSSSettings::availablePresets()
     };
 }
 
+QStringList DLSSSettings::availableFGModes()
+{
+    return {
+        "",  // Default/App controlled
+        "ON",
+        "OFF",
+        "AUTO",
+        "DYNAMIC"
+    };
+}
+
 bool DLSSSettings::operator==(const DLSSSettings& other) const
 {
     return enableNVAPI == other.enableNVAPI &&
            enableNGXUpdater == other.enableNGXUpdater &&
+           enableReflex == other.enableReflex &&
            srOverride == other.srOverride &&
            srMode == other.srMode &&
            srPreset == other.srPreset &&
@@ -184,6 +202,8 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            rrScalingRatio == other.rrScalingRatio &&
            fgOverride == other.fgOverride &&
            fgMultiFrameCount == other.fgMultiFrameCount &&
+           fgMode == other.fgMode &&
+           fgPreset == other.fgPreset &&
            dlssUpgrade == other.dlssUpgrade &&
            dlssVersion == other.dlssVersion &&
            showIndicator == other.showIndicator &&

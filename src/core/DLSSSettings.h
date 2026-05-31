@@ -12,6 +12,7 @@ public:
     // General
     bool enableNVAPI = true;
     bool enableNGXUpdater = false;
+    bool enableReflex = false;  // DXVK_NVAPI_VKREFLEX=1
 
     // Super Resolution (SR)
     bool srOverride = false;
@@ -28,6 +29,8 @@ public:
     // Frame Generation (FG)
     bool fgOverride = false;
     int fgMultiFrameCount = 0;  // 0-3
+    QString fgMode;    // NGX_DLSSG_MODE: "", ON, OFF, AUTO, DYNAMIC
+    QString fgPreset;  // NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION
 
     // DLSS Upgrade
     bool dlssUpgrade = false;
@@ -69,6 +72,7 @@ public:
     static QStringList availableSRModes();
     static QStringList availableRRModes();
     static QStringList availablePresets();
+    static QStringList availableFGModes();
 
     bool operator==(const DLSSSettings& other) const;
 };

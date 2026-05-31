@@ -20,12 +20,14 @@ set(SOURCES
     src/main.cpp
     src/core/Game.cpp
     src/core/DLSSSettings.cpp
+    src/core/FeatureGate.cpp
     src/core/SettingsManager.cpp
     src/parsers/VDFParser.cpp
     src/launchers/LauncherManager.cpp
     src/launchers/SteamLauncher.cpp
     src/utils/EnvBuilder.cpp
     src/utils/ProtonManager.cpp
+    src/utils/GpuInfoCache.cpp
     src/utils/SteamPaths.cpp
     src/utils/CPUDetector.cpp
     src/utils/HDRChecker.cpp
@@ -46,6 +48,7 @@ set(SOURCES
 set(HEADERS
     src/core/Game.h
     src/core/DLSSSettings.h
+    src/core/FeatureGate.h
     src/core/SettingsManager.h
     src/parsers/VDFParser.h
     src/launchers/ILauncher.h
@@ -53,6 +56,7 @@ set(HEADERS
     src/launchers/SteamLauncher.h
     src/utils/EnvBuilder.h
     src/utils/ProtonManager.h
+    src/utils/GpuInfoCache.h
     src/utils/SteamPaths.h
     src/utils/CPUDetector.h
     src/utils/HDRChecker.h
