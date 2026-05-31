@@ -23,6 +23,11 @@ public:
     // Returns true if the update status changed.
     static bool checkUpdateStatus(Game& game);
 
+    // Reads the existing Steam launch options (the "%command%" string) for a
+    // game from localconfig.vdf. Returns an empty string if none is set or the
+    // config can't be read. Iterates all Steam users; returns the first match.
+    static QString readLaunchOptions(const QString& appId);
+
 private:
     Game parseAppManifest(const QString& manifestPath, const QString& libraryPath);
     QString localConfigPath() const;

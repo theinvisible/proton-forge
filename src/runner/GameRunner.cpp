@@ -454,8 +454,10 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
         emit launchError(game, errorMsg);
     });
 
-    // Launch: proton run /path/to/game.exe
-    m_process->start(protonExe, {"run", gameExe});
+    // Launch: proton run /path/to/game.exe [custom game args]
+    QStringList protonArgs = {"run", gameExe};
+    protonArgs << EnvBuilder::customGameArgs(settings);
+    m_process->start(protonExe, protonArgs);
 
     if (m_process->waitForStarted(5000)) {
         m_runningGame = game;  // Track running game
@@ -602,8 +604,8 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
         emit launchError(game, errorMsg);
     });
 
-    // Launch the game directly
-    m_process->start(gameExe, QStringList());
+    // Launch the game directly, with any custom game args from launch params
+    m_process->start(gameExe, EnvBuilder::customGameArgs(settings));
 
     if (m_process->waitForStarted(5000)) {
         m_runningGame = game;  // Track running game

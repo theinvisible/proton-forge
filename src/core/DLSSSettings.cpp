@@ -63,6 +63,11 @@ QJsonObject DLSSSettings::toJson() const
         json["protonVersion"] = protonVersion;
     }
 
+    // Custom launch parameters
+    if (!customLaunchParams.isEmpty()) {
+        json["customLaunchParams"] = customLaunchParams;
+    }
+
     return json;
 }
 
@@ -124,6 +129,9 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
 
     // Proton Version
     settings.protonVersion = json["protonVersion"].toString();
+
+    // Custom launch parameters
+    settings.customLaunchParams = json["customLaunchParams"].toString();
 
     return settings;
 }
@@ -231,5 +239,6 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            enableSteamOverlay == other.enableSteamOverlay &&
            enableMangoHud == other.enableMangoHud &&
            executablePath == other.executablePath &&
-           protonVersion == other.protonVersion;
+           protonVersion == other.protonVersion &&
+           customLaunchParams == other.customLaunchParams;
 }

@@ -25,6 +25,7 @@ private slots:
     void onPlayClicked();
     void onCopyToClipboard();
     void onWriteToSteam();
+    void onImportFromSteam();
     void refreshGameList();
     void checkProtonCachyOS();
     void installProtonCachyOS();

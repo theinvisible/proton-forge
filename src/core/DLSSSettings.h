@@ -64,6 +64,13 @@ public:
     // Proton Version Selection
     QString protonVersion;  // Empty/"auto" = latest CachyOS, "latest-ge" = latest GE, or specific version folder name
 
+    // Custom launch parameters — free-form extra options appended to the Steam
+    // launch string. Holds everything ProtonForge doesn't model (e.g. game args
+    // like "/WineDetectionEnabled:False"). If this contains the literal
+    // "%command%", it controls where %command% and any trailing game arguments
+    // are placed; otherwise it is treated as extra env vars before %command%.
+    QString customLaunchParams;
+
     // Serialization
     QJsonObject toJson() const;
     static DLSSSettings fromJson(const QJsonObject& json);

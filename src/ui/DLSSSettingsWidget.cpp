@@ -1,10 +1,13 @@
 #include "DLSSSettingsWidget.h"
 #include "MangoHudDialog.h"
+#include "RecommendationsDialog.h"
 #include "AppStyle.h"
 #include "network/ImageCache.h"
+#include "network/ProtonDBClient.h"
 #include "core/FeatureGate.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/LaunchOptionExtractor.h"
 #include "utils/GpuInfoCache.h"
 #include "utils/HDRChecker.h"
 #include "runner/GameRunner.h"
@@ -25,6 +28,26 @@
 #include <QMessageBox>
 #include <QtConcurrent>
 #include <algorithm>
+
+namespace {
+// Muted style for the header ProtonDB badge (checking / unknown / n-a states).
+QString protonDbBadgeMutedStyle()
+{
+    return QStringLiteral(
+        "QPushButton { font-size: 11px; font-weight: bold; padding: 4px 8px; "
+        "border-radius: 4px; background-color: %1; color: white; border: none; }")
+        .arg(AppStyle::ColorBorderLight);
+}
+
+// Tier-coloured style for the header ProtonDB badge.
+QString protonDbBadgeTierStyle(const QString& color)
+{
+    return QStringLiteral(
+        "QPushButton { font-size: 11px; font-weight: bold; padding: 4px 8px; "
+        "border-radius: 4px; background-color: %1; color: #1a1a1a; border: none; }")
+        .arg(color);
+}
+} // namespace
 
 DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
     : QWidget(parent)
@@ -47,6 +70,65 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
     // (detection runs asynchronously after startup).
     connect(&GpuInfoCache::instance(), &GpuInfoCache::updated,
             this, &DLSSSettingsWidget::updateFeatureWarnings);
+
+    // ProtonDB tier badge — update when a summary arrives for the current game.
+    connect(&ProtonDBClient::instance(), &ProtonDBClient::summaryReady, this,
+            [this](const QString& appId, const ProtonDBClient::Summary& summary) {
+        if (appId != m_currentGame.id()) {
+            return;
+        }
+        m_protonDbSummary = summary;
+        m_protonDbSummaryAppId = appId;
+        updateProtonDbBadge(summary);
+    });
+    connect(&ProtonDBClient::instance(), &ProtonDBClient::summaryFailed, this,
+            [this](const QString& appId) {
+        if (appId != m_currentGame.id()) {
+            return;
+        }
+        m_protonDbBadge->setText("ProtonDB: unavailable");
+        m_protonDbBadge->setStyleSheet(protonDbBadgeMutedStyle());
+    });
+
+    // ProtonDB report mining → recommendations dialog. Both outcomes restore the
+    // badge and (for the current game) open a dialog; on success it lists mined
+    // suggestions, otherwise it explains why and still shows the tier + link.
+    auto restoreBadge = [this]() {
+        m_protonDbBadge->setEnabled(m_currentGame.launcher() == "Steam" && !m_currentGame.id().isEmpty());
+        updateProtonDbBadge(m_protonDbSummary);
+    };
+    connect(&ProtonDBClient::instance(), &ProtonDBClient::reportsReady, this,
+            [this, restoreBadge](const QString& appId, const QList<ProtonDBClient::Report>& reports) {
+        if (appId != m_currentGame.id()) {
+            return;
+        }
+        restoreBadge();
+        const auto suggestions = LaunchOptionExtractor::extract(reports);
+        const QString message = suggestions.isEmpty()
+            ? QString("No launch-option tips could be mined from the available reports.")
+            : QString();
+        RecommendationsDialog dialog(appId, m_currentGame.name(), m_protonDbSummary,
+                                     suggestions, message, this);
+        connect(&dialog, &RecommendationsDialog::applySnippet, this, [this](const QString& snippet) {
+            const QString existing = m_customLaunchParams->toPlainText().trimmed();
+            m_customLaunchParams->setPlainText(existing.isEmpty() ? snippet : existing + "\n" + snippet);
+        });
+        dialog.exec();
+    });
+    connect(&ProtonDBClient::instance(), &ProtonDBClient::reportsUnavailable, this,
+            [this, restoreBadge](const QString& appId, const QString& reason) {
+        if (appId != m_currentGame.id()) {
+            return;
+        }
+        restoreBadge();
+        RecommendationsDialog dialog(appId, m_currentGame.name(), m_protonDbSummary,
+                                     {}, reason, this);
+        connect(&dialog, &RecommendationsDialog::applySnippet, this, [this](const QString& snippet) {
+            const QString existing = m_customLaunchParams->toPlainText().trimmed();
+            m_customLaunchParams->setPlainText(existing.isEmpty() ? snippet : existing + "\n" + snippet);
+        });
+        dialog.exec();
+    });
 }
 
 void DLSSSettingsWidget::setupUI()
@@ -80,7 +162,25 @@ void DLSSSettingsWidget::setupUI()
         "border-radius: 4px; background-color: #555; color: white;");
     m_platformBadge->setMaximumWidth(120);
     m_platformBadge->hide();
-    gameInfoLayout->addWidget(m_platformBadge);
+
+    // Clickable ProtonDB tier badge — sits next to the platform badge and opens
+    // the recommendations dialog (tier + community launch-option tips).
+    m_protonDbBadge = new QPushButton("ProtonDB: —", headerCard);
+    m_protonDbBadge->setCursor(Qt::PointingHandCursor);
+    m_protonDbBadge->setToolTip(
+        "ProtonDB compatibility tier. Click to view reports and mine community "
+        "launch-option tips for this game.");
+    m_protonDbBadge->setStyleSheet(protonDbBadgeMutedStyle());
+    m_protonDbBadge->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+    connect(m_protonDbBadge, &QPushButton::clicked, this, &DLSSSettingsWidget::onRecommendClicked);
+
+    QHBoxLayout* badgeRow = new QHBoxLayout();
+    badgeRow->setContentsMargins(0, 0, 0, 0);
+    badgeRow->setSpacing(8);
+    badgeRow->addWidget(m_platformBadge);
+    badgeRow->addWidget(m_protonDbBadge);
+    badgeRow->addStretch();
+    gameInfoLayout->addLayout(badgeRow);
 
     // Proton version selector (container widget for easy show/hide)
     m_protonSelectorContainer = new QWidget(headerCard);
@@ -159,6 +259,7 @@ void DLSSSettingsWidget::setupUI()
     scrollLayout->addWidget(createUpgradeGroup());
     scrollLayout->addWidget(createSmoothMotionGroup());
     scrollLayout->addWidget(createOverlayGroup());
+    scrollLayout->addWidget(createCustomParamsGroup());
     scrollLayout->addStretch();
 
     scrollArea->setWidget(scrollContent);
@@ -711,6 +812,33 @@ QGroupBox* DLSSSettingsWidget::createOverlayGroup()
     return group;
 }
 
+QGroupBox* DLSSSettingsWidget::createCustomParamsGroup()
+{
+    QGroupBox* group = new QGroupBox("Custom Launch Parameters", this);
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    QLabel* label = new QLabel(
+        "Extra options appended to the Steam launch string. Use this for anything "
+        "not covered above (e.g. game arguments like /WineDetectionEnabled:False). "
+        "Include %command% to control where it and any trailing game arguments go; "
+        "otherwise the text is added as env vars before %command%.", this);
+    label->setWordWrap(true);
+    label->setStyleSheet(QString("font-size: 11px; color: %1;").arg(AppStyle::ColorTextMuted));
+    layout->addWidget(label);
+
+    m_customLaunchParams = new QPlainTextEdit(this);
+    m_customLaunchParams->setPlaceholderText(
+        "e.g.  WINEDLLOVERRIDES=\"d3d12=n\" %command% /WineDetectionEnabled:False");
+    m_customLaunchParams->setMaximumHeight(90);
+    m_customLaunchParams->setStyleSheet(
+        "font-family: monospace; background-color: #1e1e1e; border: 1px solid #4a4a4a; "
+        "border-radius: 4px; color: #c0c0c0; padding: 6px;");
+    connect(m_customLaunchParams, &QPlainTextEdit::textChanged, this, &DLSSSettingsWidget::onSettingChanged);
+    layout->addWidget(m_customLaunchParams);
+
+    return group;
+}
+
 QWidget* DLSSSettingsWidget::createActionsSection()
 {
     QWidget* widget = new QWidget(this);
@@ -727,6 +855,13 @@ QWidget* DLSSSettingsWidget::createActionsSection()
     m_copyButton->setToolTip("Copy launch options to clipboard for manual paste into Steam");
     layout->addWidget(m_copyButton);
 
+    m_importButton = new QPushButton("Import from Steam", this);
+    m_importButton->setStyleSheet(AppStyle::secondaryButtonStyle());
+    m_importButton->setToolTip(
+        "Read this game's existing Steam launch options and map them onto the "
+        "controls above. Unknown options go into Custom Launch Parameters.");
+    layout->addWidget(m_importButton);
+
     m_writeToSteamButton = new QPushButton("Write to Steam", this);
     m_writeToSteamButton->setStyleSheet(AppStyle::secondaryButtonStyle());
     m_writeToSteamButton->setToolTip("Write launch options directly to Steam's config (requires Steam restart)");
@@ -736,6 +871,7 @@ QWidget* DLSSSettingsWidget::createActionsSection()
 
     connect(m_playButton, &QPushButton::clicked, this, &DLSSSettingsWidget::playClicked);
     connect(m_copyButton, &QPushButton::clicked, this, &DLSSSettingsWidget::copyClicked);
+    connect(m_importButton, &QPushButton::clicked, this, &DLSSSettingsWidget::importFromSteamClicked);
     connect(m_writeToSteamButton, &QPushButton::clicked, this, &DLSSSettingsWidget::writeToSteamClicked);
 
     return widget;
@@ -783,6 +919,19 @@ void DLSSSettingsWidget::setGame(const Game& game)
             m_gameImageLabel->setPixmap(pixmap);
         }
     });
+
+    // Fetch the ProtonDB tier for the badge. Only Steam games have a usable appId.
+    m_protonDbSummary = ProtonDBClient::Summary();
+    m_protonDbSummaryAppId.clear();
+    const bool isSteamGame = (game.launcher() == "Steam") && !game.id().isEmpty();
+    m_protonDbBadge->setEnabled(isSteamGame);
+    m_protonDbBadge->setStyleSheet(protonDbBadgeMutedStyle());
+    if (isSteamGame) {
+        m_protonDbBadge->setText("ProtonDB: checking…");
+        ProtonDBClient::instance().fetchSummary(game.id());
+    } else {
+        m_protonDbBadge->setText("ProtonDB: n/a");
+    }
 }
 
 void DLSSSettingsWidget::updateGameStatus(const Game& game)
@@ -838,6 +987,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_protonLog->blockSignals(block);
     m_enableSteamOverlay->blockSignals(block);
     m_enableMangoHud->blockSignals(block);
+    m_customLaunchParams->blockSignals(block);
 }
 
 void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
@@ -915,6 +1065,9 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_enableFrameRateLimit->setChecked(settings.enableFrameRateLimit);
     m_targetFrameRate->setValue(settings.targetFrameRate);
     m_targetFrameRate->setEnabled(settings.enableFrameRateLimit);
+
+    // Custom launch parameters
+    m_customLaunchParams->setPlainText(settings.customLaunchParams);
 
     // Save executable path for later restoration after async search completes
     m_savedExecutablePath = settings.executablePath;
@@ -1001,6 +1154,9 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableFrameRateLimit = m_enableFrameRateLimit->isChecked();
     settings.targetFrameRate = m_targetFrameRate->value();
 
+    // Custom launch parameters
+    settings.customLaunchParams = m_customLaunchParams->toPlainText().trimmed();
+
     // Executable Selection
     if (m_executableSelector->currentIndex() >= 0) {
         settings.executablePath = m_executableSelector->currentData().toString();
@@ -1029,6 +1185,42 @@ void DLSSSettingsWidget::onSettingChanged()
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(s));
     updateFeatureWarnings();
     emit settingsChanged(s);
+}
+
+void DLSSSettingsWidget::onRecommendClicked()
+{
+    if (m_currentGame.id().isEmpty() || m_currentGame.launcher() != "Steam") {
+        return;
+    }
+    m_protonDbBadge->setEnabled(false);
+    m_protonDbBadge->setText("ProtonDB: searching…");
+    m_protonDbBadge->setStyleSheet(protonDbBadgeMutedStyle());
+    ProtonDBClient::instance().fetchReports(m_currentGame.id());
+}
+
+void DLSSSettingsWidget::updateProtonDbBadge(const ProtonDBClient::Summary& summary)
+{
+    if (!summary.valid || summary.tier.isEmpty()) {
+        m_protonDbBadge->setText("ProtonDB: unknown");
+        m_protonDbBadge->setStyleSheet(protonDbBadgeMutedStyle());
+        return;
+    }
+
+    // Tier-coloured chip; mirrors the colours used in RecommendationsDialog.
+    const QString t = summary.tier.toLower();
+    QString color = AppStyle::ColorTextMuted;
+    if (t == "platinum") color = "#b4c7dc";
+    else if (t == "gold") color = "#cfb53b";
+    else if (t == "silver") color = "#a8a8a8";
+    else if (t == "bronze") color = "#cd7f32";
+    else if (t == "borked") color = AppStyle::ColorDanger;
+
+    QString text = QString("ProtonDB: %1").arg(summary.tier.toUpper());
+    if (summary.total > 0) {
+        text += QString("  (%1 reports)").arg(summary.total);
+    }
+    m_protonDbBadge->setText(text);
+    m_protonDbBadge->setStyleSheet(protonDbBadgeTierStyle(color));
 }
 
 void DLSSSettingsWidget::updateFeatureWarnings()

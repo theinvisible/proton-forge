@@ -27,6 +27,7 @@ set(SOURCES
     src/launchers/SteamLauncher.cpp
     src/utils/EnvBuilder.cpp
     src/utils/ProtonManager.cpp
+    src/utils/LaunchOptionExtractor.cpp
     src/utils/GpuInfoCache.cpp
     src/utils/SteamPaths.cpp
     src/utils/CPUDetector.cpp
@@ -34,6 +35,7 @@ set(SOURCES
     src/utils/GPUDetector.cpp
     src/utils/NvidiaGPUDetector.cpp
     src/network/ImageCache.cpp
+    src/network/ProtonDBClient.cpp
     src/runner/GameRunner.cpp
     src/ui/MainWindow.cpp
     src/ui/GameListWidget.cpp
@@ -43,6 +45,7 @@ set(SOURCES
     src/ui/SettingsDialog.cpp
     src/ui/AboutDialog.cpp
     src/ui/MangoHudDialog.cpp
+    src/ui/RecommendationsDialog.cpp
 )
 
 set(HEADERS
@@ -56,6 +59,7 @@ set(HEADERS
     src/launchers/SteamLauncher.h
     src/utils/EnvBuilder.h
     src/utils/ProtonManager.h
+    src/utils/LaunchOptionExtractor.h
     src/utils/GpuInfoCache.h
     src/utils/SteamPaths.h
     src/utils/CPUDetector.h
@@ -63,6 +67,7 @@ set(HEADERS
     src/utils/GPUDetector.h
     src/utils/NvidiaGPUDetector.h
     src/network/ImageCache.h
+    src/network/ProtonDBClient.h
     src/runner/GameRunner.h
     src/ui/MainWindow.h
     src/ui/GameListWidget.h
@@ -73,6 +78,7 @@ set(HEADERS
     src/ui/AboutDialog.h
     src/ui/AppStyle.h
     src/ui/MangoHudDialog.h
+    src/ui/RecommendationsDialog.h
 )
 
 set(RESOURCES

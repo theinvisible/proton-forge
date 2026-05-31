@@ -7,6 +7,7 @@
 #include <QSpinBox>
 #include <QGroupBox>
 #include <QTextEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QLabel>
 #include <QFutureWatcher>
@@ -14,6 +15,7 @@
 #include <memory>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
+#include "network/ProtonDBClient.h"
 
 class DLSSSettingsWidget : public QWidget {
     Q_OBJECT
@@ -34,11 +36,13 @@ signals:
     void playClicked();
     void copyClicked();
     void writeToSteamClicked();
+    void importFromSteamClicked();
 
 private slots:
     void onSettingChanged();
     void onEnableAllHDRToggled(bool checked);
     void onHDRCheckboxChanged();
+    void onRecommendClicked();
 
 private:
     void setupUI();
@@ -49,7 +53,10 @@ private:
     QGroupBox* createUpgradeGroup();
     QGroupBox* createSmoothMotionGroup();
     QGroupBox* createOverlayGroup();
+    QGroupBox* createCustomParamsGroup();
     QWidget* createActionsSection();
+
+    void updateProtonDbBadge(const ProtonDBClient::Summary& summary);
 
     void styleComboBoxPopups();
     void updateFeatureWarnings();
@@ -67,6 +74,7 @@ private:
     QLabel* m_gameNameLabel;
     QLabel* m_gameImageLabel;
     QLabel* m_platformBadge;
+    QPushButton* m_protonDbBadge;  // clickable ProtonDB tier badge in the header
     QLabel* m_updateAvailableLabel;
     QWidget* m_protonSelectorContainer;
     QComboBox* m_protonVersionSelector;
@@ -123,6 +131,13 @@ private:
     QCheckBox* m_enableMangoHud;
     QPushButton* m_mangoHudConfigBtn;
 
+    // Custom launch parameters
+    QPlainTextEdit* m_customLaunchParams;
+
+    // ProtonDB recommendations
+    ProtonDBClient::Summary m_protonDbSummary;
+    QString m_protonDbSummaryAppId;
+
     // Launch command preview
     QTextEdit* m_launchCommandPreview;
 
@@ -130,6 +145,7 @@ private:
     QPushButton* m_playButton;
     QPushButton* m_copyButton;
     QPushButton* m_writeToSteamButton;
+    QPushButton* m_importButton;
 
     Game m_currentGame;
     QFutureWatcher<QStringList>* m_executableWatcher;

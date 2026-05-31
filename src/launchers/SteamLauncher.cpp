@@ -261,6 +261,78 @@ bool SteamLauncher::writeToLocalConfig(const QString& appId, const QString& laun
     return success;
 }
 
+namespace {
+// localconfig.vdf key casing varies between Steam versions (e.g. "apps" vs
+// "Apps", "valve" vs "Valve"), so navigate children case-insensitively.
+VDFNode childCI(const VDFNode& node, const QString& key)
+{
+    if (node.hasChild(key)) {
+        return node.child(key);
+    }
+    const QMap<QString, VDFNode> kids = node.children();
+    for (auto it = kids.constBegin(); it != kids.constEnd(); ++it) {
+        if (it.key().compare(key, Qt::CaseInsensitive) == 0) {
+            return it.value();
+        }
+    }
+    return VDFNode();
+}
+
+QString getStringCI(const VDFNode& node, const QString& key)
+{
+    if (node.hasChild(key)) {
+        return node.getString(key);
+    }
+    const QMap<QString, VDFNode> kids = node.children();
+    for (auto it = kids.constBegin(); it != kids.constEnd(); ++it) {
+        if (it.key().compare(key, Qt::CaseInsensitive) == 0 && it.value().isValue()) {
+            return it.value().value();
+        }
+    }
+    return QString();
+}
+} // namespace
+
+QString SteamLauncher::readLaunchOptions(const QString& appId)
+{
+    if (appId.isEmpty()) {
+        return QString();
+    }
+
+    QDir userDataDir(SteamPaths::userDataPath());
+    if (!userDataDir.exists()) {
+        return QString();
+    }
+
+    const QStringList userDirs = userDataDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& userId : userDirs) {
+        const QString configPath = SteamPaths::userDataPath() + "/" + userId + "/config/localconfig.vdf";
+        if (!QFile::exists(configPath)) {
+            continue;
+        }
+
+        VDFParser parser;
+        if (!parser.parseFile(configPath)) {
+            continue;
+        }
+
+        // UserLocalConfigStore -> Software -> Valve -> Steam -> apps -> <appId> -> LaunchOptions
+        VDFNode node = childCI(parser.root(), "UserLocalConfigStore");
+        node = childCI(node, "Software");
+        node = childCI(node, "Valve");
+        node = childCI(node, "Steam");
+        node = childCI(node, "apps");
+        node = childCI(node, appId);
+
+        const QString opts = getStringCI(node, "LaunchOptions");
+        if (!opts.isEmpty()) {
+            return opts;
+        }
+    }
+
+    return QString();
+}
+
 bool SteamLauncher::checkUpdateStatus(Game& game)
 {
     if (game.launcher() != "Steam" || game.libraryPath().isEmpty() || game.id().isEmpty()) {

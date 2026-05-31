@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "launchers/LauncherManager.h"
+#include "launchers/SteamLauncher.h"
 #include "core/SettingsManager.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
@@ -114,6 +115,7 @@ void MainWindow::setupUI()
     connect(m_settingsWidget, &DLSSSettingsWidget::playClicked, this, &MainWindow::onPlayClicked);
     connect(m_settingsWidget, &DLSSSettingsWidget::copyClicked, this, &MainWindow::onCopyToClipboard);
     connect(m_settingsWidget, &DLSSSettingsWidget::writeToSteamClicked, this, &MainWindow::onWriteToSteam);
+    connect(m_settingsWidget, &DLSSSettingsWidget::importFromSteamClicked, this, &MainWindow::onImportFromSteam);
 
     // Status bar
     statusBar()->showMessage("Ready");
@@ -297,6 +299,20 @@ void MainWindow::onGameSelected(const Game& game)
     // Load settings for this game
     DLSSSettings settings = SettingsManager::instance().getSettings(game.settingsKey());
     m_settingsWidget->setGame(game);
+
+    // First time we see this Steam game: import any existing Steam launch options
+    // so the app reflects (and preserves) what the user already configured.
+    if (!SettingsManager::instance().hasSettings(game.settingsKey()) && game.launcher() == "Steam") {
+        const QString raw = SteamLauncher::readLaunchOptions(game.id());
+        if (!raw.trimmed().isEmpty()) {
+            EnvBuilder::ParsedLaunchOptions parsed = EnvBuilder::parseLaunchOptions(raw, settings);
+            settings = parsed.settings;
+            settings.customLaunchParams = parsed.customParams;
+            SettingsManager::instance().setSettings(game.settingsKey(), settings);
+            statusBar()->showMessage("Imported existing Steam launch options", 4000);
+        }
+    }
+
     m_settingsWidget->setSettings(settings);
 
     // Update Play button state based on whether game is running
@@ -379,6 +395,46 @@ void MainWindow::onWriteToSteam()
             "Failed to write settings to Steam configuration.\n"
             "You may need to copy the launch options manually.");
     }
+}
+
+void MainWindow::onImportFromSteam()
+{
+    if (m_currentGame.id().isEmpty()) {
+        return;
+    }
+    if (m_currentGame.launcher() != "Steam") {
+        QMessageBox::information(this, "Import from Steam",
+            "Importing launch options is only supported for Steam games.");
+        return;
+    }
+
+    const QString raw = SteamLauncher::readLaunchOptions(m_currentGame.id());
+    if (raw.trimmed().isEmpty()) {
+        QMessageBox::information(this, "Import from Steam",
+            "No existing launch options were found for this game in Steam.\n\n"
+            "Note: Steam writes this file on exit, so options set in the current "
+            "session may not appear until Steam is closed.");
+        return;
+    }
+
+    const QMessageBox::StandardButton reply = QMessageBox::question(this, "Import from Steam",
+        QString("Import this game's current Steam launch options?\n\n%1\n\n"
+                "Recognised options will update the controls; anything else goes "
+                "into Custom Launch Parameters. This replaces the current settings "
+                "for this game.").arg(raw),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (reply != QMessageBox::Yes) {
+        return;
+    }
+
+    DLSSSettings current = m_settingsWidget->settings();
+    EnvBuilder::ParsedLaunchOptions parsed = EnvBuilder::parseLaunchOptions(raw, current);
+    DLSSSettings imported = parsed.settings;
+    imported.customLaunchParams = parsed.customParams;
+
+    m_settingsWidget->setSettings(imported);
+    SettingsManager::instance().setSettings(m_currentGame.settingsKey(), imported);
+    statusBar()->showMessage("Imported launch options from Steam", 4000);
 }
 
 void MainWindow::checkProtonOnStartup()
