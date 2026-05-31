@@ -32,6 +32,7 @@ private slots:
     void onProtonGEUpdateCheck(bool updateAvailable, const QString& version);
     void onProtonInstallProgress(qint64 received, qint64 total, const QString& protonName);
     void onProtonInstallComplete(bool success, const QString& message);
+    void onGitHubTokenRejected();
     void showSystemInfo();
     void showSettings();
 
@@ -53,6 +54,7 @@ private:
 
     Game m_currentGame;
     bool m_dialogInstallActive = false;
+    bool m_authWarningShown = false;  // show the expired-token warning at most once per session
 };
 
 #endif // MAINWINDOW_H

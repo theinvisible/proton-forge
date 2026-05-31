@@ -80,6 +80,9 @@ signals:
     void installationComplete(bool success, const QString& message);
     void installationStarted();
     void extractionStarted();
+    // Emitted when a background request is rejected with HTTP 401, i.e. the
+    // configured GitHub token is invalid or has expired.
+    void gitHubTokenRejected();
 
 private:
     ProtonManager();

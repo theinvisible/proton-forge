@@ -160,6 +160,8 @@ void ProtonManager::checkForGEUpdates()
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
+            if (isUnauthorized(reply))
+                emit gitHubTokenRejected();
             emit geUpdateCheckComplete(false, QString());
             return;
         }
@@ -199,6 +201,8 @@ void ProtonManager::fetchLatestRelease()
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
+            if (isUnauthorized(reply))
+                emit gitHubTokenRejected();
             emit updateCheckComplete(false, QString());
             return;
         }

@@ -70,6 +70,8 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onProtonInstallProgress);
     connect(&ProtonManager::instance(), &ProtonManager::installationComplete,
             this, &MainWindow::onProtonInstallComplete);
+    connect(&ProtonManager::instance(), &ProtonManager::gitHubTokenRejected,
+            this, &MainWindow::onGitHubTokenRejected);
 
     // Check for Proton-CachyOS on startup
     QTimer::singleShot(1000, this, &MainWindow::checkProtonOnStartup);
@@ -590,6 +592,28 @@ void MainWindow::onProtonGEUpdateCheck(bool updateAvailable, const QString& vers
         statusBar()->showMessage(
             QString("Proton-GE update to %1 dismissed.").arg(version), 5000);
     }
+}
+
+void MainWindow::onGitHubTokenRejected()
+{
+    // The background update checks at startup both use the GitHub token, so this
+    // can fire more than once — warn only the first time per session.
+    if (m_authWarningShown)
+        return;
+    m_authWarningShown = true;
+
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("GitHub Token Invalid or Expired");
+    msgBox.setIcon(QMessageBox::Warning);
+    msgBox.setText("Your GitHub Personal Access Token was rejected — it is invalid or has expired.");
+    msgBox.setInformativeText(
+        "Proton update checks fall back to unauthenticated requests (60 per hour).\n\n"
+        "Update the token in Settings, or remove it to silence this warning.");
+    QPushButton* settingsBtn = msgBox.addButton("Open Settings...", QMessageBox::ActionRole);
+    msgBox.addButton(QMessageBox::Ok);
+    msgBox.exec();
+    if (msgBox.clickedButton() == settingsBtn)
+        showSettings();
 }
 
 void MainWindow::onProtonInstallProgress(qint64 received, qint64 total, const QString& protonName)
