@@ -350,10 +350,23 @@ QGroupBox* DLSSSettingsWidget::createSuperResolutionGroup()
         m_srPreset->addItem(preset.isEmpty() ? "(App Default)" : preset, preset);
     }
     m_srPreset->setToolTip(
-        "DLSS rendering preset selection:\n\n"
-        "Different presets (A through O) tune the AI model for specific quality characteristics. "
-        "Most games work best with RENDER_PRESET_LATEST which uses the newest preset.\n\n"
-        "Only change this if you experience specific quality issues or are testing.");
+        "DLSS Super Resolution model preset (NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
+        "Picks the AI model variant. Presets that actually exist today:\n\n"
+        "CNN models (legacy, DLSS 2/3):\n"
+        "• A–D: early models (C favors motion clarity, D favors stability)\n"
+        "• E: improved CNN — default for many CNN-era games\n"
+        "• F: used for Ultra Performance and DLAA\n\n"
+        "Transformer models (DLSS 4):\n"
+        "• J: 1st-gen transformer — large quality jump over CNN\n"
+        "• K: refined transformer — the current \"Latest\" (since Jan 2025), "
+        "better temporal stability / less ghosting\n"
+        "• L: DLSS 4.5, tuned for 4K Ultra Performance\n"
+        "• M: DLSS 4.5, tuned for Performance mode\n\n"
+        "• (App Default): use the game's choice\n"
+        "• RENDER_PRESET_LATEST: newest model; with DLSS 4.5 this means "
+        "\"recommended\" (auto-picks K/L/M per mode)\n\n"
+        "Recommended: LATEST (or K) on DLSS 4 GPUs. G/H/I/N/O are unused "
+        "placeholders that fall back to the default.");
     formLayout->addRow("Render Preset:", m_srPreset);
 
     m_srScalingRatio = new QSpinBox(this);
@@ -522,13 +535,16 @@ QGroupBox* DLSSSettingsWidget::createFrameGenerationGroup()
     formLayout->addRow("FG Mode:", m_fgMode);
 
     m_fgPreset = new QComboBox(this);
-    for (const QString& preset : DLSSSettings::availablePresets()) {
+    for (const QString& preset : DLSSSettings::availableFGPresets()) {
         m_fgPreset->addItem(preset.isEmpty() ? "(App Default)" : preset, preset);
     }
     m_fgPreset->setToolTip(
-        "Frame Generation render preset (NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION):\n\n"
-        "Selects the FG AI model variant. Most setups work best with "
-        "RENDER_PRESET_LATEST.\n\n"
+        "DLSS Frame Generation model preset (NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
+        "Frame Generation only exposes a couple of real presets:\n"
+        "• (App Default): use the game's choice\n"
+        "• Preset A: original FG model\n"
+        "• Preset B: Enhanced FG model (DLSS 4) — better UI handling, fewer artifacts\n"
+        "• RENDER_PRESET_LATEST: newest FG model (recommended)\n\n"
         "Requires the FG override above to be enabled.");
     formLayout->addRow("FG Render Preset:", m_fgPreset);
 

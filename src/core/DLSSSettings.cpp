@@ -187,6 +187,18 @@ QStringList DLSSSettings::availableFGModes()
     };
 }
 
+QStringList DLSSSettings::availableFGPresets()
+{
+    // Frame Generation exposes far fewer real presets than Super Resolution:
+    // Preset A (original) and Preset B (Enhanced FG, DLSS 4), plus "latest".
+    return {
+        "",  // Default/App controlled
+        "RENDER_PRESET_A",
+        "RENDER_PRESET_B",
+        "RENDER_PRESET_LATEST"
+    };
+}
+
 bool DLSSSettings::operator==(const DLSSSettings& other) const
 {
     return enableNVAPI == other.enableNVAPI &&

@@ -73,6 +73,7 @@ public:
     static QStringList availableRRModes();
     static QStringList availablePresets();
     static QStringList availableFGModes();
+    static QStringList availableFGPresets();
 
     bool operator==(const DLSSSettings& other) const;
 };
