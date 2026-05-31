@@ -18,9 +18,11 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 ### DLSS Configuration
 - **Super Resolution (SR)**: Configure DLSS upscaling modes (Performance, Balanced, Quality, DLAA, Ultra Performance)
 - **Ray Reconstruction (RR)**: Fine-tune ray tracing denoising
-- **Frame Generation (FG)**: Control DLSS 3 multi-frame generation
+- **Frame Generation (FG)**: Control DLSS Frame Generation — Multi-Frame Generation up to 6x, the FG mode (On/Off/Auto/Dynamic) and an FG render preset
+- **NVIDIA Reflex**: Lower input latency in Vulkan games (DXVK_NVAPI_VKREFLEX) — the recommended companion to Frame Generation and Smooth Motion
 - **Custom Scaling Ratios**: Set precise render resolution percentages
-- **Render Presets**: Choose from preset A-O for optimal quality/performance balance
+- **Render Presets**: Pick the DLSS model preset, including the DLSS 4 transformer presets (J/K plus the DLSS 4.5 L/M models), with in-app tooltips documenting which presets actually exist
+- **Compatibility Warnings**: Options that require a newer NVIDIA driver or Proton version are flagged with a non-blocking warning based on your detected driver and the selected Proton version
 
 ### HDR Support
 - **Individual HDR Options**: Separately configure PROTON_ENABLE_WAYLAND, PROTON_ENABLE_HDR, and ENABLE_HDR_WSI
@@ -34,6 +36,7 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Version Browser**: Browse and install any available Proton release
 - **Smart Notifications**: Get notified about new versions, with intelligent "don't ask again" for dismissed updates
 - **Delete Versions**: Remove unused Proton installations to save disk space
+- **GitHub API Token (optional)**: Add a Personal Access Token in Settings to raise the GitHub API rate limit (60 → 5,000 requests/hour); ProtonForge warns when the limit is hit and when the configured token is invalid or has expired
 
 ### Game Launch & Integration
 - **Direct Launch**: Start games directly from ProtonForge with custom settings
@@ -72,7 +75,7 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Display Server**: Wayland (required for HDR)
 - **Qt**: Qt6 6.0 or later
 - **Steam**: Installed and configured
-- **NVIDIA GPU**: For DLSS features (GTX 16xx/RTX 20xx or newer)
+- **NVIDIA GPU**: For DLSS features (GTX 16xx/RTX 20xx or newer). The newest options (Smooth Motion, 5x/6x Multi-Frame Generation, transformer presets) require recent NVIDIA drivers — ProtonForge shows a warning when your driver or selected Proton version is too old
 
 ### Build Dependencies
 - CMake 3.16+
@@ -91,7 +94,7 @@ Flatpak provides the easiest installation method that works across all Linux dis
 
 ```bash
 # Download from GitHub releases
-wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.11/protonforge.flatpak
+wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.12/protonforge.flatpak
 
 # Install
 flatpak install protonforge.flatpak
@@ -112,10 +115,10 @@ flatpak install flathub org.protonforge.ProtonForge
 
 ```bash
 # Download the latest release
-wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.11/protonforge_1.0.11_amd64.deb
+wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.12/protonforge_1.0.12_amd64.deb
 
 # Install
-sudo dpkg -i protonforge_1.0.11_amd64.deb
+sudo dpkg -i protonforge_1.0.12_amd64.deb
 
 # Install dependencies if needed
 sudo apt-get install -f
@@ -222,13 +225,13 @@ Settings are automatically saved per-game and persist across sessions.
 ```
 protonforge/
 ├── src/
-│   ├── core/           # Game data, settings, DLSS configuration
+│   ├── core/           # Game data, settings, DLSS config, feature gating
 │   ├── launchers/      # Steam launcher integration
 │   ├── network/        # Image downloading and caching
 │   ├── parsers/        # VDF parser for Steam configs
 │   ├── runner/         # Game execution and Proton handling
 │   ├── ui/             # Qt widgets and dialogs
-│   └── utils/          # Utilities (EnvBuilder, ProtonManager, HDRChecker)
+│   └── utils/          # Utilities (EnvBuilder, ProtonManager, GpuInfoCache, HDRChecker)
 ├── debian/             # Debian package configuration
 ├── CMakeLists.txt
 └── build-deb.sh        # Automated .deb builder
