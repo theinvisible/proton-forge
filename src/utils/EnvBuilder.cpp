@@ -170,7 +170,7 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
 
     // Smooth Motion
     if (settings.enableSmoothMotion) {
-        env.insert("__GL_YIELD", "USLEEP");
+        env.insert("NVPRESENT_ENABLE_SMOOTH_MOTION", "1");
     }
 
     // Frame Rate Limit
