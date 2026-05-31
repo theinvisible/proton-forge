@@ -4,7 +4,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QStandardPaths>
-#include <QSettings>
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QJsonDocument>
@@ -69,13 +68,38 @@ void ProtonDBClient::saveCached(const QString& path, const QByteArray& data) con
     }
 }
 
-QString ProtonDBClient::reportsBaseUrl() const
+namespace {
+// --- ProtonDB gameId derivation -------------------------------------------
+// Reproduced from ProtonDB's web bundle. The site computes a report "gameId"
+// from the Steam appId and two salts (counts.reports, counts.timestamp):
+//
+//   R(e,t,n) = `${t}p${e*(t%n)}`
+//   I(s)     = abs( reduce over (s+"m"): acc = (acc<<5) - acc + charCode )   // int32 wrap
+//   gameId   = I("p" + R(appId,reports,ts) + "*vRT" + R(1,appId,ts) + "undefined")
+//
+// Verified against many live games (e.g. Elden Ring 1245620 -> 2033117161).
+QString protonR(qint64 e, qint64 t, qint64 n)
 {
-    // Empty by default: ProtonDB exposes no reliable public per-game reports
-    // endpoint. A user/maintainer can point this at a compatible source (e.g. a
-    // self-hosted ProtonDB community API). The appId is appended to this base.
-    QSettings s;
-    return s.value("protondb/reportsBaseUrl").toString().trimmed();
+    const qint64 prod = (n != 0) ? e * (t % n) : 0;
+    return QString::number(t) + "p" + QString::number(prod);
+}
+
+qint32 protonI(const QString& in)
+{
+    const QString s = in + "m";
+    quint32 acc = 0;  // 32-bit wraparound mirrors JS's "|0"
+    for (const QChar ch : s) {
+        acc = (acc << 5) - acc + ch.unicode();
+    }
+    return static_cast<qint32>(acc);
+}
+} // namespace
+
+qint64 ProtonDBClient::computeGameId(qint64 appId, qint64 reports, qint64 timestamp)
+{
+    const QString s = "p" + protonR(appId, reports, timestamp)
+                    + "*vRT" + protonR(1, appId, timestamp) + "undefined";
+    return qAbs(static_cast<qint64>(protonI(s)));
 }
 
 void ProtonDBClient::fetchSummary(const QString& appId)
@@ -121,22 +145,42 @@ void ProtonDBClient::fetchSummary(const QString& appId)
 
 void ProtonDBClient::fetchReports(const QString& appId)
 {
-    if (appId.isEmpty()) {
-        emit reportsUnavailable(appId, "No game selected.");
+    bool isNumeric = false;
+    const qint64 appIdNum = appId.toLongLong(&isNumeric);
+    if (appId.isEmpty() || !isNumeric) {
+        emit reportsUnavailable(appId, "No Steam game selected.");
         return;
     }
 
-    const QString base = reportsBaseUrl();
-    if (base.isEmpty()) {
-        emit reportsUnavailable(appId,
-            "No ProtonDB reports source is configured. ProtonDB does not expose a "
-            "public endpoint for report text, so launch-option mining is disabled "
-            "until a reports source is set (protondb/reportsBaseUrl). You can still "
-            "read reports directly on ProtonDB.");
-        return;
-    }
+    // Step 1: fetch counts.json fresh — it carries the per-build salts that the
+    // gameId depends on, so caching it could desync from the current report files.
+    QNetworkRequest request(QUrl("https://www.protondb.com/data/counts.json"));
+    request.setRawHeader("User-Agent", "ProtonForge");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
 
-    const QString cachePath = cacheFilePath(appId, "reports");
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, appId, appIdNum]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit reportsUnavailable(appId, "Could not reach ProtonDB: " + reply->errorString());
+            return;
+        }
+        const QJsonObject counts = QJsonDocument::fromJson(reply->readAll()).object();
+        const qint64 reports = counts.value("reports").toVariant().toLongLong();
+        const qint64 timestamp = counts.value("timestamp").toVariant().toLongLong();
+        if (reports == 0 || timestamp == 0) {
+            emit reportsUnavailable(appId, "ProtonDB returned unexpected data.");
+            return;
+        }
+        fetchReportFile(appId, computeGameId(appIdNum, reports, timestamp));
+    });
+}
+
+void ProtonDBClient::fetchReportFile(const QString& appId, qint64 gameId)
+{
+    // Report files are keyed by the (per-build) gameId, so the cache key is too.
+    const QString cachePath = cacheFilePath(QString::number(gameId), "reports");
     QByteArray cached;
     if (loadCached(cachePath, cached, kCacheTtlSecs)) {
         const QList<Report> reports = parseReports(cached);
@@ -146,12 +190,8 @@ void ProtonDBClient::fetchReports(const QString& appId)
         }
     }
 
-    QString url = base;
-    if (!url.endsWith('/')) {
-        url += '/';
-    }
-    url += appId;
-
+    const QString url = QStringLiteral(
+        "https://www.protondb.com/data/reports/all-devices/app/%1.json").arg(gameId);
     QNetworkRequest request{QUrl(url)};
     request.setRawHeader("User-Agent", "ProtonForge");
     request.setRawHeader("Accept", "application/json");
@@ -163,7 +203,8 @@ void ProtonDBClient::fetchReports(const QString& appId)
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             emit reportsUnavailable(appId,
-                "Could not reach the configured ProtonDB reports source: " + reply->errorString());
+                "No ProtonDB reports are available for this game (or ProtonDB changed "
+                "its data layout). The tier and a link to ProtonDB are still available.");
             return;
         }
         const QByteArray data = reply->readAll();
@@ -199,40 +240,34 @@ ProtonDBClient::Summary ProtonDBClient::parseSummary(const QByteArray& data) con
 QList<ProtonDBClient::Report> ProtonDBClient::parseReports(const QByteArray& data) const
 {
     QList<Report> reports;
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-
-    QJsonArray array;
-    if (doc.isArray()) {
-        array = doc.array();
-    } else if (doc.isObject()) {
-        // Accept {"reports": [...]} as well.
-        array = doc.object().value("reports").toArray();
-    }
+    const QJsonObject root = QJsonDocument::fromJson(data).object();
+    const QJsonArray array = root.value("reports").toArray();
 
     for (const QJsonValue& value : array) {
         if (!value.isObject()) {
             continue;
         }
-        QJsonObject obj = value.toObject();
+        const QJsonObject obj = value.toObject();
+        const QJsonObject responses = obj.value("responses").toObject();
 
         Report report;
-        // Tolerate a few common field-name variants across community sources.
-        report.notes = obj.value("notes").toString();
-        if (report.notes.isEmpty()) {
-            report.notes = obj.value("note").toString();
-        }
-        report.gpuDriver = obj.value("gpuDriver").toString();
-        if (report.gpuDriver.isEmpty()) {
-            report.gpuDriver = obj.value("gpu_driver").toString();
-        }
-        report.protonVersion = obj.value("protonVersion").toString();
+        report.launchOptions = responses.value("launchOptions").toString().trimmed();
+        report.notes = responses.value("concludingNotes").toString().trimmed();
+
+        // Prefer a user-entered custom Proton version, else the selected one.
+        report.protonVersion = responses.value("customProtonVersion").toString().trimmed();
         if (report.protonVersion.isEmpty()) {
-            report.protonVersion = obj.value("proton_version").toString();
+            report.protonVersion = responses.value("protonVersion").toString().trimmed();
         }
-        report.tier = obj.value("tier").toString();
+
+        const QJsonObject steam = obj.value("device").toObject()
+                                     .value("inferred").toObject()
+                                     .value("steam").toObject();
+        report.gpuDriver = steam.value("gpuDriver").toString().trimmed();
         report.timestamp = obj.value("timestamp").toVariant().toLongLong();
 
-        if (!report.notes.trimmed().isEmpty()) {
+        // Keep reports that carry something usable for mining.
+        if (!report.launchOptions.isEmpty() || !report.notes.isEmpty()) {
             reports << report;
         }
     }

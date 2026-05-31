@@ -8,16 +8,19 @@
 
 // Fetches data from ProtonDB for a given Steam appId.
 //
-// Two layers, by reliability:
-//   * Summary  — the official public endpoint
+// Two layers:
+//   * Summary  — the public endpoint
 //     (https://www.protondb.com/api/v1/reports/summaries/<appid>.json).
-//     Returns a tier/score only. Always works; used for the tier badge.
-//   * Reports  — per-game user reports including free-text notes. ProtonDB has
-//     no reliable public endpoint for these, so the source is configurable via
-//     the QSettings key "protondb/reportsBaseUrl". When unset (the default) or
-//     unreachable, reportsUnavailable() is emitted and callers fall back to the
-//     tier badge + a deep link. The expected response is a JSON array (or an
-//     object with a "reports" array) of objects with a free-text "notes" field.
+//     Returns a tier/score only. Used for the tier badge.
+//   * Reports  — per-game user reports including the free-text "concludingNotes"
+//     and an explicit "launchOptions" field. ProtonDB serves these as static
+//     JSON at /data/reports/all-devices/app/<gameId>.json, where <gameId> is an
+//     obfuscated hash of (appId, counts.reports, counts.timestamp). Those two
+//     salts come from /data/counts.json and change on every ProtonDB build (so
+//     the gameId rotates per build). We therefore fetch counts.json at runtime,
+//     recompute the gameId, and fetch the matching report file. If the report
+//     file is missing (e.g. ProtonDB changed the hashing), reportsUnavailable()
+//     is emitted and callers fall back to the tier badge + a deep link.
 //
 // Responses are cached on disk under ~/.cache/ProtonForge/protondb/ with a TTL.
 class ProtonDBClient : public QObject {
@@ -35,7 +38,8 @@ public:
     };
 
     struct Report {
-        QString notes;          // free-text user comment (may contain launch options)
+        QString launchOptions;  // explicit launch-options field (highest value)
+        QString notes;          // free-text user comment ("concludingNotes")
         QString gpuDriver;
         QString protonVersion;
         QString tier;
@@ -65,13 +69,19 @@ private:
     ProtonDBClient& operator=(const ProtonDBClient&) = delete;
 
     static QString cacheDir();
-    QString cacheFilePath(const QString& appId, const QString& kind) const;
+    QString cacheFilePath(const QString& key, const QString& kind) const;
     bool loadCached(const QString& path, QByteArray& out, int maxAgeSecs) const;
     void saveCached(const QString& path, const QByteArray& data) const;
 
-    QString reportsBaseUrl() const;
+    // Fetch the report file for an already-computed gameId, parse, and emit.
+    void fetchReportFile(const QString& appId, qint64 gameId);
+
     Summary parseSummary(const QByteArray& data) const;
     QList<Report> parseReports(const QByteArray& data) const;
+
+    // Reproduces ProtonDB's client-side gameId derivation from a Steam appId and
+    // the two salts in counts.json. See ProtonDBClient.cpp for the algorithm.
+    static qint64 computeGameId(qint64 appId, qint64 reports, qint64 timestamp);
 
     QNetworkAccessManager* m_networkManager;
 };

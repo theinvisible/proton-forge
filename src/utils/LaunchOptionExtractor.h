@@ -5,23 +5,25 @@
 #include <QString>
 #include "network/ProtonDBClient.h"
 
-// Mines free-text ProtonDB report notes for launch-option recommendations.
-// Source-agnostic: it works on any list of reports with a `notes` field,
-// regardless of where the reports came from.
+// Mines ProtonDB reports for launch-option recommendations.
 //
-// Detects:
-//   * whole launch-option lines containing "%command%" (highest confidence),
+// Sources, in priority order:
+//   * the report's explicit `launchOptions` field (what the user actually set),
+//   * whole launch-option lines containing "%command%" in the notes,
 //   * environment-variable assignments (PROTON_*, DXVK_*, VKD3D_*, etc.),
-//   * known wrapper commands (gamemoderun, mangohud, gamescope).
-// Results are aggregated across reports, deduplicated, and ranked by how often
-// they appear (and whether they include %command%).
+//   * known wrapper commands (gamemoderun, mangohud, gamescope) in the notes.
+// Results are aggregated across reports, deduplicated, and ranked.
 class LaunchOptionExtractor {
 public:
     struct Suggestion {
         QString snippet;        // the extracted launch-option text
         int occurrences = 0;    // number of reports it was found in
+        bool direct = false;    // from the explicit launchOptions field
         bool hasCommand = false;// contains "%command%" (a full launch line)
         QString sampleSource;   // e.g. "Proton 9.0-3 · driver 550.120"
+        // Representative source reports (capped), so the UI can show the full
+        // comment/context a snippet came from.
+        QList<ProtonDBClient::Report> sources;
     };
 
     static QList<Suggestion> extract(const QList<ProtonDBClient::Report>& reports,

@@ -47,8 +47,10 @@ QString sourceLabel(const ProtonDBClient::Report& r)
 
 struct Agg {
     int occurrences = 0;
+    bool direct = false;
     bool hasCommand = false;
     QString source;
+    QList<ProtonDBClient::Report> sources;  // representative reports for context
 };
 } // namespace
 
@@ -65,7 +67,7 @@ LaunchOptionExtractor::extract(const QList<ProtonDBClient::Report>& reports, int
 
     QHash<QString, Agg> agg;
 
-    auto bump = [&](const QString& snippetIn, bool hasCommand, const ProtonDBClient::Report& r) {
+    auto bump = [&](const QString& snippetIn, bool hasCommand, bool direct, const ProtonDBClient::Report& r) {
         const QString snippet = snippetIn.trimmed();
         if (snippet.isEmpty() || snippet.length() > 400) {
             return;
@@ -73,20 +75,38 @@ LaunchOptionExtractor::extract(const QList<ProtonDBClient::Report>& reports, int
         Agg& a = agg[snippet];
         a.occurrences += 1;
         a.hasCommand = a.hasCommand || hasCommand;
+        a.direct = a.direct || direct;
         if (a.source.isEmpty()) {
             a.source = sourceLabel(r);
+        }
+        // Keep a few representative reports (those with a comment) so the UI can
+        // show the full context the snippet came from. Dedupe by note text.
+        if (!r.notes.trimmed().isEmpty() && a.sources.size() < 5) {
+            bool dup = false;
+            for (const auto& s : a.sources) {
+                if (s.notes == r.notes) { dup = true; break; }
+            }
+            if (!dup) {
+                a.sources << r;
+            }
         }
     };
 
     for (const ProtonDBClient::Report& report : reports) {
+        // 0) The explicit launchOptions field — what the user actually configured.
+        if (!report.launchOptions.trimmed().isEmpty()) {
+            bump(collapseWhitespace(report.launchOptions),
+                 report.launchOptions.contains("%command%"), true, report);
+        }
+
         const QString notes = report.notes;
         const bool noteHasCommand = notes.contains("%command%");
 
-        // 1) Whole launch-option lines containing %command% (highest value).
+        // 1) Whole launch-option lines containing %command% in the notes.
         const QStringList lines = notes.split('\n');
         for (const QString& line : lines) {
             if (line.contains("%command%")) {
-                bump(collapseWhitespace(line), true, report);
+                bump(collapseWhitespace(line), true, false, report);
             }
         }
 
@@ -97,7 +117,7 @@ LaunchOptionExtractor::extract(const QList<ProtonDBClient::Report>& reports, int
             const QString key = m.captured(1);
             const QString value = m.captured(2);
             if (looksLikeLaunchEnvKey(key, noteHasCommand)) {
-                bump(key + "=" + value, false, report);
+                bump(key + "=" + value, false, false, report);
             }
         }
 
@@ -105,7 +125,7 @@ LaunchOptionExtractor::extract(const QList<ProtonDBClient::Report>& reports, int
         auto wit = wrapper.globalMatch(notes);
         while (wit.hasNext()) {
             QRegularExpressionMatch m = wit.next();
-            bump(m.captured(1).toLower(), false, report);
+            bump(m.captured(1).toLower(), false, false, report);
         }
     }
 
@@ -115,14 +135,20 @@ LaunchOptionExtractor::extract(const QList<ProtonDBClient::Report>& reports, int
         Suggestion s;
         s.snippet = it.key();
         s.occurrences = it.value().occurrences;
+        s.direct = it.value().direct;
         s.hasCommand = it.value().hasCommand;
         s.sampleSource = it.value().source;
+        s.sources = it.value().sources;
         suggestions << s;
     }
 
-    // Rank: full %command% lines first, then by frequency, then alphabetically.
+    // Rank: explicit launchOptions first, then full %command% lines, then by
+    // frequency, then alphabetically.
     std::sort(suggestions.begin(), suggestions.end(),
               [](const Suggestion& a, const Suggestion& b) {
+        if (a.direct != b.direct) {
+            return a.direct;
+        }
         if (a.hasCommand != b.hasCommand) {
             return a.hasCommand;
         }

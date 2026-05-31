@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QFrame>
+#include <QStringList>
 #include <QDesktopServices>
 #include <QUrl>
 
@@ -21,6 +22,29 @@ QString tierColor(const QString& tier)
     if (t == "bronze")   return "#cd7f32";
     if (t == "borked")   return AppStyle::ColorDanger;
     return AppStyle::ColorTextMuted;  // pending / unknown
+}
+
+// Builds the full comment/context block for a suggestion from its source reports.
+QString buildContextText(const QList<ProtonDBClient::Report>& sources)
+{
+    QStringList blocks;
+    for (const ProtonDBClient::Report& r : sources) {
+        if (r.notes.trimmed().isEmpty()) {
+            continue;
+        }
+        QStringList head;
+        if (!r.protonVersion.isEmpty()) head << "Proton " + r.protonVersion;
+        if (!r.gpuDriver.isEmpty()) head << r.gpuDriver;
+
+        QString block;
+        if (!head.isEmpty()) block += head.join("  ·  ") + "\n";
+        block += r.notes.trimmed();
+        if (!r.launchOptions.trimmed().isEmpty()) {
+            block += "\n↳ " + r.launchOptions.trimmed();
+        }
+        blocks << block;
+    }
+    return blocks.join("\n\n────────\n\n");
 }
 
 QLabel* makeTierBadge(const ProtonDBClient::Summary& summary, QWidget* parent)
@@ -105,9 +129,11 @@ RecommendationsDialog::RecommendationsDialog(
             card->setStyleSheet(QString(
                 "QFrame { background-color: %1; border: 1px solid %2; border-radius: 6px; }")
                 .arg(AppStyle::ColorBgCard, AppStyle::ColorBorder));
-            auto* cardLayout = new QHBoxLayout(card);
-            cardLayout->setContentsMargins(10, 8, 10, 8);
+            auto* cardOuter = new QVBoxLayout(card);
+            cardOuter->setContentsMargins(10, 8, 10, 8);
+            cardOuter->setSpacing(6);
 
+            auto* topRow = new QHBoxLayout();
             auto* textCol = new QVBoxLayout();
             auto* snippetLabel = new QLabel(s.snippet, card);
             snippetLabel->setWordWrap(true);
@@ -127,8 +153,9 @@ RecommendationsDialog::RecommendationsDialog(
                 "color: %1; font-size: 11px; background: transparent; border: none;")
                 .arg(AppStyle::ColorTextMuted));
             textCol->addWidget(metaLabel);
-            cardLayout->addLayout(textCol, 1);
+            topRow->addLayout(textCol, 1);
 
+            auto* btnCol = new QVBoxLayout();
             auto* applyBtn = new QPushButton("Apply", card);
             applyBtn->setStyleSheet(AppStyle::secondaryButtonStyle());
             const QString snippet = s.snippet;
@@ -136,8 +163,36 @@ RecommendationsDialog::RecommendationsDialog(
                 emit applySnippet(snippet);
                 accept();
             });
-            cardLayout->addWidget(applyBtn, 0, Qt::AlignTop);
+            btnCol->addWidget(applyBtn);
 
+            // Expandable full comment(s) the snippet came from — lets the user see
+            // the context the command was given in.
+            const QString context = buildContextText(s.sources);
+            if (!context.isEmpty()) {
+                auto* commentBtn = new QPushButton("Kommentar ▾", card);
+                commentBtn->setStyleSheet(AppStyle::dialogButtonStyle());
+                btnCol->addWidget(commentBtn);
+
+                auto* commentLabel = new QLabel(context, card);
+                commentLabel->setWordWrap(true);
+                commentLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+                commentLabel->setStyleSheet(QString(
+                    "background-color: %1; border: 1px solid %2; border-radius: 4px; "
+                    "padding: 6px; color: %3; font-size: 12px;")
+                    .arg(AppStyle::ColorBgInput, AppStyle::ColorBorder, AppStyle::ColorTextSecondary));
+                commentLabel->setVisible(false);
+                cardOuter->addWidget(commentLabel);  // added after topRow below
+
+                connect(commentBtn, &QPushButton::clicked, card, [commentBtn, commentLabel]() {
+                    const bool show = !commentLabel->isVisible();
+                    commentLabel->setVisible(show);
+                    commentBtn->setText(show ? "Kommentar ▴" : "Kommentar ▾");
+                });
+            }
+            btnCol->addStretch();
+            topRow->addLayout(btnCol, 0);
+
+            cardOuter->insertLayout(0, topRow);  // ensure topRow sits above the comment
             listLayout->addWidget(card);
         }
         listLayout->addStretch();
