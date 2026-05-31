@@ -326,6 +326,15 @@ QString ProtonManager::extractApiError(QNetworkReply* reply)
     return reply->errorString();
 }
 
+// ---------------------------------------------------------------------------
+// A configured GitHub token that is invalid or has expired is rejected by the
+// API with HTTP 401 "Bad credentials". Unauthenticated requests never get a 401.
+// ---------------------------------------------------------------------------
+bool ProtonManager::isUnauthorized(QNetworkReply* reply)
+{
+    return reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 401;
+}
+
 void ProtonManager::applyGitHubHeaders(QNetworkRequest& request, bool acceptJson) const
 {
     if (acceptJson)
@@ -344,6 +353,7 @@ void ProtonManager::fetchAvailableVersions()
     m_pendingCachyOSReleases.clear();
     m_availableReleases.clear();
     m_lastFetchError.clear();
+    m_lastFetchAuthError = false;
 
     fetchReleases(5);
     fetchProtonGEReleases(5);
@@ -366,6 +376,8 @@ void ProtonManager::fetchReleases(int count)
             m_pendingCachyOSReleases = parseReleases(data, count);
         } else {
             m_lastFetchError = extractApiError(reply);
+            if (isUnauthorized(reply))
+                m_lastFetchAuthError = true;
         }
 
         m_pendingRequests--;
@@ -396,6 +408,8 @@ void ProtonManager::fetchProtonGEReleases(int count)
             geReleases = parseProtonGEReleases(data, count);
         } else {
             m_lastFetchError = extractApiError(reply);
+            if (isUnauthorized(reply))
+                m_lastFetchAuthError = true;
         }
 
         m_pendingRequests--;

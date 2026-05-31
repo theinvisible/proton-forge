@@ -68,6 +68,10 @@ public:
     // Last error message from a failed fetch (empty if last fetch succeeded)
     QString lastFetchError() const { return m_lastFetchError; }
 
+    // True if the last fetch failed because the GitHub token was rejected
+    // (HTTP 401) — i.e. the configured Personal Access Token is invalid or expired.
+    bool lastFetchWasAuthError() const { return m_lastFetchAuthError; }
+
 signals:
     void updateCheckComplete(bool updateAvailable, const QString& latestVersion);
     void geUpdateCheckComplete(bool updateAvailable, const QString& latestVersion);
@@ -103,6 +107,9 @@ private:
     // Extract human-readable error from a GitHub API error response
     static QString extractApiError(QNetworkReply* reply);
 
+    // True if the reply is an HTTP 401 (rejected credentials -> invalid/expired token)
+    static bool isUnauthorized(QNetworkReply* reply);
+
     void applyGitHubHeaders(QNetworkRequest& request, bool acceptJson = true) const;
 
     QNetworkAccessManager* m_networkManager;
@@ -111,6 +118,7 @@ private:
     QList<ProtonRelease> m_pendingCachyOSReleases;
     QString m_downloadPath;
     QString m_lastFetchError;
+    bool m_lastFetchAuthError = false;
     int m_pendingRequests = 0;
 };
 

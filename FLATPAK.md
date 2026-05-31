@@ -38,10 +38,10 @@ Before building, you need to update the SHA256 hash in `org.protonforge.ProtonFo
 
 ```bash
 # Download the source archive
-wget https://github.com/theinvisible/proton-forge/archive/v1.0.3.tar.gz
+wget https://github.com/theinvisible/proton-forge/archive/v1.0.11.tar.gz
 
 # Calculate SHA256
-sha256sum v1.0.3.tar.gz
+sha256sum v1.0.11.tar.gz
 
 # Update the sha256 field in org.protonforge.ProtonForge.yml
 ```
@@ -133,7 +133,7 @@ Users can install the `.flatpak` bundle file directly:
 
 ```bash
 # Download from GitHub releases
-wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.3/protonforge.flatpak
+wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.11/protonforge.flatpak
 
 # Install
 flatpak install protonforge.flatpak

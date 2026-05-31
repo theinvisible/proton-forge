@@ -432,8 +432,30 @@ void MainWindow::installProtonCachyOS()
         loadingDialog->deleteLater();
         statusBar()->clearMessage();
 
-        if (releases.isEmpty()) {
-            QString detail = ProtonManager::instance().lastFetchError();
+        QString detail = ProtonManager::instance().lastFetchError();
+
+        // An expired or invalid GitHub Personal Access Token is rejected with
+        // HTTP 401. Warn the user even when locally installed versions still let
+        // us populate the list, so they know the token needs renewing.
+        if (ProtonManager::instance().lastFetchWasAuthError()) {
+            QMessageBox msgBox(this);
+            msgBox.setWindowTitle("GitHub Token Invalid or Expired");
+            msgBox.setIcon(QMessageBox::Warning);
+            msgBox.setText("Your GitHub Personal Access Token was rejected — it is invalid or has expired.");
+            msgBox.setInformativeText(
+                "Update the token in Settings, or remove it to fall back to "
+                "unauthenticated requests (60 per hour).");
+            QPushButton* settingsBtn = msgBox.addButton("Open Settings...", QMessageBox::ActionRole);
+            msgBox.addButton(QMessageBox::Ok);
+            msgBox.exec();
+            if (msgBox.clickedButton() == settingsBtn) {
+                showSettings();
+                return;
+            }
+            if (releases.isEmpty())
+                return;
+            // Otherwise fall through so the user can still manage installed versions.
+        } else if (releases.isEmpty()) {
             bool isRateLimit = detail.contains("rate limit", Qt::CaseInsensitive);
 
             if (isRateLimit) {
