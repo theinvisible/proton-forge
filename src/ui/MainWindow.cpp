@@ -716,8 +716,10 @@ void MainWindow::showSystemInfo()
 
     if (gpus.isEmpty()) {
         QMessageBox::information(this, "No GPUs Detected",
-            "Could not detect any compatible GPUs.\n\n"
-            "Supported vendors: NVIDIA");
+            "Could not detect a compatible GPU.\n\n"
+            "ProtonForge reads GPU details from the NVIDIA driver "
+            "(nvidia-smi and /proc/driver/nvidia). Make sure the proprietary "
+            "NVIDIA driver is installed and loaded.");
         return;
     }
 

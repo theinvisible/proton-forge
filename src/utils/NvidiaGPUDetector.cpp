@@ -13,43 +13,158 @@ QList<GPUInfo> NvidiaGPUDetector::detect()
     QProcess process;
     process.start("nvidia-smi", QStringList() << "-q");
 
-    if (!process.waitForStarted(1000)) {
-        qWarning() << "Failed to start nvidia-smi";
-        return gpus;
-    }
+    if (process.waitForStarted(1000) && process.waitForFinished(5000)) {
+        const QString output = QString::fromUtf8(process.readAllStandardOutput());
 
-    if (!process.waitForFinished(5000)) {
-        qWarning() << "nvidia-smi timed out";
-        return gpus;
-    }
+        // nvidia-smi exits non-zero (commonly 6) and prints "No devices were
+        // found" when the driver is loaded but NVML can't enumerate a GPU — the
+        // typical state of an Optimus dGPU suspended in runtime D3cold.
+        const bool noDevices = process.exitCode() != 0 ||
+                               output.contains("No devices were found", Qt::CaseInsensitive);
 
-    QString output = process.readAllStandardOutput();
+        if (!output.isEmpty() && !noDevices) {
+            // Split output by GPU sections
+            QStringList sections = output.split(QRegularExpression("GPU \\d+:"), Qt::SkipEmptyParts);
 
-    if (output.isEmpty()) {
-        qWarning() << "nvidia-smi returned empty output";
-        return gpus;
-    }
+            // Driver info is system-wide; detect once and share across all NVIDIA GPUs.
+            DriverInfo sharedDriverInfo;
+            bool driverInfoDetected = false;
 
-    // Split output by GPU sections
-    QStringList sections = output.split(QRegularExpression("GPU \\d+:"), Qt::SkipEmptyParts);
-
-    // Driver info is system-wide; detect once and share across all NVIDIA GPUs.
-    DriverInfo sharedDriverInfo;
-    bool driverInfoDetected = false;
-
-    for (int i = 0; i < sections.size(); ++i) {
-        GPUInfo info = parseNvidiaSmiOutput(sections[i], i);
-        if (!info.name.isEmpty()) {
-            if (!driverInfoDetected) {
-                sharedDriverInfo = detectDriverInfo(info.driverVersion);
-                driverInfoDetected = true;
+            for (int i = 0; i < sections.size(); ++i) {
+                GPUInfo info = parseNvidiaSmiOutput(sections[i], i);
+                if (!info.name.isEmpty()) {
+                    if (!driverInfoDetected) {
+                        sharedDriverInfo = detectDriverInfo(info.driverVersion);
+                        driverInfoDetected = true;
+                    }
+                    info.driverInfo = sharedDriverInfo;
+                    gpus.append(info);
+                }
             }
-            info.driverInfo = sharedDriverInfo;
-            gpus.append(info);
         }
+    } else {
+        qWarning() << "nvidia-smi did not run (missing or timed out)";
+    }
+
+    // Fallback: nvidia-smi couldn't enumerate a GPU. If the nvidia driver is
+    // loaded and lspci shows an NVIDIA display device (e.g. an Optimus dGPU
+    // asleep in D3cold), report it from static sources so the UI still shows
+    // the card instead of claiming there's no compatible GPU.
+    if (gpus.isEmpty()) {
+        gpus = detectFromPci();
     }
 
     return gpus;
+}
+
+QList<GPUInfo> NvidiaGPUDetector::detectFromPci()
+{
+    QList<GPUInfo> gpus;
+
+    // The nvidia kernel module must be loaded for DLSS/NVAPI to be usable at
+    // all; /proc/driver/nvidia/version stays readable regardless of GPU power
+    // state, so use its presence as the gate.
+    if (!QFile::exists("/proc/driver/nvidia/version"))
+        return gpus;
+
+    QProcess process;
+    process.start("lspci", QStringList() << "-D" << "-nnk");
+    if (!process.waitForStarted(1000) || !process.waitForFinished(3000))
+        return gpus;
+
+    const QString output = QString::fromUtf8(process.readAllStandardOutput());
+    if (output.isEmpty())
+        return gpus;
+
+    // Driver metadata is system-wide; read once from /proc + modinfo.
+    const DriverInfo driverInfo = detectDriverInfo();
+
+    // lspci -D block format (a device header followed by indented detail lines):
+    //   0000:01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GB206M [GeForce RTX 5070 Max-Q / Mobile] [10de:2d18] (rev a1)
+    //       Kernel driver in use: nvidia
+    const QRegularExpression headerRe(
+        "^([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\\.[0-9a-fA-F])\\s+(.*)$");
+
+    const QStringList lines = output.split('\n');
+    int index = 0;
+    for (int i = 0; i < lines.size(); ++i) {
+        const QRegularExpressionMatch m = headerRe.match(lines[i]);
+        if (!m.hasMatch())
+            continue;
+
+        const QString desc = m.captured(2);
+        // Only NVIDIA display devices: VGA controller [0300] or 3D controller [0302].
+        const bool isDisplay = desc.contains("[0300]") || desc.contains("[0302]");
+        const bool isNvidia  = desc.contains("[10de:", Qt::CaseInsensitive) ||
+                               desc.contains("NVIDIA", Qt::CaseInsensitive);
+        if (!isDisplay || !isNvidia)
+            continue;
+
+        // Scan the indented detail lines for the bound kernel driver.
+        QString boundDriver;
+        for (int j = i + 1; j < lines.size(); ++j) {
+            if (!lines[j].startsWith(' ') && !lines[j].startsWith('\t'))
+                break;  // reached the next device block
+            const QString detail = lines[j].trimmed();
+            if (detail.startsWith("Kernel driver in use:"))
+                boundDriver = detail.section(':', 1).trimmed();
+        }
+        // Skip an NVIDIA GPU that isn't actually bound to the nvidia driver
+        // (e.g. nouveau) — DLSS/NVAPI wouldn't work there anyway.
+        if (!boundDriver.isEmpty() && boundDriver != "nvidia")
+            continue;
+
+        GPUInfo info;
+        info.vendor = GPUInfo::NVIDIA;
+        info.index = index++;
+        info.pciId = m.captured(1);
+        info.name = marketingNameFromLspci(desc);
+        info.architecture = inferArchitecture(info.name);
+        info.driverInfo = driverInfo;
+        info.driverVersion = driverInfo.version;
+        info.telemetryAvailable = false;  // GPU asleep / NVML couldn't enumerate it
+        gpus.append(info);
+    }
+
+    return gpus;
+}
+
+QString NvidiaGPUDetector::marketingNameFromLspci(const QString& desc)
+{
+    // Prefer the bracketed marketing name, e.g.
+    //   "NVIDIA Corporation GB206M [GeForce RTX 5070 Max-Q / Mobile] [10de:2d18] (rev a1)"
+    // -> "GeForce RTX 5070 Max-Q / Mobile". The [10de:....] vendor:device id is
+    // skipped because it lacks a marketing keyword.
+    const QRegularExpression brandRe(
+        "\\[([^\\]]*(?:GeForce|RTX|GTX|Quadro|Titan|Tesla|NVIDIA)[^\\]]*)\\]",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch bm = brandRe.match(desc);
+
+    QString name;
+    if (bm.hasMatch()) {
+        name = bm.captured(1).trimmed();
+    } else {
+        // Fall back to the text after the class label, stripped of trailing ids.
+        QString s = desc.section(':', 1).trimmed();  // drop "VGA compatible controller [0300]"
+        s.remove(QRegularExpression("\\s*\\[[0-9a-fA-F]{4}:[0-9a-fA-F]{4}\\].*$"));
+        s.remove(QRegularExpression("\\s*\\(rev [^)]*\\)\\s*$"));
+        name = s.trimmed();
+    }
+
+    if (!name.contains("NVIDIA", Qt::CaseInsensitive))
+        name = "NVIDIA " + name;
+    return name;
+}
+
+QString NvidiaGPUDetector::inferArchitecture(const QString& name)
+{
+    if (name.contains("RTX 50")) return "Blackwell";
+    if (name.contains("RTX 40")) return "Ada Lovelace";
+    if (name.contains("RTX 30")) return "Ampere";
+    if (name.contains("RTX 20")) return "Turing";
+    if (name.contains("GTX 16")) return "Turing";
+    if (name.contains("GTX 10")) return "Pascal";
+    return QString();
 }
 
 DriverInfo NvidiaGPUDetector::detectDriverInfo(const QString& smiDriverVersion)
@@ -145,11 +260,7 @@ GPUInfo NvidiaGPUDetector::parseNvidiaSmiOutput(const QString& output, int index
     info.architecture = extractValue(output, "Product Architecture");
     if (info.architecture.isEmpty()) {
         // Try to infer from name (e.g., "RTX 4090" -> "Ada Lovelace")
-        if (info.name.contains("RTX 40")) info.architecture = "Ada Lovelace";
-        else if (info.name.contains("RTX 30")) info.architecture = "Ampere";
-        else if (info.name.contains("RTX 20")) info.architecture = "Turing";
-        else if (info.name.contains("GTX 16")) info.architecture = "Turing";
-        else if (info.name.contains("GTX 10")) info.architecture = "Pascal";
+        info.architecture = inferArchitecture(info.name);
     }
 
     // Driver and Versions

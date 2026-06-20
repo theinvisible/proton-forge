@@ -287,6 +287,28 @@ QWidget* SystemInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
     QVBoxLayout* layout = new QVBoxLayout(widget);
     layout->setSpacing(10);
 
+    if (!gpu.telemetryAvailable) {
+        // Optimus dGPU asleep in D3cold: show the static details plus an
+        // explanatory note, and skip the live groups (clocks/power/utilization)
+        // which would otherwise show misleading zeros.
+        QLabel* note = new QLabel(
+            "⚠  This GPU is in power-saving suspend (D3cold) and is not currently active. "
+            "Live clocks, temperatures, and utilization are unavailable until an application "
+            "uses it (e.g. via PRIME render offload). Static details are shown below.");
+        note->setWordWrap(true);
+        note->setStyleSheet(QString("color: %1; background-color: %2; "
+                                    "border: 1px solid %1; border-radius: 4px; padding: 8px;")
+                                .arg(AppStyle::ColorWarning, AppStyle::ColorBgElevated));
+        layout->addWidget(note);
+
+        layout->addWidget(createGraphicsCardGroup(gpu));
+        layout->addWidget(createDriverInfoGroup(gpu));
+        layout->addStretch();
+
+        scrollArea->setWidget(widget);
+        return scrollArea;
+    }
+
     layout->addWidget(createGraphicsCardGroup(gpu));
     layout->addWidget(createMemoryGroup(gpu));
     layout->addWidget(createDriverInfoGroup(gpu));
@@ -496,6 +518,15 @@ void SystemInfoDialog::refreshDynamicValues()
     // Capture a copy of m_cpuInfo for the background thread (no shared mutable state)
     const CPUInfo cpuBase = m_cpuInfo;
 
+    // Only re-probe GPUs if at least one exposes live telemetry. A suspended
+    // Optimus dGPU has none, so polling nvidia-smi/lspci every tick would just
+    // spawn processes for nothing — keep the existing static snapshot instead.
+    bool anyGpuTelemetry = false;
+    for (const GPUInfo& g : m_gpus) {
+        if (g.telemetryAvailable) { anyGpuTelemetry = true; break; }
+    }
+    const QList<GPUInfo> gpuSnapshot = m_gpus;
+
     using Result = QPair<CPUInfo, QList<GPUInfo>>;
     auto* watcher = new QFutureWatcher<Result>(this);
 
@@ -506,8 +537,9 @@ void SystemInfoDialog::refreshDynamicValues()
         applyRefreshResult(result.first, result.second);
     });
 
-    watcher->setFuture(QtConcurrent::run([cpuBase]() -> Result {
-        return { CPUDetector::detectDynamic(cpuBase), GPUDetector::detectAllGPUs() };
+    watcher->setFuture(QtConcurrent::run([cpuBase, anyGpuTelemetry, gpuSnapshot]() -> Result {
+        return { CPUDetector::detectDynamic(cpuBase),
+                 anyGpuTelemetry ? GPUDetector::detectAllGPUs() : gpuSnapshot };
     }));
 }
 
@@ -645,29 +677,33 @@ void SystemInfoDialog::copyToClipboard()
             text += QString("Resizeable BAR: %1\n").arg(barStatus);
         }
 
-        if (gpu.currentGraphicsClock > 0)
-            text += QString("GPU Clock: %1 MHz\n").arg(gpu.currentGraphicsClock);
-        if (gpu.currentMemoryClock > 0)
-            text += QString("Memory Clock: %1 MHz\n").arg(gpu.currentMemoryClock);
-        if (gpu.currentPowerDraw > 0)
-            text += QString("Power Draw: %1 W\n").arg(gpu.currentPowerDraw);
-        if (gpu.powerLimit > 0)
-            text += QString("Power Limit: %1 W\n").arg(gpu.powerLimit);
-        if (gpu.temperature > 0)
-            text += QString("Temperature: %1 °C\n").arg(gpu.temperature);
-        if (gpu.fanSpeed > 0)
-            text += QString("Fan Speed: %1 %%\n").arg(gpu.fanSpeed);
-        if (!gpu.performanceState.isEmpty())
-            text += QString("Performance State: %1\n").arg(gpu.performanceState);
+        if (!gpu.telemetryAvailable) {
+            text += QString("Status: Power-suspended (D3cold) — live telemetry unavailable\n");
+        } else {
+            if (gpu.currentGraphicsClock > 0)
+                text += QString("GPU Clock: %1 MHz\n").arg(gpu.currentGraphicsClock);
+            if (gpu.currentMemoryClock > 0)
+                text += QString("Memory Clock: %1 MHz\n").arg(gpu.currentMemoryClock);
+            if (gpu.currentPowerDraw > 0)
+                text += QString("Power Draw: %1 W\n").arg(gpu.currentPowerDraw);
+            if (gpu.powerLimit > 0)
+                text += QString("Power Limit: %1 W\n").arg(gpu.powerLimit);
+            if (gpu.temperature > 0)
+                text += QString("Temperature: %1 °C\n").arg(gpu.temperature);
+            if (gpu.fanSpeed > 0)
+                text += QString("Fan Speed: %1 %%\n").arg(gpu.fanSpeed);
+            if (!gpu.performanceState.isEmpty())
+                text += QString("Performance State: %1\n").arg(gpu.performanceState);
 
-        // Utilization
-        text += QString("\nUtilization:\n");
-        text += QString("  GPU: %1 %%\n").arg(gpu.gpuUtilization);
-        text += QString("  Memory: %1 %%\n").arg(gpu.memoryUtilization);
-        text += QString("  Encoder: %1 %%\n").arg(gpu.encoderUtilization);
-        text += QString("  Decoder: %1 %%\n").arg(gpu.decoderUtilization);
-        text += QString("  JPEG: %1 %%\n").arg(gpu.jpegUtilization);
-        text += QString("  OFA: %1 %%\n").arg(gpu.ofaUtilization);
+            // Utilization
+            text += QString("\nUtilization:\n");
+            text += QString("  GPU: %1 %%\n").arg(gpu.gpuUtilization);
+            text += QString("  Memory: %1 %%\n").arg(gpu.memoryUtilization);
+            text += QString("  Encoder: %1 %%\n").arg(gpu.encoderUtilization);
+            text += QString("  Decoder: %1 %%\n").arg(gpu.decoderUtilization);
+            text += QString("  JPEG: %1 %%\n").arg(gpu.jpegUtilization);
+            text += QString("  OFA: %1 %%\n").arg(gpu.ofaUtilization);
+        }
 
         if (i < m_gpus.size() - 1) {
             text += "\n";

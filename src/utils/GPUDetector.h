@@ -64,6 +64,12 @@ struct GPUInfo {
     bool displayConnected = false;
     QString uuid;
 
+    // False when the GPU was discovered but live telemetry could not be read —
+    // e.g. an Optimus dGPU in runtime D3cold suspend, where nvidia-smi reports
+    // "No devices were found". Static fields (name, architecture, driver) are
+    // still valid; clocks, temperatures, and utilization are not.
+    bool telemetryAvailable = true;
+
     QMap<QString, QString> extraData;
 };
 
