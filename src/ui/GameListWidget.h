@@ -33,12 +33,15 @@ private slots:
     void onItemClicked(QListWidgetItem* item);
     void onCurrentItemChanged(QListWidgetItem* current, QListWidgetItem* previous);
     void onImageReady(const QString& url);
+    void onImageFailed(const QString& url);
     void showContextMenu(const QPoint& pos);
 
 private:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void updateFilter();
     QListWidgetItem* createGameItem(const Game& game);
+    void finishImage(const QString& url, bool success);
+    static bool itemStillLoading(const QListWidgetItem* item);
     void ensureShimmerRunning();
     void checkForUpdates();
     void applyUpdateResults(const QMap<QString, int>& results);

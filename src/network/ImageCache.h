@@ -19,6 +19,9 @@ public:
     // Check if image is cached
     bool hasImage(const QString& url) const;
 
+    // True if a fetch for this URL failed this session (no retry until restart)
+    bool hasFailed(const QString& url) const { return m_failedUrls.contains(url); }
+
     // Clear cache
     void clearCache();
 
@@ -44,6 +47,7 @@ private:
     QNetworkAccessManager* m_networkManager;
     QMap<QString, QPixmap> m_memoryCache;
     QSet<QString> m_pendingRequests;
+    QSet<QString> m_failedUrls;
 };
 
 #endif // IMAGECACHE_H

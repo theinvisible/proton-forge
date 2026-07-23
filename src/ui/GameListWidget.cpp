@@ -29,6 +29,7 @@ static constexpr int RoleIsNative    = Qt::UserRole + 2;
 static constexpr int RoleGameName    = Qt::UserRole + 3;
 static constexpr int RoleImageUrl    = Qt::UserRole + 4;
 static constexpr int RoleNeedsUpdate = Qt::UserRole + 5;
+static constexpr int RoleImageFailed = Qt::UserRole + 6;
 
 // ---------------------------------------------------------------------------
 // GameItemDelegate – paints each game as a modern card with artwork
@@ -53,6 +54,7 @@ public:
         const bool  hovered  = option.state & QStyle::State_MouseOver;
 
         const bool    imageLoaded = index.data(RoleImageLoaded).toBool();
+        const bool    imageFailed = index.data(RoleImageFailed).toBool();
         const bool    isNative    = index.data(RoleIsNative).toBool();
         const QString gameName    = index.data(RoleGameName).toString();
         const QString imageUrl    = index.data(RoleImageUrl).toString();
@@ -95,10 +97,11 @@ public:
             } else {
                 drawPlaceholder(p, clipPath, artRect);
             }
-        } else if (!imageUrl.isEmpty()) {
+        } else if (!imageUrl.isEmpty() && !imageFailed) {
             // Image still loading — draw shimmer
             drawShimmer(p, clipPath, artRect);
         } else {
+            // No artwork URL, or the download failed — show the static placeholder
             drawPlaceholder(p, clipPath, artRect);
         }
 
@@ -328,6 +331,7 @@ GameListWidget::GameListWidget(QWidget* parent)
     connect(m_listWidget, &QListWidget::itemClicked, this, &GameListWidget::onItemClicked);
     connect(m_listWidget, &QListWidget::currentItemChanged, this, &GameListWidget::onCurrentItemChanged);
     connect(&ImageCache::instance(), &ImageCache::imageReady, this, &GameListWidget::onImageReady);
+    connect(&ImageCache::instance(), &ImageCache::imageFailed, this, &GameListWidget::onImageFailed);
     connect(m_listWidget, &QListWidget::customContextMenuRequested, this, &GameListWidget::showContextMenu);
 }
 
@@ -419,9 +423,11 @@ QListWidgetItem* GameListWidget::createGameItem(const Game& game)
     item->setData(RoleImageUrl, game.imageUrl());
     item->setData(RoleNeedsUpdate, game.needsUpdate());
 
-    // Check if image is already cached
+    // Check if image is already cached (or already failed this session, so
+    // recreated items don't fall back into the shimmering state)
     bool cached = ImageCache::instance().hasImage(game.imageUrl());
     item->setData(RoleImageLoaded, cached);
+    item->setData(RoleImageFailed, ImageCache::instance().hasFailed(game.imageUrl()));
 
     if (!cached && !game.imageUrl().isEmpty()) {
         // Trigger fetch (getImage will start download if not cached)
@@ -457,31 +463,47 @@ void GameListWidget::onCurrentItemChanged(QListWidgetItem* current, QListWidgetI
 
 void GameListWidget::onImageReady(const QString& url)
 {
-    bool allLoaded = true;
+    finishImage(url, true);
+}
+
+void GameListWidget::onImageFailed(const QString& url)
+{
+    finishImage(url, false);
+}
+
+void GameListWidget::finishImage(const QString& url, bool success)
+{
+    bool anyPending = false;
     for (int i = 0; i < m_listWidget->count(); ++i) {
         QListWidgetItem* item = m_listWidget->item(i);
         if (item->data(RoleImageUrl).toString() == url) {
-            item->setData(RoleImageLoaded, true);
+            item->setData(success ? RoleImageLoaded : RoleImageFailed, true);
         }
-        if (!item->data(RoleImageLoaded).toBool() && !item->data(RoleImageUrl).toString().isEmpty()) {
-            allLoaded = false;
+        if (itemStillLoading(item)) {
+            anyPending = true;
         }
     }
 
-    // Stop shimmer when all visible images are loaded
-    if (allLoaded) {
+    // Stop shimmer when no visible image is pending anymore
+    if (!anyPending) {
         m_shimmerTimer->stop();
     }
 
     m_listWidget->viewport()->update();
 }
 
+bool GameListWidget::itemStillLoading(const QListWidgetItem* item)
+{
+    return !item->data(RoleImageLoaded).toBool() &&
+           !item->data(RoleImageFailed).toBool() &&
+           !item->data(RoleImageUrl).toString().isEmpty();
+}
+
 void GameListWidget::ensureShimmerRunning()
 {
     // Check if any visible items still need images
     for (int i = 0; i < m_listWidget->count(); ++i) {
-        QListWidgetItem* item = m_listWidget->item(i);
-        if (!item->data(RoleImageLoaded).toBool() && !item->data(RoleImageUrl).toString().isEmpty()) {
+        if (itemStillLoading(m_listWidget->item(i))) {
             if (!m_shimmerTimer->isActive()) {
                 m_shimmerTimer->start();
             }

@@ -57,8 +57,12 @@ QPixmap ImageCache::getImage(const QString& url, const QSize& size)
         return diskCached;
     }
 
-    // Fetch from network
-    fetchImage(url);
+    // Fetch from network — but not again for URLs that already failed this
+    // session (e.g. games without Steam artwork), or every repaint would
+    // retry forever.
+    if (!m_failedUrls.contains(url)) {
+        fetchImage(url);
+    }
 
     return placeholderImage(size);
 }
@@ -74,6 +78,7 @@ bool ImageCache::hasImage(const QString& url) const
 void ImageCache::clearCache()
 {
     m_memoryCache.clear();
+    m_failedUrls.clear();
 
     QDir dir(cacheDir());
     QStringList files = dir.entryList(QDir::Files);
@@ -123,6 +128,7 @@ void ImageCache::fetchImage(const QString& url)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
+            m_failedUrls.insert(url);
             emit imageFailed(url);
             return;
         }
@@ -134,6 +140,7 @@ void ImageCache::fetchImage(const QString& url)
             saveToDisk(url, data);
             emit imageReady(url);
         } else {
+            m_failedUrls.insert(url);
             emit imageFailed(url);
         }
     });
