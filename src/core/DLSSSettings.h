@@ -13,6 +13,7 @@ public:
     bool enableNVAPI = true;
     bool enableNGXUpdater = false;
     bool enableReflex = false;  // DXVK_NVAPI_VKREFLEX=1
+    bool enableVkd3dLowLatency = false;  // PROTON_VKD3D_LOWLATENCY=1 (CachyOS ≥ 11.0-20260703)
 
     // Super Resolution (SR)
     bool srOverride = false;
@@ -48,10 +49,12 @@ public:
     bool enableProtonWayland = false;
     bool enableProtonHDR = false;
     bool enableHDRWSI = false;
+    bool disableAutoHDR = false;  // DXVK_NO_HDR=1 — opt out of CachyOS auto-HDR
 
     // Proton Tweaks
     bool protonPriorityHigh = false;
     bool protonUseNTSync = false;
+    bool protonUseD7VK = false;  // PROTON_USE_D7VK=1 — Direct3D 7 via d7vk
     bool protonLog = false;
 
     // Overlay

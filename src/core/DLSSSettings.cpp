@@ -8,6 +8,7 @@ QJsonObject DLSSSettings::toJson() const
     json["enableNVAPI"] = enableNVAPI;
     json["enableNGXUpdater"] = enableNGXUpdater;
     json["enableReflex"] = enableReflex;
+    json["enableVkd3dLowLatency"] = enableVkd3dLowLatency;
 
     // Super Resolution
     json["srOverride"] = srOverride;
@@ -43,10 +44,12 @@ QJsonObject DLSSSettings::toJson() const
     json["enableProtonWayland"] = enableProtonWayland;
     json["enableProtonHDR"] = enableProtonHDR;
     json["enableHDRWSI"] = enableHDRWSI;
+    json["disableAutoHDR"] = disableAutoHDR;
 
     // Proton Tweaks
     json["protonPriorityHigh"] = protonPriorityHigh;
     json["protonUseNTSync"] = protonUseNTSync;
+    json["protonUseD7VK"] = protonUseD7VK;
     json["protonLog"] = protonLog;
 
     // Overlay
@@ -79,6 +82,7 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableNVAPI = json["enableNVAPI"].toBool(true);
     settings.enableNGXUpdater = json["enableNGXUpdater"].toBool(false);
     settings.enableReflex = json["enableReflex"].toBool(false);
+    settings.enableVkd3dLowLatency = json["enableVkd3dLowLatency"].toBool(false);
 
     // Super Resolution
     settings.srOverride = json["srOverride"].toBool(false);
@@ -114,10 +118,12 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableProtonWayland = json["enableProtonWayland"].toBool(false);
     settings.enableProtonHDR = json["enableProtonHDR"].toBool(false);
     settings.enableHDRWSI = json["enableHDRWSI"].toBool(false);
+    settings.disableAutoHDR = json["disableAutoHDR"].toBool(false);
 
     // Proton Tweaks
     settings.protonPriorityHigh = json["protonPriorityHigh"].toBool(false);
     settings.protonUseNTSync = json["protonUseNTSync"].toBool(false);
+    settings.protonUseD7VK = json["protonUseD7VK"].toBool(false);
     settings.protonLog = json["protonLog"].toBool(false);
 
     // Overlay
@@ -212,6 +218,7 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
     return enableNVAPI == other.enableNVAPI &&
            enableNGXUpdater == other.enableNGXUpdater &&
            enableReflex == other.enableReflex &&
+           enableVkd3dLowLatency == other.enableVkd3dLowLatency &&
            srOverride == other.srOverride &&
            srMode == other.srMode &&
            srPreset == other.srPreset &&
@@ -233,8 +240,10 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            enableProtonWayland == other.enableProtonWayland &&
            enableProtonHDR == other.enableProtonHDR &&
            enableHDRWSI == other.enableHDRWSI &&
+           disableAutoHDR == other.disableAutoHDR &&
            protonPriorityHigh == other.protonPriorityHigh &&
            protonUseNTSync == other.protonUseNTSync &&
+           protonUseD7VK == other.protonUseD7VK &&
            protonLog == other.protonLog &&
            enableSteamOverlay == other.enableSteamOverlay &&
            enableMangoHud == other.enableMangoHud &&

@@ -5,8 +5,9 @@ namespace FeatureGate {
 const Requirement& requirementFor(Feature feature)
 {
     // Central capability table. Driver thresholds are the meaningful gate;
-    // Proton thresholds are coarse hints (compared by major version only).
-    // Tune values here as drivers/Proton evolve.
+    // Proton thresholds are coarse hints (compared by major version only),
+    // while fork-specific minimums (minCachyOS/minGE) compare at full
+    // precision. Tune values here as drivers/Proton evolve.
     static const Requirement smoothMotion{
         QVersionNumber(575, 51, 2), {}, {},
         QStringLiteral("NVIDIA driver ≥ 575.51")};
@@ -25,6 +26,21 @@ const Requirement& requirementFor(Feature feature)
     static const Requirement reflex{
         {}, QVersionNumber(9), {},
         QStringLiteral("Proton ≥ 9 (DXVK-NVAPI Reflex layer)")};
+    static const Requirement vkd3dLowLatency{
+        {}, {}, {},
+        QStringLiteral("Proton-CachyOS ≥ 11.0-20260703 (VKD3D low latency)"),
+        QVersionNumber(11, 0, 20260703), {},
+        QStringLiteral("only available in Proton-CachyOS ≥ 11.0-20260703")};
+    static const Requirement d7vk{
+        {}, {}, {},
+        QStringLiteral("Proton-CachyOS ≥ 11.0 or GE-Proton ≥ 11-1 (d7vk)"),
+        QVersionNumber(11, 0), QVersionNumber(11, 1),
+        {}};
+    static const Requirement disableAutoHdr{
+        {}, {}, {},
+        QStringLiteral("auto-HDR requires Proton-CachyOS ≥ 11.0-20260601"),
+        QVersionNumber(11, 0, 20260601), {},
+        QStringLiteral("auto-HDR is Proton-CachyOS only — this option has no effect here")};
 
     switch (feature) {
         case Feature::SmoothMotion:      return smoothMotion;
@@ -33,6 +49,9 @@ const Requirement& requirementFor(Feature feature)
         case Feature::DlssgMode:         return dlssgMode;
         case Feature::FgPreset:          return fgPreset;
         case Feature::Reflex:            return reflex;
+        case Feature::Vkd3dLowLatency:   return vkd3dLowLatency;
+        case Feature::D7vk:              return d7vk;
+        case Feature::DisableAutoHdr:    return disableAutoHdr;
     }
 
     static const Requirement none{};
@@ -59,6 +78,21 @@ Result evaluate(const Requirement& req, const Context& ctx)
         if (!req.minProton.isNull() &&
             ctx.proton.majorVersion() < req.minProton.majorVersion()) {
             return {Status::BelowMinProton, req.note};
+        }
+
+        // Fork-specific rules: full-precision, evaluated only when the fork
+        // is known (Unknown fork stays lenient, matching the overall policy).
+        const bool hasForkRules = !req.minCachyOS.isNull() || !req.minGE.isNull();
+        if (hasForkRules && ctx.fork != Fork::Unknown) {
+            const QVersionNumber& forkMin =
+                (ctx.fork == Fork::CachyOS) ? req.minCachyOS : req.minGE;
+            if (forkMin.isNull()) {
+                return {Status::WrongFork,
+                        req.forkNote.isEmpty() ? req.note : req.forkNote};
+            }
+            if (ctx.proton < forkMin) {
+                return {Status::BelowMinProton, req.note};
+            }
         }
     }
 

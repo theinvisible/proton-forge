@@ -84,6 +84,7 @@ private:
     QCheckBox* m_enableNVAPI;
     QCheckBox* m_enableNGXUpdater;
     QCheckBox* m_enableReflex;
+    QCheckBox* m_enableVkd3dLowLatency;
     QCheckBox* m_showIndicator;
 
     // Feature gating warnings (driver/Proton requirements not met)
@@ -94,10 +95,12 @@ private:
     QCheckBox* m_enableProtonWayland;
     QCheckBox* m_enableProtonHDR;
     QCheckBox* m_enableHDRWSI;
+    QCheckBox* m_disableAutoHDR;  // NOT part of the m_enableAllHDR master toggle
 
     // Proton Tweaks
     QCheckBox* m_protonPriorityHigh;
     QCheckBox* m_protonUseNTSync;
+    QCheckBox* m_protonUseD7VK;
     QCheckBox* m_protonLog;
 
     // Super Resolution

@@ -67,14 +67,17 @@ bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
     if (key == "PROTON_ENABLE_NVAPI") { s.enableNVAPI = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_NGX_UPDATER") { s.enableNGXUpdater = (value != "0"); return true; }
     if (key == "DXVK_NVAPI_VKREFLEX") { s.enableReflex = (value != "0"); return true; }
+    if (key == "PROTON_VKD3D_LOWLATENCY") { s.enableVkd3dLowLatency = (value != "0"); return true; }
     if (key == "PROTON_DLSS_UPGRADE") { s.dlssUpgrade = (value != "0"); return true; }
     if (key == "PROTON_DLSS_INDICATOR") { s.showIndicator = (value != "0"); return true; }
     if (key == "NVPRESENT_ENABLE_SMOOTH_MOTION") { s.enableSmoothMotion = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_WAYLAND") { s.enableProtonWayland = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_HDR") { s.enableProtonHDR = (value != "0"); return true; }
     if (key == "ENABLE_HDR_WSI") { s.enableHDRWSI = (value != "0"); return true; }
+    if (key == "DXVK_NO_HDR") { s.disableAutoHDR = (value != "0"); return true; }
     if (key == "PROTON_PRIORITY_HIGH") { s.protonPriorityHigh = (value != "0"); return true; }
     if (key == "PROTON_USE_NTSYNC") { s.protonUseNTSync = (value != "0"); return true; }
+    if (key == "PROTON_USE_D7VK") { s.protonUseD7VK = (value != "0"); return true; }
     if (key == "PROTON_LOG") { s.protonLog = (value != "0"); return true; }
     if (key == "MANGOHUD") { s.enableMangoHud = (value != "0"); return true; }
     if (key == "DXVK_FRAME_RATE") {
@@ -187,6 +190,10 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << "DXVK_NVAPI_VKREFLEX=1";
     }
 
+    if (settings.enableVkd3dLowLatency) {
+        envVars << "PROTON_VKD3D_LOWLATENCY=1";
+    }
+
     // DLSS Upgrade
     if (settings.dlssUpgrade) {
         envVars << "PROTON_DLSS_UPGRADE=1";
@@ -223,6 +230,9 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
     if (settings.enableHDRWSI) {
         envVars << "ENABLE_HDR_WSI=1";
     }
+    if (settings.disableAutoHDR) {
+        envVars << "DXVK_NO_HDR=1";
+    }
 
     // Proton Tweaks
     if (settings.protonPriorityHigh) {
@@ -230,6 +240,9 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
     }
     if (settings.protonUseNTSync) {
         envVars << "PROTON_USE_NTSYNC=1";
+    }
+    if (settings.protonUseD7VK) {
+        envVars << "PROTON_USE_D7VK=1";
     }
     if (settings.protonLog) {
         envVars << "PROTON_LOG=1";
@@ -273,6 +286,10 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
         env.insert("DXVK_NVAPI_VKREFLEX", "1");
     }
 
+    if (settings.enableVkd3dLowLatency) {
+        env.insert("PROTON_VKD3D_LOWLATENCY", "1");
+    }
+
     // DLSS Upgrade
     if (settings.dlssUpgrade) {
         env.insert("PROTON_DLSS_UPGRADE", "1");
@@ -309,6 +326,9 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     if (settings.enableHDRWSI) {
         env.insert("ENABLE_HDR_WSI", "1");
     }
+    if (settings.disableAutoHDR) {
+        env.insert("DXVK_NO_HDR", "1");
+    }
 
     // Proton Tweaks
     if (settings.protonPriorityHigh) {
@@ -316,6 +336,9 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     }
     if (settings.protonUseNTSync) {
         env.insert("PROTON_USE_NTSYNC", "1");
+    }
+    if (settings.protonUseD7VK) {
+        env.insert("PROTON_USE_D7VK", "1");
     }
     if (settings.protonLog) {
         env.insert("PROTON_LOG", "1");
@@ -361,6 +384,7 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     s.enableNVAPI = false;
     s.enableNGXUpdater = false;
     s.enableReflex = false;
+    s.enableVkd3dLowLatency = false;
     s.dlssUpgrade = false;
     s.showIndicator = false;
     s.srOverride = false; s.srMode.clear(); s.srPreset.clear(); s.srScalingRatio = 0;
@@ -369,7 +393,8 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     s.enableSmoothMotion = false;
     s.enableFrameRateLimit = false; s.targetFrameRate = 60;
     s.enableProtonWayland = false; s.enableProtonHDR = false; s.enableHDRWSI = false;
-    s.protonPriorityHigh = false; s.protonUseNTSync = false; s.protonLog = false;
+    s.disableAutoHDR = false;
+    s.protonPriorityHigh = false; s.protonUseNTSync = false; s.protonUseD7VK = false; s.protonLog = false;
     s.enableMangoHud = false;
 
     QStringList leftover;

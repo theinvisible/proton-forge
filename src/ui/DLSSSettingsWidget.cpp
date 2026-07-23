@@ -323,6 +323,16 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "Sets DXVK_NVAPI_VKREFLEX=1.");
     layout->addWidget(m_enableReflex);
 
+    m_enableVkd3dLowLatency = new QCheckBox("VKD3D Low Latency (PROTON_VKD3D_LOWLATENCY)", this);
+    m_enableVkd3dLowLatency->setToolTip(
+        "Enable low-latency frame pacing in VKD3D-Proton for DirectX 12 games.\n\n"
+        "Hardware-agnostic and natively implements the NVIDIA Reflex API, "
+        "reducing input latency in DX12 titles. The DX12 counterpart to the "
+        "Reflex option above.\n\n"
+        "Requires: Proton-CachyOS 11.0-20260703 or newer.\n\n"
+        "Sets PROTON_VKD3D_LOWLATENCY=1.");
+    layout->addWidget(m_enableVkd3dLowLatency);
+
     m_showIndicator = new QCheckBox("Show DLSS Indicator (PROTON_DLSS_INDICATOR)", this);
     m_showIndicator->setToolTip(
         "Display an on-screen DLSS status indicator in-game.\n\n"
@@ -369,6 +379,16 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "Enables HDR support in the Vulkan WSI (Window System Integration) layer.");
     hdrOptionsLayout->addWidget(m_enableHDRWSI);
 
+    m_disableAutoHDR = new QCheckBox("Disable auto-HDR (DXVK_NO_HDR)", this);
+    m_disableAutoHDR->setToolTip(
+        "Opt out of Proton-CachyOS's automatic HDR.\n\n"
+        "Since Proton-CachyOS 11.0-20260601, HDR is enabled automatically when "
+        "the display supports it. Enable this to force SDR for games where "
+        "auto-HDR misbehaves.\n\n"
+        "Not affected by the 'Enable All HDR Options' quick toggle.\n\n"
+        "Sets DXVK_NO_HDR=1.");
+    hdrOptionsLayout->addWidget(m_disableAutoHDR);
+
     layout->addWidget(hdrOptionsWidget);
 
     // Proton Tweaks
@@ -394,6 +414,14 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "Requires: Linux kernel 6.14+ with NTSync support enabled.");
     layout->addWidget(m_protonUseNTSync);
 
+    m_protonUseD7VK = new QCheckBox("Use D7VK (PROTON_USE_D7VK)", this);
+    m_protonUseD7VK->setToolTip(
+        "Translate Direct3D 7 to Vulkan via d7vk.\n\n"
+        "Improves compatibility and performance for very old D3D7-era games.\n\n"
+        "Requires: GE-Proton 11-1+ or Proton-CachyOS 11.0+.\n\n"
+        "Sets PROTON_USE_D7VK=1.");
+    layout->addWidget(m_protonUseD7VK);
+
     m_protonLog = new QCheckBox("Enable Logging (PROTON_LOG)", this);
     m_protonLog->setToolTip(
         "Enable Proton debug logging.\n\n"
@@ -405,13 +433,18 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
     connect(m_enableNVAPI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableReflex, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableVkd3dLowLatency, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableAllHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onEnableAllHDRToggled);
     connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
     connect(m_enableProtonHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
     connect(m_enableHDRWSI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
+    // Deliberately plain onSettingChanged: DXVK_NO_HDR is a disable switch and
+    // must stay outside the m_enableAllHDR master sync and the HDR status dialog.
+    connect(m_disableAutoHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonPriorityHigh, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonUseNTSync, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_protonUseD7VK, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonLog, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
 
     return group;
@@ -964,6 +997,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_enableNVAPI->blockSignals(block);
     m_enableNGXUpdater->blockSignals(block);
     m_enableReflex->blockSignals(block);
+    m_enableVkd3dLowLatency->blockSignals(block);
     m_showIndicator->blockSignals(block);
     m_srOverride->blockSignals(block);
     m_srMode->blockSignals(block);
@@ -982,8 +1016,10 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_enableSmoothMotion->blockSignals(block);
     m_enableFrameRateLimit->blockSignals(block);
     m_targetFrameRate->blockSignals(block);
+    m_disableAutoHDR->blockSignals(block);
     m_protonPriorityHigh->blockSignals(block);
     m_protonUseNTSync->blockSignals(block);
+    m_protonUseD7VK->blockSignals(block);
     m_protonLog->blockSignals(block);
     m_enableSteamOverlay->blockSignals(block);
     m_enableMangoHud->blockSignals(block);
@@ -998,12 +1034,14 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_enableNVAPI->setChecked(settings.enableNVAPI);
     m_enableNGXUpdater->setChecked(settings.enableNGXUpdater);
     m_enableReflex->setChecked(settings.enableReflex);
+    m_enableVkd3dLowLatency->setChecked(settings.enableVkd3dLowLatency);
     m_showIndicator->setChecked(settings.showIndicator);
 
     // HDR
     m_enableProtonWayland->setChecked(settings.enableProtonWayland);
     m_enableProtonHDR->setChecked(settings.enableProtonHDR);
     m_enableHDRWSI->setChecked(settings.enableHDRWSI);
+    m_disableAutoHDR->setChecked(settings.disableAutoHDR);
     // Update master checkbox state based on individual checkboxes
     m_enableAllHDR->setChecked(settings.enableProtonWayland &&
                                settings.enableProtonHDR &&
@@ -1012,6 +1050,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     // Proton Tweaks
     m_protonPriorityHigh->setChecked(settings.protonPriorityHigh);
     m_protonUseNTSync->setChecked(settings.protonUseNTSync);
+    m_protonUseD7VK->setChecked(settings.protonUseD7VK);
     m_protonLog->setChecked(settings.protonLog);
 
     // Overlay
@@ -1112,16 +1151,19 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableNVAPI = m_enableNVAPI->isChecked();
     settings.enableNGXUpdater = m_enableNGXUpdater->isChecked();
     settings.enableReflex = m_enableReflex->isChecked();
+    settings.enableVkd3dLowLatency = m_enableVkd3dLowLatency->isChecked();
     settings.showIndicator = m_showIndicator->isChecked();
 
     // HDR
     settings.enableProtonWayland = m_enableProtonWayland->isChecked();
     settings.enableProtonHDR = m_enableProtonHDR->isChecked();
     settings.enableHDRWSI = m_enableHDRWSI->isChecked();
+    settings.disableAutoHDR = m_disableAutoHDR->isChecked();
 
     // Proton Tweaks
     settings.protonPriorityHigh = m_protonPriorityHigh->isChecked();
     settings.protonUseNTSync = m_protonUseNTSync->isChecked();
+    settings.protonUseD7VK = m_protonUseD7VK->isChecked();
     settings.protonLog = m_protonLog->isChecked();
 
     // Overlay
@@ -1229,10 +1271,12 @@ void DLSSSettingsWidget::updateFeatureWarnings()
 
     Context ctx;
     ctx.driver = GpuInfoCache::instance().nvidiaDriverVersion();
-    bool protonKnown = false;
-    ctx.proton = ProtonManager::instance().resolveSelectedVersion(
-        m_protonVersionSelector->currentData().toString(), &protonKnown);
-    ctx.protonKnown = protonKnown;
+    const ProtonManager::ResolvedProton rp = ProtonManager::instance().resolveSelected(
+        m_protonVersionSelector->currentData().toString());
+    ctx.proton = rp.version;
+    ctx.protonKnown = rp.known;
+    ctx.fork = !rp.known ? Fork::Unknown
+             : (rp.type == ProtonManager::ProtonGE ? Fork::GE : Fork::CachyOS);
 
     QStringList lines;
     auto check = [&](bool active, Feature f, const QString& label) {
@@ -1253,6 +1297,9 @@ void DLSSSettingsWidget::updateFeatureWarnings()
     check(fgOn && !m_fgPreset->currentData().toString().isEmpty(),
           Feature::FgPreset, "FG Render Preset");
     check(m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
+    check(m_enableVkd3dLowLatency->isChecked(), Feature::Vkd3dLowLatency, "VKD3D Low Latency");
+    check(m_protonUseD7VK->isChecked(), Feature::D7vk, "D7VK");
+    check(m_disableAutoHDR->isChecked(), Feature::DisableAutoHdr, "Disable auto-HDR");
 
     if (lines.isEmpty()) {
         m_featureWarnings->hide();

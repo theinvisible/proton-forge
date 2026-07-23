@@ -127,10 +127,8 @@ QString ProtonManager::getInstalledVersion() const
     return highestVersionString;
 }
 
-QVersionNumber ProtonManager::resolveSelectedVersion(const QString& key, bool* known) const
+ProtonManager::ResolvedProton ProtonManager::resolveSelected(const QString& key) const
 {
-    auto setKnown = [known](bool value) { if (known) *known = value; };
-
     const QString k = key.trimmed();
 
     // "auto" / empty -> latest installed Proton-CachyOS.
@@ -138,36 +136,31 @@ QVersionNumber ProtonManager::resolveSelectedVersion(const QString& key, bool* k
     // re-prefix it for the parser.
     if (k.isEmpty() || k.compare("auto", Qt::CaseInsensitive) == 0) {
         const QString installed = getInstalledVersion();
-        if (installed.isEmpty()) { setKnown(false); return QVersionNumber(); }
+        if (installed.isEmpty()) return {};
         const QVersionNumber v = parseVersion("proton-cachyos-" + installed);
-        setKnown(!v.isNull());
-        return v;
+        return {v, !v.isNull(), ProtonCachyOS};
     }
 
     // "latest-ge" -> latest installed Proton-GE.
     if (k.compare("latest-ge", Qt::CaseInsensitive) == 0) {
         const QString name = getInstalledGEVersion();
-        if (name.isEmpty()) { setKnown(false); return QVersionNumber(); }
+        if (name.isEmpty()) return {};
         const QVersionNumber v = parseProtonGEVersion(name);
-        setKnown(!v.isNull());
-        return v;
+        return {v, !v.isNull(), ProtonGE};
     }
 
     // Specific folder names.
     if (k.startsWith("proton-cachyos", Qt::CaseInsensitive)) {
         const QVersionNumber v = parseVersion(k);
-        setKnown(!v.isNull());
-        return v;
+        return {v, !v.isNull(), ProtonCachyOS};
     }
     if (k.startsWith("GE-Proton", Qt::CaseInsensitive)) {
         const QVersionNumber v = parseProtonGEVersion(k);
-        setKnown(!v.isNull());
-        return v;
+        return {v, !v.isNull(), ProtonGE};
     }
 
     // "steam-proton", absolute paths, or anything else -> unknown (lenient).
-    setKnown(false);
-    return QVersionNumber();
+    return {};
 }
 
 QVersionNumber ProtonManager::parseVersion(const QString& fileName) const
