@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QFutureWatcher>
 #include <atomic>
+#include <initializer_list>
 #include <memory>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
@@ -47,6 +48,8 @@ private slots:
 private:
     void setupUI();
     QGroupBox* createGeneralGroup();
+    QGroupBox* createHDRGroup();
+    QGroupBox* createProtonTweaksGroup();
     QGroupBox* createSuperResolutionGroup();
     QGroupBox* createRayReconstructionGroup();
     QGroupBox* createFrameGenerationGroup();
@@ -55,6 +58,8 @@ private:
     QGroupBox* createOverlayGroup();
     QGroupBox* createCustomParamsGroup();
     QWidget* createActionsSection();
+    // Wraps a column of group boxes in a scroll area to form one tab page.
+    QWidget* createScrollTab(std::initializer_list<QWidget*> groups);
 
     void updateProtonDbBadge(const ProtonDBClient::Summary& summary);
 

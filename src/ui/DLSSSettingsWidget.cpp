@@ -16,6 +16,7 @@
 #include <QHBoxLayout>
 #include <QFormLayout>
 #include <QScrollArea>
+#include <QTabWidget>
 #include <QAbstractItemView>
 #include <QStandardItemModel>
 #include <QStyledItemDelegate>
@@ -231,18 +232,9 @@ void DLSSSettingsWidget::setupUI()
     m_updateAvailableLabel->hide();
     mainLayout->addWidget(m_updateAvailableLabel);
 
-    // Scroll area for settings
-    QScrollArea* scrollArea = new QScrollArea(this);
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-
-    QWidget* scrollContent = new QWidget();
-    scrollContent->setStyleSheet("background: transparent;");
-    QVBoxLayout* scrollLayout = new QVBoxLayout(scrollContent);
-    scrollLayout->setSpacing(10);
-
     // Feature gating warnings — shown when an enabled option needs a newer
     // NVIDIA driver / Proton version than detected. Non-blocking (warn only).
+    // Lives above the tab widget so warnings stay visible on every tab.
     m_featureWarnings = new QLabel(this);
     m_featureWarnings->setWordWrap(true);
     m_featureWarnings->setStyleSheet(
@@ -250,20 +242,21 @@ void DLSSSettingsWidget::setupUI()
                 "border: 1px solid %1; border-radius: 6px; padding: 8px 12px; font-size: 12px;")
             .arg(AppStyle::ColorWarning));
     m_featureWarnings->hide();
-    scrollLayout->addWidget(m_featureWarnings);
+    mainLayout->addWidget(m_featureWarnings);
 
-    scrollLayout->addWidget(createGeneralGroup());
-    scrollLayout->addWidget(createSuperResolutionGroup());
-    scrollLayout->addWidget(createRayReconstructionGroup());
-    scrollLayout->addWidget(createFrameGenerationGroup());
-    scrollLayout->addWidget(createUpgradeGroup());
-    scrollLayout->addWidget(createSmoothMotionGroup());
-    scrollLayout->addWidget(createOverlayGroup());
-    scrollLayout->addWidget(createCustomParamsGroup());
-    scrollLayout->addStretch();
-
-    scrollArea->setWidget(scrollContent);
-    mainLayout->addWidget(scrollArea, 1);
+    // Settings, grouped thematically into tabs; each tab scrolls on its own.
+    QTabWidget* tabWidget = new QTabWidget(this);
+    tabWidget->addTab(createScrollTab({createGeneralGroup()}), "General");
+    tabWidget->addTab(createScrollTab({createSuperResolutionGroup(),
+                                       createRayReconstructionGroup(),
+                                       createFrameGenerationGroup(),
+                                       createUpgradeGroup(),
+                                       createSmoothMotionGroup()}), "DLSS");
+    tabWidget->addTab(createScrollTab({createHDRGroup()}), "HDR");
+    tabWidget->addTab(createScrollTab({createProtonTweaksGroup()}), "Proton");
+    tabWidget->addTab(createScrollTab({createOverlayGroup(),
+                                       createCustomParamsGroup()}), "Advanced");
+    mainLayout->addWidget(tabWidget, 1);
 
     // Launch command preview
     QGroupBox* previewGroup = new QGroupBox("Steam Launch Options Preview", this);
@@ -282,6 +275,25 @@ void DLSSSettingsWidget::setupUI()
 
     // Style combo popups directly on their views (stylesheet on parent doesn't reach top-level popups)
     styleComboBoxPopups();
+}
+
+QWidget* DLSSSettingsWidget::createScrollTab(std::initializer_list<QWidget*> groups)
+{
+    QScrollArea* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    QWidget* content = new QWidget();
+    content->setStyleSheet("background: transparent;");
+    QVBoxLayout* layout = new QVBoxLayout(content);
+    layout->setSpacing(10);
+    for (QWidget* group : groups) {
+        layout->addWidget(group);
+    }
+    layout->addStretch();
+
+    scroll->setWidget(content);
+    return scroll;
 }
 
 void DLSSSettingsWidget::styleComboBoxPopups()
@@ -363,11 +375,21 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "The indicator appears as an overlay in the corner of the screen.");
     layout->addWidget(m_showIndicator);
 
-    // HDR Settings with master checkbox
-    layout->addSpacing(10);
-    QLabel* hdrLabel = new QLabel("HDR Settings:", this);
-    hdrLabel->setStyleSheet("font-weight: bold; margin-top: 5px;");
-    layout->addWidget(hdrLabel);
+    connect(m_enableNVAPI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enablePrimeOffload, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableReflex, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableVkd3dLowLatency, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableVkd3dDescriptorHeap, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+
+    return group;
+}
+
+QGroupBox* DLSSSettingsWidget::createHDRGroup()
+{
+    QGroupBox* group = new QGroupBox("HDR", this);
+    QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_enableAllHDR = new QCheckBox("Enable All HDR Options (Quick Toggle)", this);
     m_enableAllHDR->setStyleSheet("font-weight: bold; color: #76B900;");
@@ -413,11 +435,21 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
 
     layout->addWidget(hdrOptionsWidget);
 
-    // Proton Tweaks
-    layout->addSpacing(10);
-    QLabel* tweaksLabel = new QLabel("Proton Tweaks:", this);
-    tweaksLabel->setStyleSheet("font-weight: bold; margin-top: 5px;");
-    layout->addWidget(tweaksLabel);
+    connect(m_enableAllHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onEnableAllHDRToggled);
+    connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
+    connect(m_enableProtonHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
+    connect(m_enableHDRWSI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
+    // Deliberately plain onSettingChanged: DXVK_NO_HDR is a disable switch and
+    // must stay outside the m_enableAllHDR master sync and the HDR status dialog.
+    connect(m_disableAutoHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+
+    return group;
+}
+
+QGroupBox* DLSSSettingsWidget::createProtonTweaksGroup()
+{
+    QGroupBox* group = new QGroupBox("Proton Tweaks", this);
+    QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_protonPriorityHigh = new QCheckBox("High Priority (PROTON_PRIORITY_HIGH)", this);
     m_protonPriorityHigh->setToolTip(
@@ -452,20 +484,6 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "Note: May impact performance. Only enable for troubleshooting.");
     layout->addWidget(m_protonLog);
 
-    connect(m_enableNVAPI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableReflex, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableVkd3dLowLatency, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableVkd3dDescriptorHeap, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enablePrimeOffload, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableAllHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onEnableAllHDRToggled);
-    connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
-    connect(m_enableProtonHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
-    connect(m_enableHDRWSI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
-    // Deliberately plain onSettingChanged: DXVK_NO_HDR is a disable switch and
-    // must stay outside the m_enableAllHDR master sync and the HDR status dialog.
-    connect(m_disableAutoHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonPriorityHigh, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonUseNTSync, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonUseD7VK, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);

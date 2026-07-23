@@ -92,6 +92,34 @@ DLSSSettingsWidget QScrollArea {
     background: transparent;
 }
 
+/* ── Settings tabs ─────────────────────────────────────────────────────── */
+DLSSSettingsWidget QTabWidget::pane {
+    border: 1px solid #444444;
+    background: #1e1e1e;
+    border-radius: 4px;
+}
+
+DLSSSettingsWidget QTabBar::tab {
+    background: #262626;
+    color: #cccccc;
+    padding: 8px 16px;
+    border: 1px solid #444444;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    margin-right: 2px;
+}
+
+DLSSSettingsWidget QTabBar::tab:selected {
+    background: #333333;
+    color: #ffffff;
+    border-bottom: 2px solid #76B900;
+}
+
+DLSSSettingsWidget QTabBar::tab:hover:!selected {
+    background: #404040;
+}
+
 /* ── Thin Scrollbar (shared) ───────────────────────────────────────────── */
 DLSSSettingsWidget QScrollBar:vertical,
 GameListWidget QScrollBar:vertical {
