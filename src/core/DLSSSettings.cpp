@@ -9,6 +9,11 @@ QJsonObject DLSSSettings::toJson() const
     json["enableNGXUpdater"] = enableNGXUpdater;
     json["enableReflex"] = enableReflex;
     json["enableVkd3dLowLatency"] = enableVkd3dLowLatency;
+    json["enablePrimeRenderOffload"] = enablePrimeRenderOffload;
+    json["enableVkd3dDescriptorHeap"] = enableVkd3dDescriptorHeap;
+    if (!vkd3dConfigExtra.isEmpty()) {
+        json["vkd3dConfigExtra"] = vkd3dConfigExtra;
+    }
 
     // Super Resolution
     json["srOverride"] = srOverride;
@@ -83,6 +88,9 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableNGXUpdater = json["enableNGXUpdater"].toBool(false);
     settings.enableReflex = json["enableReflex"].toBool(false);
     settings.enableVkd3dLowLatency = json["enableVkd3dLowLatency"].toBool(false);
+    settings.enablePrimeRenderOffload = json["enablePrimeRenderOffload"].toBool(false);
+    settings.enableVkd3dDescriptorHeap = json["enableVkd3dDescriptorHeap"].toBool(false);
+    settings.vkd3dConfigExtra = json["vkd3dConfigExtra"].toString();
 
     // Super Resolution
     settings.srOverride = json["srOverride"].toBool(false);
@@ -219,6 +227,9 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            enableNGXUpdater == other.enableNGXUpdater &&
            enableReflex == other.enableReflex &&
            enableVkd3dLowLatency == other.enableVkd3dLowLatency &&
+           enablePrimeRenderOffload == other.enablePrimeRenderOffload &&
+           enableVkd3dDescriptorHeap == other.enableVkd3dDescriptorHeap &&
+           vkd3dConfigExtra == other.vkd3dConfigExtra &&
            srOverride == other.srOverride &&
            srMode == other.srMode &&
            srPreset == other.srPreset &&

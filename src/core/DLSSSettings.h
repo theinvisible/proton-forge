@@ -14,6 +14,11 @@ public:
     bool enableNGXUpdater = false;
     bool enableReflex = false;  // DXVK_NVAPI_VKREFLEX=1
     bool enableVkd3dLowLatency = false;  // PROTON_VKD3D_LOWLATENCY=1 (CachyOS ≥ 11.0-20260703)
+    bool enablePrimeRenderOffload = false;  // __NV_PRIME_RENDER_OFFLOAD trio for hybrid iGPU+dGPU systems
+    bool enableVkd3dDescriptorHeap = false;  // VKD3D_CONFIG=descriptor_heap (experimental, driver ≥ 595.44.02)
+    // Other VKD3D_CONFIG flags (e.g. "dxr") round-tripped from imported launch
+    // options so enabling descriptor_heap doesn't clobber them. Not in the UI.
+    QString vkd3dConfigExtra;
 
     // Super Resolution (SR)
     bool srOverride = false;

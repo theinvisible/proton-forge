@@ -12,6 +12,32 @@ QStringList tokenize(const QString& s)
     return s.split(ws, Qt::SkipEmptyParts);
 }
 
+// Removes one pair of surrounding quotes from an env-var value. Steam launch
+// options are often written shell-style (KEY="a,b,c"); the quotes are not part
+// of the value and would break sub-key parsing (e.g. DXVK_NVAPI_DRS_SETTINGS).
+QString stripQuotes(const QString& v)
+{
+    if (v.length() >= 2 && ((v.startsWith('"') && v.endsWith('"')) ||
+                            (v.startsWith('\'') && v.endsWith('\'')))) {
+        return v.mid(1, v.length() - 2);
+    }
+    return v;
+}
+
+// Joins the VKD3D_CONFIG flags ProtonForge manages (descriptor_heap) with any
+// foreign flags round-tripped through vkd3dConfigExtra, so both survive.
+QString vkd3dConfigValue(const DLSSSettings& s)
+{
+    QStringList flags;
+    if (s.enableVkd3dDescriptorHeap) {
+        flags << "descriptor_heap";
+    }
+    if (!s.vkd3dConfigExtra.isEmpty()) {
+        flags << s.vkd3dConfigExtra;
+    }
+    return flags.join(',');
+}
+
 // Returns the canonical-cased entry from `options` matching `value`
 // case-insensitively, or `value` unchanged if there is no match (so custom
 // values survive). buildDRSSettings lowercases mode values, so the reverse
@@ -65,6 +91,7 @@ void applyDrsSubKey(DLSSSettings& s, const QString& key, const QString& value)
 bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
 {
     if (key == "PROTON_ENABLE_NVAPI") { s.enableNVAPI = (value != "0"); return true; }
+    if (key == "__NV_PRIME_RENDER_OFFLOAD") { s.enablePrimeRenderOffload = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_NGX_UPDATER") { s.enableNGXUpdater = (value != "0"); return true; }
     if (key == "DXVK_NVAPI_VKREFLEX") { s.enableReflex = (value != "0"); return true; }
     if (key == "PROTON_VKD3D_LOWLATENCY") { s.enableVkd3dLowLatency = (value != "0"); return true; }
@@ -80,9 +107,25 @@ bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
     if (key == "PROTON_USE_D7VK") { s.protonUseD7VK = (value != "0"); return true; }
     if (key == "PROTON_LOG") { s.protonLog = (value != "0"); return true; }
     if (key == "MANGOHUD") { s.enableMangoHud = (value != "0"); return true; }
-    if (key == "DXVK_FRAME_RATE") {
+    // DXVK covers D3D9/10/11, VKD3D covers D3D12 — both map onto the same
+    // frame-rate-limit setting and are emitted together.
+    if (key == "DXVK_FRAME_RATE" || key == "VKD3D_FRAME_RATE") {
         s.enableFrameRateLimit = true;
         s.targetFrameRate = value.toInt();
+        return true;
+    }
+    if (key == "VKD3D_CONFIG") {
+        QStringList rest;
+        const QStringList flags = value.split(',', Qt::SkipEmptyParts);
+        for (const QString& flag : flags) {
+            const QString f = flag.trimmed();
+            if (f.compare("descriptor_heap", Qt::CaseInsensitive) == 0) {
+                s.enableVkd3dDescriptorHeap = true;
+            } else if (!f.isEmpty()) {
+                rest << f;
+            }
+        }
+        s.vkd3dConfigExtra = rest.join(',');
         return true;
     }
     if (key == "DXVK_NVAPI_DRS_SETTINGS") {
@@ -177,6 +220,14 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
 {
     QStringList envVars;
 
+    // PRIME render offload for hybrid iGPU+dGPU systems. Deliberately the
+    // portable NVIDIA-recommended trio — no distro-specific ICD path.
+    if (settings.enablePrimeRenderOffload) {
+        envVars << "__NV_PRIME_RENDER_OFFLOAD=1"
+                << "__GLX_VENDOR_LIBRARY_NAME=nvidia"
+                << "__VK_LAYER_NV_optimus=NVIDIA_only";
+    }
+
     // General settings
     if (settings.enableNVAPI) {
         envVars << "PROTON_ENABLE_NVAPI=1";
@@ -192,6 +243,11 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
 
     if (settings.enableVkd3dLowLatency) {
         envVars << "PROTON_VKD3D_LOWLATENCY=1";
+    }
+
+    const QString vkd3dConfig = vkd3dConfigValue(settings);
+    if (!vkd3dConfig.isEmpty()) {
+        envVars << QString("VKD3D_CONFIG=%1").arg(vkd3dConfig);
     }
 
     // DLSS Upgrade
@@ -215,9 +271,10 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << "NVPRESENT_ENABLE_SMOOTH_MOTION=1";
     }
 
-    // Frame Rate Limit
+    // Frame Rate Limit — DXVK for D3D9/10/11, VKD3D for D3D12
     if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
         envVars << QString("DXVK_FRAME_RATE=%1").arg(settings.targetFrameRate);
+        envVars << QString("VKD3D_FRAME_RATE=%1").arg(settings.targetFrameRate);
     }
 
     // HDR
@@ -273,6 +330,13 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
 {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
 
+    // PRIME render offload for hybrid iGPU+dGPU systems
+    if (settings.enablePrimeRenderOffload) {
+        env.insert("__NV_PRIME_RENDER_OFFLOAD", "1");
+        env.insert("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+        env.insert("__VK_LAYER_NV_optimus", "NVIDIA_only");
+    }
+
     // General settings
     if (settings.enableNVAPI) {
         env.insert("PROTON_ENABLE_NVAPI", "1");
@@ -288,6 +352,11 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
 
     if (settings.enableVkd3dLowLatency) {
         env.insert("PROTON_VKD3D_LOWLATENCY", "1");
+    }
+
+    const QString vkd3dConfig = vkd3dConfigValue(settings);
+    if (!vkd3dConfig.isEmpty()) {
+        env.insert("VKD3D_CONFIG", vkd3dConfig);
     }
 
     // DLSS Upgrade
@@ -311,9 +380,10 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
         env.insert("NVPRESENT_ENABLE_SMOOTH_MOTION", "1");
     }
 
-    // Frame Rate Limit
+    // Frame Rate Limit — DXVK for D3D9/10/11, VKD3D for D3D12
     if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
         env.insert("DXVK_FRAME_RATE", QString::number(settings.targetFrameRate));
+        env.insert("VKD3D_FRAME_RATE", QString::number(settings.targetFrameRate));
     }
 
     // HDR
@@ -359,7 +429,7 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     for (const QString& token : tokens) {
         int eq = token.indexOf('=');
         if (eq > 0) {
-            env.insert(token.left(eq), token.mid(eq + 1));
+            env.insert(token.left(eq), stripQuotes(token.mid(eq + 1)));
         }
     }
 
@@ -385,6 +455,8 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     s.enableNGXUpdater = false;
     s.enableReflex = false;
     s.enableVkd3dLowLatency = false;
+    s.enablePrimeRenderOffload = false;
+    s.enableVkd3dDescriptorHeap = false; s.vkd3dConfigExtra.clear();
     s.dlssUpgrade = false;
     s.showIndicator = false;
     s.srOverride = false; s.srMode.clear(); s.srPreset.clear(); s.srScalingRatio = 0;
@@ -397,9 +469,22 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     s.protonPriorityHigh = false; s.protonUseNTSync = false; s.protonUseD7VK = false; s.protonLog = false;
     s.enableMangoHud = false;
 
+    const QStringList tokens = tokenize(raw);
+
+    // PRIME render offload is emitted as a trio; its two companion variables
+    // are only consumed when the main flag is present, so a lone companion
+    // set for other reasons survives as a custom param.
+    bool primeActive = false;
+    for (const QString& token : tokens) {
+        if (token == "%command%") break;
+        if (token.startsWith("__NV_PRIME_RENDER_OFFLOAD=")) {
+            primeActive = (stripQuotes(token.section('=', 1)) != "0");
+            break;
+        }
+    }
+
     QStringList leftover;
     bool seenCommand = false;
-    const QStringList tokens = tokenize(raw);
     for (const QString& token : tokens) {
         if (token == "%command%") {
             seenCommand = true;
@@ -412,8 +497,15 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
             continue;
         }
         int eq = token.indexOf('=');
-        if (eq > 0 && applyKnownEnvVar(s, token.left(eq), token.mid(eq + 1))) {
-            continue;
+        if (eq > 0) {
+            const QString key = token.left(eq);
+            if (applyKnownEnvVar(s, key, stripQuotes(token.mid(eq + 1)))) {
+                continue;
+            }
+            if (primeActive && (key == "__GLX_VENDOR_LIBRARY_NAME" ||
+                                key == "__VK_LAYER_NV_optimus")) {
+                continue;  // part of the PRIME trio, re-emitted on rebuild
+            }
         }
         // Unrecognised pre-command token (custom env var or flag).
         leftover << token;

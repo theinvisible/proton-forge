@@ -10,11 +10,12 @@ GpuInfoCache& GpuInfoCache::instance()
 
 GpuInfoCache::GpuInfoCache(QObject* parent)
     : QObject(parent)
-    , m_watcher(new QFutureWatcher<QList<GPUInfo>>(this))
+    , m_watcher(new QFutureWatcher<Detection>(this))
 {
-    connect(m_watcher, &QFutureWatcher<QList<GPUInfo>>::finished, this, [this]() {
-        const QList<GPUInfo> gpus = m_watcher->result();
-        for (const GPUInfo& gpu : gpus) {
+    connect(m_watcher, &QFutureWatcher<Detection>::finished, this, [this]() {
+        const Detection detection = m_watcher->result();
+        m_hybridGpu = detection.hybridGpu;
+        for (const GPUInfo& gpu : detection.gpus) {
             if (gpu.vendor != GPUInfo::NVIDIA)
                 continue;
             // Prefer the richer driverInfo.version, fall back to the plain
@@ -37,6 +38,6 @@ void GpuInfoCache::refreshAsync()
         return;
     m_started = true;
     m_watcher->setFuture(QtConcurrent::run([]() {
-        return GPUDetector::detectAllGPUs();
+        return Detection{GPUDetector::detectAllGPUs(), GPUDetector::detectHybridGpu()};
     }));
 }

@@ -41,6 +41,9 @@ const Requirement& requirementFor(Feature feature)
         QStringLiteral("auto-HDR requires Proton-CachyOS ≥ 11.0-20260601"),
         QVersionNumber(11, 0, 20260601), {},
         QStringLiteral("auto-HDR is Proton-CachyOS only — this option has no effect here")};
+    static const Requirement vkd3dDescriptorHeap{
+        QVersionNumber(595, 44, 2), QVersionNumber(11), {},
+        QStringLiteral("NVIDIA driver ≥ 595.44.02, Proton ≥ 11 (vkd3d-proton descriptor heap)")};
 
     switch (feature) {
         case Feature::SmoothMotion:      return smoothMotion;
@@ -52,6 +55,7 @@ const Requirement& requirementFor(Feature feature)
         case Feature::Vkd3dLowLatency:   return vkd3dLowLatency;
         case Feature::D7vk:              return d7vk;
         case Feature::DisableAutoHdr:    return disableAutoHdr;
+        case Feature::Vkd3dDescriptorHeap: return vkd3dDescriptorHeap;
     }
 
     static const Requirement none{};

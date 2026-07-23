@@ -314,6 +314,18 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "Note: Requires internet connection and may increase loading times.");
     layout->addWidget(m_enableNGXUpdater);
 
+    m_enablePrimeOffload = new QCheckBox("Use NVIDIA GPU (PRIME Render Offload)", this);
+    m_enablePrimeOffload->setToolTip(
+        "Render this game on the NVIDIA dGPU instead of the integrated GPU.\n\n"
+        "For hybrid-graphics systems (e.g. laptops with Intel/AMD iGPU + NVIDIA "
+        "dGPU) where the iGPU is the primary GPU. Not needed when the NVIDIA "
+        "GPU is the only or primary GPU — some distros configure this "
+        "automatically.\n\n"
+        "Sets __NV_PRIME_RENDER_OFFLOAD=1, __GLX_VENDOR_LIBRARY_NAME=nvidia "
+        "and __VK_LAYER_NV_optimus=NVIDIA_only (works on any distro, no "
+        "hard-coded driver paths).");
+    layout->addWidget(m_enablePrimeOffload);
+
     m_enableReflex = new QCheckBox("Enable Reflex (DXVK_NVAPI_VKREFLEX)", this);
     m_enableReflex->setToolTip(
         "Enable NVIDIA Reflex for Vulkan games via DXVK-NVAPI's Reflex layer.\n\n"
@@ -332,6 +344,16 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "Requires: Proton-CachyOS 11.0-20260703 or newer.\n\n"
         "Sets PROTON_VKD3D_LOWLATENCY=1.");
     layout->addWidget(m_enableVkd3dLowLatency);
+
+    m_enableVkd3dDescriptorHeap = new QCheckBox("VKD3D Descriptor Heap (experimental)", this);
+    m_enableVkd3dDescriptorHeap->setToolTip(
+        "Enable vkd3d-proton's new VK_EXT_descriptor_heap path for DirectX 12 "
+        "games.\n\n"
+        "Can improve performance and frame pacing, but is experimental and "
+        "known to crash some games — test per game.\n\n"
+        "Requires: NVIDIA driver 595.44.02 or newer.\n\n"
+        "Sets VKD3D_CONFIG=descriptor_heap.");
+    layout->addWidget(m_enableVkd3dDescriptorHeap);
 
     m_showIndicator = new QCheckBox("Show DLSS Indicator (PROTON_DLSS_INDICATOR)", this);
     m_showIndicator->setToolTip(
@@ -434,6 +456,8 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
     connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableReflex, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableVkd3dLowLatency, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableVkd3dDescriptorHeap, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enablePrimeOffload, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableAllHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onEnableAllHDRToggled);
     connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
@@ -998,6 +1022,8 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_enableNGXUpdater->blockSignals(block);
     m_enableReflex->blockSignals(block);
     m_enableVkd3dLowLatency->blockSignals(block);
+    m_enableVkd3dDescriptorHeap->blockSignals(block);
+    m_enablePrimeOffload->blockSignals(block);
     m_showIndicator->blockSignals(block);
     m_srOverride->blockSignals(block);
     m_srMode->blockSignals(block);
@@ -1035,6 +1061,8 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_enableNGXUpdater->setChecked(settings.enableNGXUpdater);
     m_enableReflex->setChecked(settings.enableReflex);
     m_enableVkd3dLowLatency->setChecked(settings.enableVkd3dLowLatency);
+    m_enableVkd3dDescriptorHeap->setChecked(settings.enableVkd3dDescriptorHeap);
+    m_enablePrimeOffload->setChecked(settings.enablePrimeRenderOffload);
     m_showIndicator->setChecked(settings.showIndicator);
 
     // HDR
@@ -1152,6 +1180,8 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableNGXUpdater = m_enableNGXUpdater->isChecked();
     settings.enableReflex = m_enableReflex->isChecked();
     settings.enableVkd3dLowLatency = m_enableVkd3dLowLatency->isChecked();
+    settings.enableVkd3dDescriptorHeap = m_enableVkd3dDescriptorHeap->isChecked();
+    settings.enablePrimeRenderOffload = m_enablePrimeOffload->isChecked();
     settings.showIndicator = m_showIndicator->isChecked();
 
     // HDR
@@ -1298,8 +1328,18 @@ void DLSSSettingsWidget::updateFeatureWarnings()
           Feature::FgPreset, "FG Render Preset");
     check(m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
     check(m_enableVkd3dLowLatency->isChecked(), Feature::Vkd3dLowLatency, "VKD3D Low Latency");
+    check(m_enableVkd3dDescriptorHeap->isChecked(), Feature::Vkd3dDescriptorHeap, "VKD3D Descriptor Heap");
     check(m_protonUseD7VK->isChecked(), Feature::D7vk, "D7VK");
     check(m_disableAutoHDR->isChecked(), Feature::DisableAutoHdr, "Disable auto-HDR");
+
+    // PRIME offload is gated by hardware, not driver/Proton versions: warn only
+    // when the probe positively found a non-hybrid system (Unknown stays silent).
+    if (m_enablePrimeOffload->isChecked() &&
+        GpuInfoCache::instance().hybridGpu() == GPUDetector::HybridGpu::No) {
+        lines << QStringLiteral(
+            "⚠ PRIME Render Offload: no hybrid iGPU + dGPU setup detected — "
+            "this option has no effect on this system");
+    }
 
     if (lines.isEmpty()) {
         m_featureWarnings->hide();

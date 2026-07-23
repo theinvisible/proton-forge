@@ -85,6 +85,8 @@ private:
     QCheckBox* m_enableNGXUpdater;
     QCheckBox* m_enableReflex;
     QCheckBox* m_enableVkd3dLowLatency;
+    QCheckBox* m_enableVkd3dDescriptorHeap;
+    QCheckBox* m_enablePrimeOffload;
     QCheckBox* m_showIndicator;
 
     // Feature gating warnings (driver/Proton requirements not met)

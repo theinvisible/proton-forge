@@ -66,6 +66,7 @@ enum class Feature {
     Vkd3dLowLatency,
     D7vk,
     DisableAutoHdr,
+    Vkd3dDescriptorHeap,
 };
 
 // Central, tunable capability table (defined in FeatureGate.cpp).

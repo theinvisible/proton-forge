@@ -76,8 +76,16 @@ struct GPUInfo {
 class GPUDetector
 {
 public:
+    // Tri-state result of the hybrid-graphics probe. Unknown when lspci is
+    // unavailable or reports no display devices — callers must stay lenient.
+    enum class HybridGpu { Unknown, No, Yes };
+
     static QList<GPUInfo> detectAllGPUs();
     static bool hasNvidiaGPU();
+
+    // True (Yes) when lspci shows an NVIDIA display device alongside an
+    // Intel/AMD one — the setups where PRIME render offload applies.
+    static HybridGpu detectHybridGpu();
 };
 
 #endif // GPUDETECTOR_H
