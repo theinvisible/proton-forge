@@ -6,6 +6,8 @@
 #include <QLocale>
 #include <QDebug>
 
+#include <dlfcn.h>
+
 QList<GPUInfo> NvidiaGPUDetector::detect()
 {
     QList<GPUInfo> gpus;
@@ -424,8 +426,15 @@ GPUInfo NvidiaGPUDetector::parseNvidiaSmiOutput(const QString& output, int index
     info.displayConnected = (displayActive.toLower() == "enabled" ||
                              displayActive.toLower() == "yes");
 
-    // CUDA Cores: query SM count from nvidia-smi, multiply by cores/SM for this architecture
-    info.cudaCores = getCudaCoreCount(info.name, info.computeCapability, output);
+    // CUDA Cores: ask NVML directly if possible, else fall back to SM count ×
+    // cores/SM, else a per-model name table. info.pciId / info.index are set above.
+    // Skip for the section-split artifact that carries no product name (the
+    // nvidia-smi -q header block) — detect() discards it, and querying NVML for
+    // it would waste an init and could mis-resolve to GPU 0 by index.
+    if (!info.name.isEmpty()) {
+        info.cudaCores = getCudaCoreCount(info.name, info.computeCapability, output,
+                                          info.pciId, info.index);
+    }
 
     return info;
 }
@@ -500,14 +509,25 @@ int NvidiaGPUDetector::coresPerSMFromComputeCapability(const QString& computeCap
     }
 }
 
-// Primary method: tries to read the SM count directly from the nvidia-smi -q section
-// and multiplies by cores/SM derived from the compute capability.
-// Falls back to the name-based lookup if either value is unavailable.
+// Resolves the CUDA core count with three tiers of decreasing reliability:
+//   1. NVML nvmlDeviceGetNumGpuCores() — exact, straight from the driver.
+//   2. SM count parsed from nvidia-smi -q × cores/SM (compute capability).
+//   3. Per-model name lookup table.
+// Each tier is only consulted if the previous one yields nothing usable.
 int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName,
                                         const QString& computeCapability,
-                                        const QString& smiOutput)
+                                        const QString& smiOutput,
+                                        const QString& pciBusId,
+                                        int gpuIndex)
 {
-    // --- Step 1: extract SM count from nvidia-smi -q output ---
+    // --- Tier 1: NVML (preferred, exact, no per-model table needed) ---
+    const int nvmlCores = getCudaCoreCountFromNvml(pciBusId, gpuIndex);
+    if (nvmlCores > 0) {
+        qDebug() << "CUDA cores from NVML:" << nvmlCores << "for" << gpuName;
+        return nvmlCores;
+    }
+
+    // --- Tier 2, Step 1: extract SM count from nvidia-smi -q output ---
     // Different driver versions use slightly different field names.
     int smCount = 0;
     static const QStringList smFields = {
@@ -523,10 +543,10 @@ int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName,
         }
     }
 
-    // --- Step 2: derive cores/SM from compute capability ---
+    // --- Tier 2, Step 2: derive cores/SM from compute capability ---
     const int coresPerSM = coresPerSMFromComputeCapability(computeCapability);
 
-    // --- Step 3: calculate if both values are valid ---
+    // --- Tier 2, Step 3: calculate if both values are valid ---
     if (smCount > 0 && coresPerSM > 0) {
         qDebug() << "CUDA cores:" << smCount << "SMs x" << coresPerSM
                  << "cores/SM =" << smCount * coresPerSM
@@ -534,17 +554,118 @@ int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName,
         return smCount * coresPerSM;
     }
 
-    // --- Fallback: static name-based lookup ---
+    // --- Tier 3: static name-based lookup ---
     if (smCount == 0) {
-        qDebug() << "nvidia-smi did not report SM count for" << gpuName
+        qDebug() << "NVML/nvidia-smi did not report core or SM count for" << gpuName
                  << "– using name lookup table";
     }
     return getCudaCoreCountFallback(gpuName);
 }
 
+// Loads NVML at runtime via dlopen and asks the driver for the exact CUDA core
+// count. Deliberately dependency-free: no NVML headers, no link-time coupling to
+// libnvidia-ml — every symbol is resolved by name and every failure path returns
+// 0 so the caller can fall back. Safe to call from a worker thread; NVML init is
+// reference-counted so nesting with nvidia-smi's own usage is harmless.
+int NvidiaGPUDetector::getCudaCoreCountFromNvml(const QString& pciBusId, int gpuIndex)
+{
+    // NVML ABI (subset). nvmlReturn_t is an enum (int); NVML_SUCCESS == 0.
+    // nvmlDevice_t is an opaque handle (pointer-sized).
+    using nvmlDevice_t              = void*;
+    using fn_init                   = int (*)();
+    using fn_shutdown               = int (*)();
+    using fn_handleByPciBusId       = int (*)(const char*, nvmlDevice_t*);
+    using fn_handleByIndex          = int (*)(unsigned int, nvmlDevice_t*);
+    using fn_numGpuCores            = int (*)(nvmlDevice_t, unsigned int*);
+
+    // libnvidia-ml.so ships only with the driver runtime; libnvidia-ml.so.1 is
+    // the versioned SONAME that's actually present on end-user systems.
+    void* lib = dlopen("libnvidia-ml.so.1", RTLD_LAZY | RTLD_LOCAL);
+    if (!lib)
+        lib = dlopen("libnvidia-ml.so", RTLD_LAZY | RTLD_LOCAL);
+    if (!lib) {
+        qDebug() << "NVML: libnvidia-ml not loadable –" << dlerror();
+        return 0;
+    }
+
+    auto nvmlInit        = reinterpret_cast<fn_init>(dlsym(lib, "nvmlInit_v2"));
+    auto nvmlShutdown    = reinterpret_cast<fn_shutdown>(dlsym(lib, "nvmlShutdown"));
+    auto nvmlByPci       = reinterpret_cast<fn_handleByPciBusId>(dlsym(lib, "nvmlDeviceGetHandleByPciBusId_v2"));
+    auto nvmlByIndex     = reinterpret_cast<fn_handleByIndex>(dlsym(lib, "nvmlDeviceGetHandleByIndex_v2"));
+    auto nvmlNumGpuCores = reinterpret_cast<fn_numGpuCores>(dlsym(lib, "nvmlDeviceGetNumGpuCores"));
+
+    // nvmlDeviceGetNumGpuCores was added in driver R510 (2022). Its absence is
+    // the expected "old driver" path: bail out cleanly to the heuristic tiers.
+    if (!nvmlInit || !nvmlShutdown || !nvmlNumGpuCores) {
+        qDebug() << "NVML: required symbols unavailable (driver too old?)";
+        dlclose(lib);
+        return 0;
+    }
+
+    int cores = 0;
+    if (nvmlInit() == 0) {
+        nvmlDevice_t dev = nullptr;
+        int rc = -1;
+
+        // Prefer resolving by PCI bus id so we address the exact card even in
+        // multi-GPU systems where NVML and nvidia-smi may enumerate differently.
+        const QByteArray bus = pciBusId.trimmed().toLatin1();
+        if (nvmlByPci && !bus.isEmpty())
+            rc = nvmlByPci(bus.constData(), &dev);
+        if (rc != 0 && nvmlByIndex && gpuIndex >= 0)
+            rc = nvmlByIndex(static_cast<unsigned int>(gpuIndex), &dev);
+
+        if (rc == 0 && dev) {
+            unsigned int n = 0;
+            if (nvmlNumGpuCores(dev, &n) == 0 && n > 0)
+                cores = static_cast<int>(n);
+        }
+
+        nvmlShutdown();
+    } else {
+        qDebug() << "NVML: nvmlInit_v2 failed";
+    }
+
+    dlclose(lib);
+    return cores;
+}
+
 int NvidiaGPUDetector::getCudaCoreCountFallback(const QString& gpuName)
 {
     const QString name = gpuName.toUpper();
+
+    // --- Laptop / Mobile GPUs ---
+    // Mobile parts use cut-down dies and have far fewer cores than their desktop
+    // namesakes (e.g. RTX 5070 Laptop = 4608 vs. desktop 6144). NVIDIA marks them
+    // with "Laptop GPU" in the product name, so they must be matched here BEFORE
+    // the desktop tables below, whose contains() checks would otherwise catch them.
+    // "TI" variants are checked before the plain model for the same reason.
+    if (name.contains("LAPTOP")) {
+        // Blackwell (RTX 50 Series Laptop)
+        if (name.contains("RTX 5090"))    return 10496;
+        if (name.contains("RTX 5080"))    return  7680;
+        if (name.contains("RTX 5070 TI")) return  5888;
+        if (name.contains("RTX 5070"))    return  4608;
+        if (name.contains("RTX 5060"))    return  3328;
+        if (name.contains("RTX 5050"))    return  2560;
+
+        // Ada Lovelace (RTX 40 Series Laptop)
+        if (name.contains("RTX 4090"))    return  9728;
+        if (name.contains("RTX 4080"))    return  7424;
+        if (name.contains("RTX 4070"))    return  4608;
+        if (name.contains("RTX 4060"))    return  3072;
+        if (name.contains("RTX 4050"))    return  2560;
+
+        // Ampere (RTX 30 Series Laptop)
+        if (name.contains("RTX 3080 TI")) return  7424;
+        if (name.contains("RTX 3080"))    return  6144;
+        if (name.contains("RTX 3070 TI")) return  5888;
+        if (name.contains("RTX 3070"))    return  5120;
+        if (name.contains("RTX 3060"))    return  3840;
+        if (name.contains("RTX 3050 TI")) return  2560;
+        if (name.contains("RTX 3050"))    return  2048;
+        // Unknown laptop model: fall through to the desktop tables below.
+    }
 
     // Blackwell (RTX 50 Series)  –  SM count × 128 cores/SM
     if (name.contains("RTX 5090"))    return 21760;  // GB202: 170 SMs

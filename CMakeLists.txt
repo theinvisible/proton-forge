@@ -97,6 +97,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Concurrent
+    ${CMAKE_DL_LIBS}   # dlopen() for NVML (libnvidia-ml) — loaded at runtime, not linked
 )
 
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)
