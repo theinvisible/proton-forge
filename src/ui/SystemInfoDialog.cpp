@@ -207,7 +207,15 @@ QWidget* SystemInfoDialog::createCPUTab()
     layout->setSpacing(10);
 
     layout->addWidget(createCPUProcessorGroup());
+    if (!m_cpuInfo.simd.isEmpty() || !m_cpuInfo.crypto.isEmpty() ||
+        !m_cpuInfo.virtualization.isEmpty() || !m_cpuInfo.otherIsa.isEmpty())
+        layout->addWidget(createCPUInstructionSetsGroup());
     layout->addWidget(createCPUFreqGroup());
+    layout->addWidget(createCPUUtilizationGroup());
+    if (!m_cpuInfo.perCoreFreqMHz.isEmpty())
+        layout->addWidget(createCPUPerCoreFreqGroup());
+    if (!m_cpuInfo.tempSensors.isEmpty())
+        layout->addWidget(createCPUPerCoreTempGroup());
     if (m_cpuInfo.l1dCacheKiB > 0 || m_cpuInfo.l2CacheKiB > 0 || m_cpuInfo.l3CacheKiB > 0)
         layout->addWidget(createCPUCacheGroup());
     layout->addStretch();
@@ -227,21 +235,48 @@ QGroupBox* SystemInfoDialog::createCPUProcessorGroup()
         addInfoRow(layout, "Vendor:", m_cpuInfo.vendor);
     if (!m_cpuInfo.architecture.isEmpty())
         addInfoRow(layout, "Architecture:", m_cpuInfo.architecture);
-    if (m_cpuInfo.physicalCores > 0)
-        addInfoRow(layout, "Physical Cores:", QString::number(m_cpuInfo.physicalCores));
-    if (m_cpuInfo.logicalCores > 0)
-        addInfoRow(layout, "Logical CPUs:", QString::number(m_cpuInfo.logicalCores));
+
+    // Hybrid CPUs get a P/E breakdown; homogeneous CPUs the classic core/thread rows.
+    if (m_cpuInfo.pCores > 0 && m_cpuInfo.eCores > 0) {
+        addInfoRow(layout, "Cores:",
+                   QString("%1 P + %2 E  (%3 cores, %4 threads)")
+                       .arg(m_cpuInfo.pCores)
+                       .arg(m_cpuInfo.eCores)
+                       .arg(m_cpuInfo.pCores + m_cpuInfo.eCores)
+                       .arg(m_cpuInfo.logicalCores));
+    } else {
+        if (m_cpuInfo.physicalCores > 0)
+            addInfoRow(layout, "Physical Cores:", QString::number(m_cpuInfo.physicalCores));
+        if (m_cpuInfo.logicalCores > 0)
+            addInfoRow(layout, "Logical CPUs:", QString::number(m_cpuInfo.logicalCores));
+    }
+    if (m_cpuInfo.threadsPerCore > 0)
+        addInfoRow(layout, "Threads per Core:", QString::number(m_cpuInfo.threadsPerCore));
+    if (m_cpuInfo.sockets > 0)
+        addInfoRow(layout, "Sockets:", QString::number(m_cpuInfo.sockets));
+    if (m_cpuInfo.numaNodes > 0)
+        addInfoRow(layout, "NUMA Nodes:", QString::number(m_cpuInfo.numaNodes));
+    if (m_cpuInfo.cpuFamily > 0)
+        addInfoRow(layout, "Family / Model / Stepping:",
+                   QString("%1 / %2 / %3").arg(m_cpuInfo.cpuFamily)
+                       .arg(m_cpuInfo.cpuModel).arg(m_cpuInfo.stepping));
+    if (!m_cpuInfo.microcode.isEmpty())
+        addInfoRow(layout, "Microcode:", m_cpuInfo.microcode);
+    if (!m_cpuInfo.virtualization.isEmpty())
+        addInfoRow(layout, "Virtualization:", m_cpuInfo.virtualization);
 
     return group;
 }
 
 QGroupBox* SystemInfoDialog::createCPUFreqGroup()
 {
-    QGroupBox* group = new QGroupBox("Frequencies & Temperature");
+    QGroupBox* group = new QGroupBox("Frequencies & Power");
     QVBoxLayout* layout = new QVBoxLayout(group);
 
+    // "Min Frequency" (this is lscpu's CPU min MHz — the old "Base Frequency" label
+    // was a misnomer; the value is the minimum clock, not a nominal/base clock).
     if (m_cpuInfo.baseFreqMHz > 0)
-        addInfoRow(layout, "Base Frequency:", QString("%1 MHz").arg(m_cpuInfo.baseFreqMHz, 0, 'f', 0));
+        addInfoRow(layout, "Min Frequency:", QString("%1 MHz").arg(m_cpuInfo.baseFreqMHz, 0, 'f', 0));
     if (m_cpuInfo.maxFreqMHz > 0)
         addInfoRow(layout, "Max Frequency:", QString("%1 MHz").arg(m_cpuInfo.maxFreqMHz, 0, 'f', 0));
 
@@ -252,12 +287,91 @@ QGroupBox* SystemInfoDialog::createCPUFreqGroup()
             : QString("—");
         m_cpuDynamic.currentFreq = addInfoRow(layout, "Current Frequency:", freqStr);
     }
-    if (m_cpuInfo.temperature > 0) {
-        m_cpuDynamic.temperature = addInfoRow(layout, "Temperature:",
-                                              QString("%1 °C").arg(m_cpuInfo.temperature));
+    m_cpuDynamic.temperature = addInfoRow(layout, "Temperature:",
+        m_cpuInfo.temperature > 0 ? QString("%1 °C").arg(m_cpuInfo.temperature) : QString("—"));
+
+    if (!m_cpuInfo.governor.isEmpty())
+        m_cpuDynamic.governor = addInfoRow(layout, "Governor:", m_cpuInfo.governor);
+    if (!m_cpuInfo.scalingDriver.isEmpty())
+        addInfoRow(layout, "Scaling Driver:", m_cpuInfo.scalingDriver);
+    if (m_cpuInfo.turboEnabled >= 0)
+        m_cpuDynamic.turbo = addInfoRow(layout, "Turbo / Boost:",
+                                        m_cpuInfo.turboEnabled ? "Enabled" : "Disabled");
+    if (!m_cpuInfo.epp.isEmpty())
+        addInfoRow(layout, "Energy Pref (EPP):", m_cpuInfo.epp);
+    if (m_cpuInfo.powerLimitLongW > 0)
+        addInfoRow(layout, "Power Limit (PL1):", QString("%1 W").arg(m_cpuInfo.powerLimitLongW, 0, 'f', 0));
+    if (m_cpuInfo.powerLimitShortW > 0)
+        addInfoRow(layout, "Max Power (PL2):", QString("%1 W").arg(m_cpuInfo.powerLimitShortW, 0, 'f', 0));
+
+    return group;
+}
+
+QGroupBox* SystemInfoDialog::createCPUInstructionSetsGroup()
+{
+    QGroupBox* group = new QGroupBox("Instruction Sets");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    if (!m_cpuInfo.simd.isEmpty())
+        addInfoRow(layout, "SIMD:", m_cpuInfo.simd.join(", "));
+    if (!m_cpuInfo.crypto.isEmpty())
+        addInfoRow(layout, "Crypto:", m_cpuInfo.crypto.join(", "));
+    if (!m_cpuInfo.otherIsa.isEmpty())
+        addInfoRow(layout, "Other:", m_cpuInfo.otherIsa.join(", "));
+
+    return group;
+}
+
+QGroupBox* SystemInfoDialog::createCPUUtilizationGroup()
+{
+    QGroupBox* group = new QGroupBox("Utilization");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    m_cpuDynamic.utilization = addInfoRow(layout, "CPU Usage:",
+        m_cpuInfo.cpuUtilization >= 0
+            ? QString("%1 %").arg(m_cpuInfo.cpuUtilization, 0, 'f', 0) : QString("—"));
+    m_cpuDynamic.loadAvg = addInfoRow(layout, "Load Average (1m):",
+        QString("%1").arg(m_cpuInfo.loadAvg1, 0, 'f', 2));
+
+    return group;
+}
+
+QGroupBox* SystemInfoDialog::createCPUPerCoreFreqGroup()
+{
+    QGroupBox* group = new QGroupBox("Per-Core Frequencies");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    const int n = m_cpuInfo.perCoreFreqMHz.size();
+    m_cpuDynamic.perCoreFreq = QList<QLabel*>(n, nullptr);
+
+    auto addCore = [&](int cpu, const QString& tag) {
+        if (cpu < 0 || cpu >= n)
+            return;
+        m_cpuDynamic.perCoreFreq[cpu] = addInfoRow(layout,
+            QString("CPU %1%2:").arg(cpu).arg(tag),
+            QString("%1 MHz").arg(m_cpuInfo.perCoreFreqMHz[cpu], 0, 'f', 0));
+    };
+
+    // Group by P/E on hybrid CPUs (tag each core), else a flat list.
+    if (!m_cpuInfo.pCoreCpus.isEmpty() && !m_cpuInfo.eCoreCpus.isEmpty()) {
+        for (int cpu : m_cpuInfo.pCoreCpus) addCore(cpu, " (P)");
+        for (int cpu : m_cpuInfo.eCoreCpus) addCore(cpu, " (E)");
     } else {
-        // Still create the label so it can be filled on the first refresh
-        m_cpuDynamic.temperature = addInfoRow(layout, "Temperature:", "—");
+        for (int cpu = 0; cpu < n; ++cpu) addCore(cpu, "");
+    }
+
+    return group;
+}
+
+QGroupBox* SystemInfoDialog::createCPUPerCoreTempGroup()
+{
+    QGroupBox* group = new QGroupBox("Per-Core Temperatures");
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    m_cpuDynamic.perCoreTemp.clear();
+    for (const QPair<QString, int>& s : m_cpuInfo.tempSensors) {
+        QLabel* lbl = addInfoRow(layout, s.first + ":", QString("%1 °C").arg(s.second));
+        m_cpuDynamic.perCoreTemp.append(lbl);
     }
 
     return group;
@@ -697,6 +811,27 @@ void SystemInfoDialog::applyRefreshResult(const CPUInfo& freshCpu, const QList<G
                 ? QString("%1 °C").arg(freshCpu.temperature)
                 : QString("—"));
     }
+    if (m_cpuDynamic.governor && !freshCpu.governor.isEmpty())
+        m_cpuDynamic.governor->setText(freshCpu.governor);
+    if (m_cpuDynamic.turbo && freshCpu.turboEnabled >= 0)
+        m_cpuDynamic.turbo->setText(freshCpu.turboEnabled ? "Enabled" : "Disabled");
+    if (m_cpuDynamic.utilization) {
+        m_cpuDynamic.utilization->setText(
+            freshCpu.cpuUtilization >= 0
+                ? QString("%1 %").arg(freshCpu.cpuUtilization, 0, 'f', 0)
+                : QString("—"));
+    }
+    if (m_cpuDynamic.loadAvg)
+        m_cpuDynamic.loadAvg->setText(QString("%1").arg(freshCpu.loadAvg1, 0, 'f', 2));
+    for (int i = 0; i < m_cpuDynamic.perCoreFreq.size() && i < freshCpu.perCoreFreqMHz.size(); ++i) {
+        if (m_cpuDynamic.perCoreFreq[i])
+            m_cpuDynamic.perCoreFreq[i]->setText(
+                QString("%1 MHz").arg(freshCpu.perCoreFreqMHz[i], 0, 'f', 0));
+    }
+    for (int i = 0; i < m_cpuDynamic.perCoreTemp.size() && i < freshCpu.tempSensors.size(); ++i) {
+        if (m_cpuDynamic.perCoreTemp[i])
+            m_cpuDynamic.perCoreTemp[i]->setText(QString("%1 °C").arg(freshCpu.tempSensors[i].second));
+    }
 
     // ── GPU ──────────────────────────────────────────────────────────────────
     if (freshGpus.size() != m_gpus.size()) {
@@ -763,6 +898,48 @@ void SystemInfoDialog::toggleAutoRefresh(bool enabled)
 void SystemInfoDialog::copyToClipboard()
 {
     QString text;
+
+    // ── CPU ──
+    {
+        const CPUInfo& c = m_cpuInfo;
+        text += "=== CPU ===\n";
+        if (!c.modelName.isEmpty())    text += QString("Name: %1\n").arg(c.modelName);
+        if (!c.vendor.isEmpty())       text += QString("Vendor: %1\n").arg(c.vendor);
+        if (!c.architecture.isEmpty()) text += QString("Architecture: %1\n").arg(c.architecture);
+        if (c.pCores > 0 && c.eCores > 0)
+            text += QString("Cores: %1 P + %2 E (%3 cores, %4 threads)\n")
+                        .arg(c.pCores).arg(c.eCores).arg(c.pCores + c.eCores).arg(c.logicalCores);
+        else {
+            if (c.physicalCores > 0) text += QString("Physical Cores: %1\n").arg(c.physicalCores);
+            if (c.logicalCores > 0)  text += QString("Logical CPUs: %1\n").arg(c.logicalCores);
+        }
+        if (c.threadsPerCore > 0) text += QString("Threads per Core: %1\n").arg(c.threadsPerCore);
+        if (c.sockets > 0)        text += QString("Sockets: %1\n").arg(c.sockets);
+        if (c.numaNodes > 0)      text += QString("NUMA Nodes: %1\n").arg(c.numaNodes);
+        if (c.cpuFamily > 0)
+            text += QString("Family / Model / Stepping: %1 / %2 / %3\n")
+                        .arg(c.cpuFamily).arg(c.cpuModel).arg(c.stepping);
+        if (!c.microcode.isEmpty())      text += QString("Microcode: %1\n").arg(c.microcode);
+        if (!c.virtualization.isEmpty()) text += QString("Virtualization: %1\n").arg(c.virtualization);
+        if (!c.simd.isEmpty())           text += QString("SIMD: %1\n").arg(c.simd.join(", "));
+        if (!c.crypto.isEmpty())         text += QString("Crypto: %1\n").arg(c.crypto.join(", "));
+        if (!c.otherIsa.isEmpty())       text += QString("Other ISA: %1\n").arg(c.otherIsa.join(", "));
+        if (c.baseFreqMHz > 0) text += QString("Min Frequency: %1 MHz\n").arg(c.baseFreqMHz, 0, 'f', 0);
+        if (c.maxFreqMHz > 0)  text += QString("Max Frequency: %1 MHz\n").arg(c.maxFreqMHz, 0, 'f', 0);
+        if (c.currentFreqMHz > 0) text += QString("Current Frequency: %1 MHz\n").arg(c.currentFreqMHz, 0, 'f', 0);
+        if (c.temperature > 0)    text += QString("Temperature: %1 °C\n").arg(c.temperature);
+        if (!c.governor.isEmpty())      text += QString("Governor: %1\n").arg(c.governor);
+        if (!c.scalingDriver.isEmpty()) text += QString("Scaling Driver: %1\n").arg(c.scalingDriver);
+        if (c.turboEnabled >= 0)  text += QString("Turbo / Boost: %1\n").arg(c.turboEnabled ? "Enabled" : "Disabled");
+        if (!c.epp.isEmpty())     text += QString("Energy Pref (EPP): %1\n").arg(c.epp);
+        if (c.powerLimitLongW > 0)  text += QString("Power Limit (PL1): %1 W\n").arg(c.powerLimitLongW, 0, 'f', 0);
+        if (c.powerLimitShortW > 0) text += QString("Max Power (PL2): %1 W\n").arg(c.powerLimitShortW, 0, 'f', 0);
+        if (c.cpuUtilization >= 0)  text += QString("CPU Usage: %1 %%\n").arg(c.cpuUtilization, 0, 'f', 0);
+        text += QString("Load Average (1m): %1\n").arg(c.loadAvg1, 0, 'f', 2);
+        for (const QPair<QString, int>& s : c.tempSensors)
+            text += QString("  %1: %2 °C\n").arg(s.first).arg(s.second);
+        text += "\n";
+    }
 
     for (int i = 0; i < m_gpus.size(); ++i) {
         const GPUInfo& gpu = m_gpus[i];

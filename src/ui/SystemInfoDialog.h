@@ -38,6 +38,12 @@ struct DynamicLabels {
 struct CPUDynamicLabels {
     QLabel* currentFreq = nullptr;
     QLabel* temperature = nullptr;
+    QLabel* governor = nullptr;
+    QLabel* turbo = nullptr;
+    QLabel* utilization = nullptr;
+    QLabel* loadAvg = nullptr;
+    QList<QLabel*> perCoreFreq;   // one per logical CPU
+    QList<QLabel*> perCoreTemp;   // one per labelled sensor
 };
 
 class SystemInfoDialog : public QDialog
@@ -55,6 +61,10 @@ private:
     QWidget*    createCPUTab();
     QGroupBox*  createCPUProcessorGroup();
     QGroupBox*  createCPUFreqGroup();
+    QGroupBox*  createCPUInstructionSetsGroup();
+    QGroupBox*  createCPUUtilizationGroup();
+    QGroupBox*  createCPUPerCoreFreqGroup();
+    QGroupBox*  createCPUPerCoreTempGroup();
     QGroupBox*  createCPUCacheGroup();
 
     // GPU tabs
