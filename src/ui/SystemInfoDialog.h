@@ -7,6 +7,7 @@
 #include <QTimer>
 #include "../utils/GPUDetector.h"
 #include "../utils/CPUDetector.h"
+#include "../utils/DisplayDetector.h"
 
 class QTabWidget;
 class QVBoxLayout;
@@ -66,6 +67,10 @@ private:
     QGroupBox*  createClocksPowerGroup(const GPUInfo& gpu, int gpuIndex);
     QGroupBox*  createUtilizationGroup(const GPUInfo& gpu, int gpuIndex);
 
+    // Monitor tab
+    QWidget*    createMonitorTab();
+    QGroupBox*  createMonitorGroup(const DisplayInfo& display, int index, int count);
+
     QLabel*     addInfoRow(QVBoxLayout* layout, const QString& label, const QString& value);
     QString     vendorToString(GPUInfo::Vendor vendor);
     static QString formatCacheSize(int kib);
@@ -84,6 +89,7 @@ private:
     CPUDynamicLabels     m_cpuDynamic;
 
     QList<GPUInfo>       m_gpus;
+    QList<DisplayInfo>   m_displays;
     QTabWidget*          m_tabWidget;
     QTimer*              m_refreshTimer;
     QCheckBox*           m_autoRefreshCheckbox;

@@ -17,6 +17,7 @@ SystemInfoDialog::SystemInfoDialog(const QList<GPUInfo>& gpus, QWidget* parent)
     : QDialog(parent)
     , m_cpuInfo(CPUDetector::detect())
     , m_gpus(gpus)
+    , m_displays(DisplayDetector::detect())
     , m_tabWidget(nullptr)
     , m_refreshTimer(new QTimer(this))
     , m_autoRefreshCheckbox(nullptr)
@@ -54,6 +55,8 @@ void SystemInfoDialog::setupUI()
         const QString label = m_gpus.size() > 1 ? QString("GPU %1").arg(i) : "GPU";
         m_tabWidget->addTab(createGPUTab(m_gpus[i], i), label);
     }
+    if (!m_displays.isEmpty())
+        m_tabWidget->addTab(createMonitorTab(), "Monitor");
     mainLayout->addWidget(m_tabWidget);
 
     // Bottom controls
@@ -532,6 +535,78 @@ QGroupBox* SystemInfoDialog::createClocksPowerGroup(const GPUInfo& gpu, int gpuI
     return group;
 }
 
+QWidget* SystemInfoDialog::createMonitorTab()
+{
+    QScrollArea* scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    QWidget* widget = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(widget);
+    layout->setSpacing(10);
+
+    for (int i = 0; i < m_displays.size(); ++i)
+        layout->addWidget(createMonitorGroup(m_displays[i], i, m_displays.size()));
+    layout->addStretch();
+
+    scroll->setWidget(widget);
+    return scroll;
+}
+
+QGroupBox* SystemInfoDialog::createMonitorGroup(const DisplayInfo& d, int index, int count)
+{
+    QString title = d.name.isEmpty() ? QString("Monitor %1").arg(index + 1) : d.name;
+    if (d.primary && count > 1)
+        title += "  (Primary)";
+
+    QGroupBox* group = new QGroupBox(title);
+    QVBoxLayout* layout = new QVBoxLayout(group);
+
+    if (!d.manufacturer.isEmpty())
+        addInfoRow(layout, "Manufacturer:", d.manufacturer);
+    if (!d.model.isEmpty())
+        addInfoRow(layout, "Model:", d.model);
+
+    if (d.width > 0 && d.height > 0)
+        addInfoRow(layout, "Resolution:", QString("%1 × %2").arg(d.width).arg(d.height));
+    if (d.refreshRate > 0.0)
+        addInfoRow(layout, "Refresh Rate:", QString("%1 Hz").arg(d.refreshRate, 0, 'f', 2));
+
+    // Color depth: prefer per-channel bit depth (from the DE probe) when known,
+    // otherwise the framebuffer bpp from QScreen.
+    if (d.bitsPerColor > 0)
+        addInfoRow(layout, "Color Depth:", QString("%1 bit per channel").arg(d.bitsPerColor));
+    else if (d.depthBpp > 0)
+        addInfoRow(layout, "Color Depth:", QString("%1-bit").arg(d.depthBpp));
+
+    if (d.scaleFactor > 0.0)
+        addInfoRow(layout, "Scale:", QString("%1×").arg(d.scaleFactor, 0, 'f', 2));
+
+    if (d.physWidthMM > 0.0 && d.physHeightMM > 0.0) {
+        QString size = QString("%1 × %2 mm").arg(qRound(d.physWidthMM)).arg(qRound(d.physHeightMM));
+        if (d.diagonalInch > 0.0)
+            size += QString(" (≈ %1\")").arg(d.diagonalInch, 0, 'f', 1);
+        addInfoRow(layout, "Physical Size:", size);
+    }
+
+    addInfoRow(layout, "HDR:",
+               d.hdrSupported ? (d.hdrEnabled ? "Supported, enabled" : "Supported, disabled")
+                              : "Not supported");
+
+    // Variable Refresh Rate (G-Sync / FreeSync).
+    QString vrr;
+    switch (d.vrr) {
+        case DisplayInfo::Vrr::Supported:   vrr = "Supported";     break;
+        case DisplayInfo::Vrr::Unsupported: vrr = "Not supported"; break;
+        default:                            vrr = "Unknown";       break;
+    }
+    if (!d.vrrRaw.isEmpty() && d.vrr != DisplayInfo::Vrr::Unknown)
+        vrr += QString(" (%1)").arg(d.vrrRaw);
+    addInfoRow(layout, "G-Sync / FreeSync:", vrr);
+
+    return group;
+}
+
 QLabel* SystemInfoDialog::addInfoRow(QVBoxLayout* layout, const QString& label, const QString& value)
 {
     if (value.isEmpty()) {
@@ -799,6 +874,44 @@ void SystemInfoDialog::copyToClipboard()
         if (i < m_gpus.size() - 1) {
             text += "\n";
         }
+    }
+
+    // ── Monitors ──
+    for (int i = 0; i < m_displays.size(); ++i) {
+        const DisplayInfo& d = m_displays[i];
+        text += "\n";
+        const QString header = d.name.isEmpty() ? QString("Monitor %1").arg(i + 1) : d.name;
+        text += QString("=== %1%2 ===\n").arg(header,
+                    (d.primary && m_displays.size() > 1) ? " (Primary)" : "");
+
+        if (!d.manufacturer.isEmpty())
+            text += QString("Manufacturer: %1\n").arg(d.manufacturer);
+        if (!d.model.isEmpty())
+            text += QString("Model: %1\n").arg(d.model);
+        if (d.width > 0 && d.height > 0)
+            text += QString("Resolution: %1 × %2\n").arg(d.width).arg(d.height);
+        if (d.refreshRate > 0.0)
+            text += QString("Refresh Rate: %1 Hz\n").arg(d.refreshRate, 0, 'f', 2);
+        if (d.bitsPerColor > 0)
+            text += QString("Color Depth: %1 bit per channel\n").arg(d.bitsPerColor);
+        else if (d.depthBpp > 0)
+            text += QString("Color Depth: %1-bit\n").arg(d.depthBpp);
+        if (d.scaleFactor > 0.0)
+            text += QString("Scale: %1×\n").arg(d.scaleFactor, 0, 'f', 2);
+        if (d.physWidthMM > 0.0 && d.physHeightMM > 0.0) {
+            text += QString("Physical Size: %1 × %2 mm").arg(qRound(d.physWidthMM)).arg(qRound(d.physHeightMM));
+            if (d.diagonalInch > 0.0)
+                text += QString(" (≈ %1\")").arg(d.diagonalInch, 0, 'f', 1);
+            text += "\n";
+        }
+        text += QString("HDR: %1\n").arg(
+            d.hdrSupported ? (d.hdrEnabled ? "Supported, enabled" : "Supported, disabled")
+                           : "Not supported");
+        QString vrr = d.vrr == DisplayInfo::Vrr::Supported ? "Supported"
+                    : d.vrr == DisplayInfo::Vrr::Unsupported ? "Not supported" : "Unknown";
+        if (!d.vrrRaw.isEmpty() && d.vrr != DisplayInfo::Vrr::Unknown)
+            vrr += QString(" (%1)").arg(d.vrrRaw);
+        text += QString("G-Sync / FreeSync: %1\n").arg(vrr);
     }
 
     QApplication::clipboard()->setText(text);

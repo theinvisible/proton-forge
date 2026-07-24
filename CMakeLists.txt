@@ -35,6 +35,8 @@ set(SOURCES
     src/utils/GPUDetector.cpp
     src/utils/NvidiaGPUDetector.cpp
     src/utils/NvmlSession.cpp
+    src/utils/DisplayDetector.cpp
+    src/utils/KdeDisplayProbe.cpp
     src/network/ImageCache.cpp
     src/network/ProtonDBClient.cpp
     src/runner/GameRunner.cpp
@@ -69,6 +71,10 @@ set(HEADERS
     src/utils/NvidiaGPUDetector.h
     src/utils/NvmlSession.h
     src/utils/IGpuTelemetrySource.h
+    src/utils/DisplayInfo.h
+    src/utils/IDisplayProbe.h
+    src/utils/KdeDisplayProbe.h
+    src/utils/DisplayDetector.h
     src/network/ImageCache.h
     src/network/ProtonDBClient.h
     src/runner/GameRunner.h
