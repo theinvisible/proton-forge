@@ -94,7 +94,7 @@ Flatpak provides the easiest installation method that works across all Linux dis
 
 ```bash
 # Download from GitHub releases
-wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.12/protonforge.flatpak
+https://github.com/theinvisible/proton-forge/releases/
 
 # Install
 flatpak install protonforge.flatpak
@@ -115,10 +115,10 @@ flatpak install flathub org.protonforge.ProtonForge
 
 ```bash
 # Download the latest release
-wget https://github.com/theinvisible/proton-forge/releases/download/v1.0.12/protonforge_1.0.12_amd64.deb
+https://github.com/theinvisible/proton-forge/releases/
 
 # Install
-sudo dpkg -i protonforge_1.0.12_amd64.deb
+sudo dpkg -i protonforge_*_amd64.deb
 
 # Install dependencies if needed
 sudo apt-get install -f
