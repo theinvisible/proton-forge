@@ -34,6 +34,7 @@ set(SOURCES
     src/utils/HDRChecker.cpp
     src/utils/GPUDetector.cpp
     src/utils/NvidiaGPUDetector.cpp
+    src/utils/NvmlSession.cpp
     src/network/ImageCache.cpp
     src/network/ProtonDBClient.cpp
     src/runner/GameRunner.cpp
@@ -66,6 +67,8 @@ set(HEADERS
     src/utils/HDRChecker.h
     src/utils/GPUDetector.h
     src/utils/NvidiaGPUDetector.h
+    src/utils/NvmlSession.h
+    src/utils/IGpuTelemetrySource.h
     src/network/ImageCache.h
     src/network/ProtonDBClient.h
     src/runner/GameRunner.h

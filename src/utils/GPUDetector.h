@@ -33,6 +33,9 @@ struct GPUInfo {
     QString gpuPartNumber;
     QString computeCapability;
     int memoryTotalMB = 0;
+    int memoryUsedMB = 0;      // live VRAM in use (NVML)
+    int memoryFreeMB = 0;      // live VRAM free (NVML)
+    int memoryBusWidth = 0;    // memory bus width in bits (NVML)
     int cudaCores = 0;
 
     QString pcieCurrentGen;
@@ -47,11 +50,22 @@ struct GPUInfo {
     int maxGraphicsClock = 0;
     int maxMemoryClock = 0;
 
-    int powerLimit = 0;
+    int powerLimit = 0;           // enforced power limit (W)
+    int powerDefaultLimit = 0;    // default power limit (W, NVML)
+    int powerLimitMin = 0;        // min settable power limit (W, NVML)
+    int powerLimitMax = 0;        // max settable power limit (W, NVML)
+    QString powerSource;          // "AC" / "Battery" / "Other" (NVML, laptop-relevant)
     int currentPowerDraw = 0;
     int temperature = 0;
+    int tempSlowdown = 0;         // slowdown temperature threshold (°C, NVML)
+    int tempShutdown = 0;         // shutdown temperature threshold (°C, NVML)
+    int tempGpuMax = 0;           // GPU max operating temperature (°C, NVML)
     int fanSpeed = 0;
     QString performanceState;
+
+    // Current clock-throttle reasons as an NVML bitmask. -1 = unknown/unavailable;
+    // 0 = not throttled; >0 = OR of nvmlClocksThrottleReason* bits.
+    qint64 throttleReasons = -1;
 
     // Utilization
     int gpuUtilization = 0;
@@ -82,6 +96,12 @@ public:
 
     static QList<GPUInfo> detectAllGPUs();
     static bool hasNvidiaGPU();
+
+    // Overlays driver-direct telemetry onto `info` by routing to the vendor's
+    // IGpuTelemetrySource (NVIDIA → NvmlSession today). Central vendor dispatch:
+    // adding AMD/Intel means implementing the interface and adding one case here.
+    // No-op for vendors without a source yet. Safe to call from worker threads.
+    static void enrichTelemetry(GPUInfo& info);
 
     // True (Yes) when lspci shows an NVIDIA display device alongside an
     // Intel/AMD one — the setups where PRIME render offload applies.

@@ -310,7 +310,7 @@ QWidget* SystemInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
     }
 
     layout->addWidget(createGraphicsCardGroup(gpu));
-    layout->addWidget(createMemoryGroup(gpu));
+    layout->addWidget(createMemoryGroup(gpu, gpuIndex));
     layout->addWidget(createDriverInfoGroup(gpu));
     layout->addWidget(createDriverBiosGroup(gpu));
     layout->addWidget(createPCIeGroup(gpu));
@@ -342,10 +342,12 @@ QGroupBox* SystemInfoDialog::createGraphicsCardGroup(const GPUInfo& gpu)
     return group;
 }
 
-QGroupBox* SystemInfoDialog::createMemoryGroup(const GPUInfo& gpu)
+QGroupBox* SystemInfoDialog::createMemoryGroup(const GPUInfo& gpu, int gpuIndex)
 {
     QGroupBox* group = new QGroupBox("Memory");
     QVBoxLayout* layout = new QVBoxLayout(group);
+
+    DynamicLabels& labels = m_dynamicLabels[gpuIndex];
 
     if (gpu.memoryTotalMB > 0) {
         QString memoryStr = QString("%1 MB (%2 GB)")
@@ -353,6 +355,15 @@ QGroupBox* SystemInfoDialog::createMemoryGroup(const GPUInfo& gpu)
             .arg(gpu.memoryTotalMB / 1024.0, 0, 'f', 2);
         addInfoRow(layout, "Total Memory:", memoryStr);
     }
+
+    // VRAM used/free are live values (NVML) — create unconditionally so they keep
+    // updating even when a fresh value happens to be low.
+    labels.vramUsed = addInfoRow(layout, "VRAM Used:", QString("%1 MB").arg(gpu.memoryUsedMB));
+    labels.vramFree = addInfoRow(layout, "VRAM Free:", QString("%1 MB").arg(gpu.memoryFreeMB));
+
+    // Memory bus width (static value)
+    if (gpu.memoryBusWidth > 0)
+        addInfoRow(layout, "Memory Bus Width:", QString("%1-bit").arg(gpu.memoryBusWidth));
 
     // Max Memory Clock (static value)
     if (gpu.maxMemoryClock > 0)
@@ -449,6 +460,38 @@ QGroupBox* SystemInfoDialog::createUtilizationGroup(const GPUInfo& gpu, int gpuI
     return group;
 }
 
+// Human-readable rendering of an NVML clocks-throttle-reasons bitmask.
+// -1 → unknown (return empty so no row is shown); 0 → "None"; otherwise the
+// active reasons joined with commas. Bit values are the stable NVML
+// nvmlClocksThrottleReason* constants.
+QString SystemInfoDialog::throttleReasonsToString(qint64 mask)
+{
+    if (mask < 0)
+        return QString();
+    if (mask == 0)
+        return "None";
+
+    struct Reason { qint64 bit; const char* label; };
+    static const Reason reasons[] = {
+        { 0x0000000000000001LL, "GPU Idle" },
+        { 0x0000000000000002LL, "Applications Clocks Setting" },
+        { 0x0000000000000004LL, "SW Power Cap" },
+        { 0x0000000000000008LL, "HW Slowdown" },
+        { 0x0000000000000010LL, "Sync Boost" },
+        { 0x0000000000000020LL, "SW Thermal Slowdown" },
+        { 0x0000000000000040LL, "HW Thermal Slowdown" },
+        { 0x0000000000000080LL, "HW Power Brake Slowdown" },
+        { 0x0000000000000100LL, "Display Clock Setting" },
+    };
+
+    QStringList active;
+    for (const Reason& r : reasons) {
+        if (mask & r.bit)
+            active << r.label;
+    }
+    return active.isEmpty() ? QString("0x%1").arg(mask, 0, 16) : active.join(", ");
+}
+
 QGroupBox* SystemInfoDialog::createClocksPowerGroup(const GPUInfo& gpu, int gpuIndex)
 {
     QGroupBox* group = new QGroupBox("Clocks & Power");
@@ -465,12 +508,26 @@ QGroupBox* SystemInfoDialog::createClocksPowerGroup(const GPUInfo& gpu, int gpuI
         labels.powerDraw = addInfoRow(layout, "Power Draw:", QString("%1 W").arg(gpu.currentPowerDraw));
     if (gpu.powerLimit > 0)
         addInfoRow(layout, "Power Limit:", QString("%1 W").arg(gpu.powerLimit));
+    if (gpu.powerDefaultLimit > 0)
+        addInfoRow(layout, "Default Power Limit:", QString("%1 W").arg(gpu.powerDefaultLimit));
+    if (gpu.powerLimitMin > 0 && gpu.powerLimitMax > 0)
+        addInfoRow(layout, "Power Limit Range:",
+                   QString("%1 – %2 W").arg(gpu.powerLimitMin).arg(gpu.powerLimitMax));
+    // Power source (AC/Battery) is live on laptops — keep a handle to update it.
+    labels.powerSource = addInfoRow(layout, "Power Source:", gpu.powerSource);
     if (gpu.temperature > 0)
         labels.temperature = addInfoRow(layout, "Temperature:", QString("%1 °C").arg(gpu.temperature));
+    if (gpu.tempSlowdown > 0)
+        addInfoRow(layout, "Slowdown Temp:", QString("%1 °C").arg(gpu.tempSlowdown));
+    if (gpu.tempShutdown > 0)
+        addInfoRow(layout, "Shutdown Temp:", QString("%1 °C").arg(gpu.tempShutdown));
     if (gpu.fanSpeed > 0)
         labels.fanSpeed = addInfoRow(layout, "Fan Speed:", QString("%1 %").arg(gpu.fanSpeed));
     if (!gpu.performanceState.isEmpty())
         labels.performanceState = addInfoRow(layout, "Performance State:", gpu.performanceState);
+    // Throttle reason is a live diagnostic — create it whenever NVML reported a
+    // value (incl. "None"), so it updates when the GPU starts/stops throttling.
+    labels.throttle = addInfoRow(layout, "Throttle Reason:", throttleReasonsToString(gpu.throttleReasons));
 
     return group;
 }
@@ -510,7 +567,7 @@ QString SystemInfoDialog::vendorToString(GPUInfo::Vendor vendor)
 
 void SystemInfoDialog::refreshDynamicValues()
 {
-    // Skip if a refresh is already running — avoids piling up concurrent nvidia-smi calls
+    // Skip if a refresh is already running — avoids piling up concurrent probes
     if (m_refreshInProgress)
         return;
     m_refreshInProgress = true;
@@ -519,8 +576,8 @@ void SystemInfoDialog::refreshDynamicValues()
     const CPUInfo cpuBase = m_cpuInfo;
 
     // Only re-probe GPUs if at least one exposes live telemetry. A suspended
-    // Optimus dGPU has none, so polling nvidia-smi/lspci every tick would just
-    // spawn processes for nothing — keep the existing static snapshot instead.
+    // Optimus dGPU has none, so there is nothing live to read — keep the existing
+    // static snapshot instead.
     bool anyGpuTelemetry = false;
     for (const GPUInfo& g : m_gpus) {
         if (g.telemetryAvailable) { anyGpuTelemetry = true; break; }
@@ -538,8 +595,14 @@ void SystemInfoDialog::refreshDynamicValues()
     });
 
     watcher->setFuture(QtConcurrent::run([cpuBase, anyGpuTelemetry, gpuSnapshot]() -> Result {
-        return { CPUDetector::detectDynamic(cpuBase),
-                 anyGpuTelemetry ? GPUDetector::detectAllGPUs() : gpuSnapshot };
+        // Live GPU refresh queries the driver directly (NVML for NVIDIA) instead of
+        // re-running the full detector — no nvidia-smi/lspci subprocess per tick.
+        QList<GPUInfo> gpus = gpuSnapshot;
+        if (anyGpuTelemetry) {
+            for (GPUInfo& g : gpus)
+                GPUDetector::enrichTelemetry(g);
+        }
+        return { CPUDetector::detectDynamic(cpuBase), gpus };
     }));
 }
 
@@ -580,12 +643,21 @@ void SystemInfoDialog::applyRefreshResult(const CPUInfo& freshCpu, const QList<G
             labels.memoryClock->setText(QString("%1 MHz").arg(fresh.currentMemoryClock));
         if (labels.powerDraw && fresh.currentPowerDraw > 0)
             labels.powerDraw->setText(QString("%1 W").arg(fresh.currentPowerDraw));
+        if (labels.powerSource && !fresh.powerSource.isEmpty())
+            labels.powerSource->setText(fresh.powerSource);
         if (labels.temperature && fresh.temperature > 0)
             labels.temperature->setText(QString("%1 °C").arg(fresh.temperature));
         if (labels.fanSpeed && fresh.fanSpeed > 0)
             labels.fanSpeed->setText(QString("%1 %").arg(fresh.fanSpeed));
         if (labels.performanceState && !fresh.performanceState.isEmpty())
             labels.performanceState->setText(fresh.performanceState);
+        if (labels.throttle && fresh.throttleReasons >= 0)
+            labels.throttle->setText(throttleReasonsToString(fresh.throttleReasons));
+
+        if (labels.vramUsed)
+            labels.vramUsed->setText(QString("%1 MB").arg(fresh.memoryUsedMB));
+        if (labels.vramFree)
+            labels.vramFree->setText(QString("%1 MB").arg(fresh.memoryFreeMB));
 
         if (labels.gpuUtilization)
             labels.gpuUtilization->setText(QString("%1 %").arg(fresh.gpuUtilization));
@@ -640,6 +712,12 @@ void SystemInfoDialog::copyToClipboard()
             text += QString("Total Memory: %1 MB (%2 GB)\n")
                 .arg(gpu.memoryTotalMB)
                 .arg(gpu.memoryTotalMB / 1024.0, 0, 'f', 2);
+        if (gpu.memoryTotalMB > 0 && gpu.telemetryAvailable) {
+            text += QString("VRAM Used: %1 MB\n").arg(gpu.memoryUsedMB);
+            text += QString("VRAM Free: %1 MB\n").arg(gpu.memoryFreeMB);
+        }
+        if (gpu.memoryBusWidth > 0)
+            text += QString("Memory Bus Width: %1-bit\n").arg(gpu.memoryBusWidth);
 
         const DriverInfo& driver = gpu.driverInfo;
         const QString driverVer = !driver.version.isEmpty() ? driver.version : gpu.driverVersion;
@@ -688,12 +766,25 @@ void SystemInfoDialog::copyToClipboard()
                 text += QString("Power Draw: %1 W\n").arg(gpu.currentPowerDraw);
             if (gpu.powerLimit > 0)
                 text += QString("Power Limit: %1 W\n").arg(gpu.powerLimit);
+            if (gpu.powerDefaultLimit > 0)
+                text += QString("Default Power Limit: %1 W\n").arg(gpu.powerDefaultLimit);
+            if (gpu.powerLimitMin > 0 && gpu.powerLimitMax > 0)
+                text += QString("Power Limit Range: %1 – %2 W\n")
+                    .arg(gpu.powerLimitMin).arg(gpu.powerLimitMax);
+            if (!gpu.powerSource.isEmpty())
+                text += QString("Power Source: %1\n").arg(gpu.powerSource);
             if (gpu.temperature > 0)
                 text += QString("Temperature: %1 °C\n").arg(gpu.temperature);
+            if (gpu.tempSlowdown > 0)
+                text += QString("Slowdown Temp: %1 °C\n").arg(gpu.tempSlowdown);
+            if (gpu.tempShutdown > 0)
+                text += QString("Shutdown Temp: %1 °C\n").arg(gpu.tempShutdown);
             if (gpu.fanSpeed > 0)
                 text += QString("Fan Speed: %1 %%\n").arg(gpu.fanSpeed);
             if (!gpu.performanceState.isEmpty())
                 text += QString("Performance State: %1\n").arg(gpu.performanceState);
+            if (gpu.throttleReasons >= 0)
+                text += QString("Throttle Reason: %1\n").arg(throttleReasonsToString(gpu.throttleReasons));
 
             // Utilization
             text += QString("\nUtilization:\n");

@@ -30,13 +30,10 @@ private:
     static QString marketingNameFromLspci(const QString& desc);
     static QString extractValue(const QString& output, const QString& key);
     static int extractIntValue(const QString& output, const QString& key);
+    // Heuristic core count (SM×cores/SM, then name table). Used only as a fallback
+    // when the driver reported none via GPUDetector::enrichTelemetry (NVML).
     static int getCudaCoreCount(const QString& gpuName, const QString& computeCapability,
-                                const QString& smiOutput, const QString& pciBusId, int gpuIndex);
-    // Preferred source: asks the driver directly via NVML (libnvidia-ml, loaded
-    // with dlopen). Returns the exact CUDA core count, or 0 if NVML is missing,
-    // too old to expose nvmlDeviceGetNumGpuCores, or fails for any reason — in
-    // which case the caller falls back to compute-capability / name heuristics.
-    static int getCudaCoreCountFromNvml(const QString& pciBusId, int gpuIndex);
+                                const QString& smiOutput);
     static int coresPerSMFromComputeCapability(const QString& computeCapability);
     static int getCudaCoreCountFallback(const QString& gpuName);
 };

@@ -17,9 +17,14 @@ struct DynamicLabels {
     QLabel* gpuClock = nullptr;
     QLabel* memoryClock = nullptr;
     QLabel* powerDraw = nullptr;
+    QLabel* powerSource = nullptr;
     QLabel* temperature = nullptr;
     QLabel* fanSpeed = nullptr;
     QLabel* performanceState = nullptr;
+    QLabel* throttle = nullptr;
+
+    QLabel* vramUsed = nullptr;
+    QLabel* vramFree = nullptr;
 
     QLabel* gpuUtilization = nullptr;
     QLabel* memoryUtilization = nullptr;
@@ -54,7 +59,7 @@ private:
     // GPU tabs
     QWidget*    createGPUTab(const GPUInfo& gpu, int gpuIndex);
     QGroupBox*  createGraphicsCardGroup(const GPUInfo& gpu);
-    QGroupBox*  createMemoryGroup(const GPUInfo& gpu);
+    QGroupBox*  createMemoryGroup(const GPUInfo& gpu, int gpuIndex);
     QGroupBox*  createDriverInfoGroup(const GPUInfo& gpu);
     QGroupBox*  createDriverBiosGroup(const GPUInfo& gpu);
     QGroupBox*  createPCIeGroup(const GPUInfo& gpu);
@@ -64,6 +69,7 @@ private:
     QLabel*     addInfoRow(QVBoxLayout* layout, const QString& label, const QString& value);
     QString     vendorToString(GPUInfo::Vendor vendor);
     static QString formatCacheSize(int kib);
+    static QString throttleReasonsToString(qint64 mask);
 
     // Called on the main thread once the background refresh completes
     void applyRefreshResult(const CPUInfo& freshCpu, const QList<GPUInfo>& freshGpus);

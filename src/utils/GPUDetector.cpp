@@ -1,6 +1,28 @@
 #include "GPUDetector.h"
 #include "NvidiaGPUDetector.h"
+#include "utils/NvmlSession.h"
+#include "utils/IGpuTelemetrySource.h"
 #include <QProcess>
+
+namespace {
+// Vendor → telemetry source. Add AMD/Intel by implementing IGpuTelemetrySource
+// and returning its singleton here; every caller routes through enrichTelemetry().
+IGpuTelemetrySource* telemetrySourceFor(GPUInfo::Vendor vendor)
+{
+    switch (vendor) {
+        case GPUInfo::NVIDIA: return &NvmlSession::instance();
+        // case GPUInfo::AMD:   return &AmdSmiSession::instance();
+        // case GPUInfo::Intel: return &IntelGpuTelemetry::instance();
+        default: return nullptr;
+    }
+}
+} // namespace
+
+void GPUDetector::enrichTelemetry(GPUInfo& info)
+{
+    if (IGpuTelemetrySource* source = telemetrySourceFor(info.vendor))
+        source->enrich(info);
+}
 
 QList<GPUInfo> GPUDetector::detectAllGPUs()
 {

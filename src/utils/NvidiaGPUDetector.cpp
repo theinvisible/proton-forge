@@ -6,8 +6,6 @@
 #include <QLocale>
 #include <QDebug>
 
-#include <dlfcn.h>
-
 QList<GPUInfo> NvidiaGPUDetector::detect()
 {
     QList<GPUInfo> gpus;
@@ -426,14 +424,19 @@ GPUInfo NvidiaGPUDetector::parseNvidiaSmiOutput(const QString& output, int index
     info.displayConnected = (displayActive.toLower() == "enabled" ||
                              displayActive.toLower() == "yes");
 
-    // CUDA Cores: ask NVML directly if possible, else fall back to SM count ×
-    // cores/SM, else a per-model name table. info.pciId / info.index are set above.
-    // Skip for the section-split artifact that carries no product name (the
-    // nvidia-smi -q header block) — detect() discards it, and querying NVML for
-    // it would waste an init and could mis-resolve to GPU 0 by index.
+    // Overlay exact, live values straight from the driver (NVML for NVIDIA) over
+    // the text-parsed fallbacks above — including CUDA cores, compute capability,
+    // and the new fields (VRAM used/free, power range, throttle reasons, …).
+    // Skip the section-split artifact that carries no product name (the
+    // nvidia-smi -q header block): detect() discards it, and a device lookup for
+    // it would waste work and could mis-resolve to GPU 0 by index.
     if (!info.name.isEmpty()) {
-        info.cudaCores = getCudaCoreCount(info.name, info.computeCapability, output,
-                                          info.pciId, info.index);
+        GPUDetector::enrichTelemetry(info);
+
+        // Fallback when the driver reported no core count (NVML missing/too old):
+        // SM-count heuristic, then the per-model name table.
+        if (info.cudaCores == 0)
+            info.cudaCores = getCudaCoreCount(info.name, info.computeCapability, output);
     }
 
     return info;
@@ -509,24 +512,14 @@ int NvidiaGPUDetector::coresPerSMFromComputeCapability(const QString& computeCap
     }
 }
 
-// Resolves the CUDA core count with three tiers of decreasing reliability:
-//   1. NVML nvmlDeviceGetNumGpuCores() — exact, straight from the driver.
-//   2. SM count parsed from nvidia-smi -q × cores/SM (compute capability).
-//   3. Per-model name lookup table.
-// Each tier is only consulted if the previous one yields nothing usable.
+// Heuristic CUDA core count, used only when the driver (NVML, via
+// GPUDetector::enrichTelemetry) did not report one. Two tiers:
+//   Tier 2: SM count parsed from nvidia-smi -q × cores/SM (compute capability).
+//   Tier 3: per-model name lookup table.
 int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName,
                                         const QString& computeCapability,
-                                        const QString& smiOutput,
-                                        const QString& pciBusId,
-                                        int gpuIndex)
+                                        const QString& smiOutput)
 {
-    // --- Tier 1: NVML (preferred, exact, no per-model table needed) ---
-    const int nvmlCores = getCudaCoreCountFromNvml(pciBusId, gpuIndex);
-    if (nvmlCores > 0) {
-        qDebug() << "CUDA cores from NVML:" << nvmlCores << "for" << gpuName;
-        return nvmlCores;
-    }
-
     // --- Tier 2, Step 1: extract SM count from nvidia-smi -q output ---
     // Different driver versions use slightly different field names.
     int smCount = 0;
@@ -560,74 +553,6 @@ int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName,
                  << "– using name lookup table";
     }
     return getCudaCoreCountFallback(gpuName);
-}
-
-// Loads NVML at runtime via dlopen and asks the driver for the exact CUDA core
-// count. Deliberately dependency-free: no NVML headers, no link-time coupling to
-// libnvidia-ml — every symbol is resolved by name and every failure path returns
-// 0 so the caller can fall back. Safe to call from a worker thread; NVML init is
-// reference-counted so nesting with nvidia-smi's own usage is harmless.
-int NvidiaGPUDetector::getCudaCoreCountFromNvml(const QString& pciBusId, int gpuIndex)
-{
-    // NVML ABI (subset). nvmlReturn_t is an enum (int); NVML_SUCCESS == 0.
-    // nvmlDevice_t is an opaque handle (pointer-sized).
-    using nvmlDevice_t              = void*;
-    using fn_init                   = int (*)();
-    using fn_shutdown               = int (*)();
-    using fn_handleByPciBusId       = int (*)(const char*, nvmlDevice_t*);
-    using fn_handleByIndex          = int (*)(unsigned int, nvmlDevice_t*);
-    using fn_numGpuCores            = int (*)(nvmlDevice_t, unsigned int*);
-
-    // libnvidia-ml.so ships only with the driver runtime; libnvidia-ml.so.1 is
-    // the versioned SONAME that's actually present on end-user systems.
-    void* lib = dlopen("libnvidia-ml.so.1", RTLD_LAZY | RTLD_LOCAL);
-    if (!lib)
-        lib = dlopen("libnvidia-ml.so", RTLD_LAZY | RTLD_LOCAL);
-    if (!lib) {
-        qDebug() << "NVML: libnvidia-ml not loadable –" << dlerror();
-        return 0;
-    }
-
-    auto nvmlInit        = reinterpret_cast<fn_init>(dlsym(lib, "nvmlInit_v2"));
-    auto nvmlShutdown    = reinterpret_cast<fn_shutdown>(dlsym(lib, "nvmlShutdown"));
-    auto nvmlByPci       = reinterpret_cast<fn_handleByPciBusId>(dlsym(lib, "nvmlDeviceGetHandleByPciBusId_v2"));
-    auto nvmlByIndex     = reinterpret_cast<fn_handleByIndex>(dlsym(lib, "nvmlDeviceGetHandleByIndex_v2"));
-    auto nvmlNumGpuCores = reinterpret_cast<fn_numGpuCores>(dlsym(lib, "nvmlDeviceGetNumGpuCores"));
-
-    // nvmlDeviceGetNumGpuCores was added in driver R510 (2022). Its absence is
-    // the expected "old driver" path: bail out cleanly to the heuristic tiers.
-    if (!nvmlInit || !nvmlShutdown || !nvmlNumGpuCores) {
-        qDebug() << "NVML: required symbols unavailable (driver too old?)";
-        dlclose(lib);
-        return 0;
-    }
-
-    int cores = 0;
-    if (nvmlInit() == 0) {
-        nvmlDevice_t dev = nullptr;
-        int rc = -1;
-
-        // Prefer resolving by PCI bus id so we address the exact card even in
-        // multi-GPU systems where NVML and nvidia-smi may enumerate differently.
-        const QByteArray bus = pciBusId.trimmed().toLatin1();
-        if (nvmlByPci && !bus.isEmpty())
-            rc = nvmlByPci(bus.constData(), &dev);
-        if (rc != 0 && nvmlByIndex && gpuIndex >= 0)
-            rc = nvmlByIndex(static_cast<unsigned int>(gpuIndex), &dev);
-
-        if (rc == 0 && dev) {
-            unsigned int n = 0;
-            if (nvmlNumGpuCores(dev, &n) == 0 && n > 0)
-                cores = static_cast<int>(n);
-        }
-
-        nvmlShutdown();
-    } else {
-        qDebug() << "NVML: nvmlInit_v2 failed";
-    }
-
-    dlclose(lib);
-    return cores;
 }
 
 int NvidiaGPUDetector::getCudaCoreCountFallback(const QString& gpuName)
