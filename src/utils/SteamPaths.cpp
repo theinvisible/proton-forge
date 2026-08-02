@@ -170,6 +170,21 @@ QString userDataPath()
     return root.isEmpty() ? QString() : root + "/userdata";
 }
 
+QString steamPidFilePath()
+{
+    const QString home = QDir::homePath();
+    switch (detectedVariant()) {
+    case Variant::Flatpak:
+        // The sandbox maps $HOME to the app data dir (manifest: persistent=.).
+        return home + "/.var/app/com.valvesoftware.Steam/.steam/steam.pid";
+    case Variant::Native:
+        return home + "/.steam/steam.pid";
+    case Variant::None:
+        break;
+    }
+    return QString();
+}
+
 QString defaultInstallCompatPath()
 {
     const QString detected = compatibilityToolsPath();

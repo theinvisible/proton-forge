@@ -30,6 +30,10 @@ QString steamRuntimePath();        // <root>/ubuntu12_32/steam-runtime
 QString overlayLibPath(bool is64); // <root>/ubuntu12_{32,64}/gameoverlayrenderer.so
 QString userDataPath();            // <root>/userdata
 
+// PID file the running Steam client writes. Note this lives under the *variant's*
+// $HOME, not under steamRoot(). Empty when no Steam install was detected.
+QString steamPidFilePath();
+
 // Where new Proton installs should be written. Returns compatibilityToolsPath()
 // when a Steam install is detected; otherwise falls back based on FLATPAK_ID
 // so the "Install Proton" action still works on a clean system.

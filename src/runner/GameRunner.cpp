@@ -2,14 +2,24 @@
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
 #include "utils/SteamPaths.h"
+#include "utils/SteamClient.h"
 #include "parsers/VDFParser.h"
 #include "launchers/SteamLauncher.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QDirIterator>
-#include <QThread>
-#include <QCoreApplication>
+#include <QTimer>
+
+namespace {
+
+constexpr int kSteamPollIntervalMs  = 500;
+// Older clients never register the launcher service; once the process has been
+// alive this long, stop waiting for a signal that may never come.
+constexpr int kSteamLivenessGraceMs = 10000;
+constexpr int kSteamReadyTimeoutMs  = 60000;
+
+} // namespace
 
 GameRunner::GameRunner(QObject* parent)
     : QObject(parent)
@@ -363,35 +373,6 @@ QString GameRunner::findGameExecutable(const Game& game)
     return executables.first();
 }
 
-bool GameRunner::isSteamRunning() const
-{
-    QProcess process;
-    process.start("pgrep", {"-x", "steam"});
-    process.waitForFinished();
-    return process.exitCode() == 0;
-}
-
-void GameRunner::ensureSteamRunning()
-{
-    if (!isSteamRunning()) {
-        QProcess::startDetached("steam", {"-silent"});
-
-        // Wait for Steam to appear, up to 15 seconds
-        for (int i = 0; i < 30; ++i) {
-            QThread::msleep(500);
-            QCoreApplication::processEvents();
-            if (isSteamRunning()) {
-                // Give it a bit more time to initialize
-                for (int j = 0; j < 6; ++j) {
-                    QThread::msleep(500);
-                    QCoreApplication::processEvents();
-                }
-                return;
-            }
-        }
-    }
-}
-
 bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
 {
     // Check if this game is already running
@@ -400,10 +381,71 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
         return false;
     }
 
-    if (game.launcher() == "Steam") {
-        ensureSteamRunning();
+    if (m_launchPending) {
+        emit launchError(game, "A launch is already in progress");
+        return false;
     }
 
+    // Steam games need the client up — Steamworks, overlay, cloud saves and
+    // playtime all go through it. The wait runs on a timer instead of spinning
+    // the event loop inside this call.
+    if (game.launcher() == "Steam" && !SteamClient::isReady()) {
+        if (!SteamClient::isRunning()) {
+            QString error;
+            if (!SteamClient::start(&error)) {
+                emit launchError(game, error);
+                return false;
+            }
+        }
+
+        m_pendingGame = game;
+        m_pendingSettings = settings;
+        m_launchPending = true;
+        m_steamWaitElapsed.start();
+
+        if (!m_steamWaitTimer) {
+            m_steamWaitTimer = new QTimer(this);
+            m_steamWaitTimer->setInterval(kSteamPollIntervalMs);
+            connect(m_steamWaitTimer, &QTimer::timeout, this, &GameRunner::onSteamWaitTick);
+        }
+        m_steamWaitTimer->start();
+
+        emit launchPending(game);
+        return true;   // accepted; the game starts once Steam is ready
+    }
+
+    return continueLaunch(game, settings);
+}
+
+void GameRunner::onSteamWaitTick()
+{
+    const qint64 waited = m_steamWaitElapsed.elapsed();
+    const bool ready = SteamClient::isReady()
+        || (waited >= kSteamLivenessGraceMs && SteamClient::isRunning());
+
+    if (!ready && waited < kSteamReadyTimeoutMs) {
+        return;
+    }
+
+    m_steamWaitTimer->stop();
+    m_launchPending = false;
+
+    const Game game = m_pendingGame;
+    const DLSSSettings settings = m_pendingSettings;
+    m_pendingGame = Game();
+
+    if (!ready) {
+        emit launchWarning(game, QString(
+            "Steam did not become ready within %1 s — launching %2 anyway. "
+            "Steamworks features may be unavailable.")
+            .arg(kSteamReadyTimeoutMs / 1000).arg(game.name()));
+    }
+
+    continueLaunch(game, settings);
+}
+
+bool GameRunner::continueLaunch(const Game& game, const DLSSSettings& settings)
+{
     // Native Linux games don't need Proton
     if (game.isNativeLinux()) {
         return launchNativeLinux(game, settings);

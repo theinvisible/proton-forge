@@ -7,7 +7,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Concurrent DBus)
 
 # Generate version header from template
 configure_file(
@@ -30,6 +30,7 @@ set(SOURCES
     src/utils/LaunchOptionExtractor.cpp
     src/utils/GpuInfoCache.cpp
     src/utils/SteamPaths.cpp
+    src/utils/SteamClient.cpp
     src/utils/CPUDetector.cpp
     src/utils/HDRChecker.cpp
     src/utils/GPUDetector.cpp
@@ -65,6 +66,7 @@ set(HEADERS
     src/utils/LaunchOptionExtractor.h
     src/utils/GpuInfoCache.h
     src/utils/SteamPaths.h
+    src/utils/SteamClient.h
     src/utils/CPUDetector.h
     src/utils/HDRChecker.h
     src/utils/GPUDetector.h
@@ -106,6 +108,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Concurrent
+    Qt6::DBus
     ${CMAKE_DL_LIBS}   # dlopen() for NVML (libnvidia-ml) — loaded at runtime, not linked
 )
 

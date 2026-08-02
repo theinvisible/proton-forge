@@ -3,8 +3,11 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QElapsedTimer>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
+
+class QTimer;
 
 class GameRunner : public QObject {
     Q_OBJECT
@@ -12,8 +15,11 @@ class GameRunner : public QObject {
 public:
     explicit GameRunner(QObject* parent = nullptr);
 
+    // Returns true when the launch was *accepted*. For Steam games that still
+    // need the client to come up, the game starts later — watch gameStarted().
     bool launch(const Game& game, const DLSSSettings& settings);
     bool isGameRunning(const Game& game) const;
+    bool isLaunchPending() const { return m_launchPending; }
 
     // Proton detection
     QString findProtonPath(const Game& game, const DLSSSettings& settings = DLSSSettings());
@@ -26,6 +32,8 @@ signals:
     void launchError(const Game& game, const QString& error);
     // Non-fatal problem: the launch continues, but in a degraded mode.
     void launchWarning(const Game& game, const QString& message);
+    // Launch accepted but deferred; waiting for the Steam client to become ready.
+    void launchPending(const Game& game);
 
 private:
     QString findDefaultProton() const;
@@ -45,11 +53,20 @@ private:
     bool launchNativeLinux(const Game& game, const DLSSSettings& settings);
     bool launchWithProton(const Game& game, const DLSSSettings& settings);
 
-    void ensureSteamRunning();
-    bool isSteamRunning() const;
+    // Dispatches to the native/Proton path. Called either directly from launch()
+    // or from the Steam-readiness timer once waiting is over.
+    bool continueLaunch(const Game& game, const DLSSSettings& settings);
+    void onSteamWaitTick();
 
     QProcess* m_process = nullptr;
     Game m_runningGame;
+
+    // Deferred launch while the Steam client comes up.
+    QTimer* m_steamWaitTimer = nullptr;
+    QElapsedTimer m_steamWaitElapsed;
+    Game m_pendingGame;
+    DLSSSettings m_pendingSettings;
+    bool m_launchPending = false;
 };
 
 #endif // GAMERUNNER_H

@@ -30,6 +30,8 @@ public:
 
     void updateLaunchCommand(const QString& command);
     void setGameRunning(bool running);
+    // Launch accepted but still waiting for the Steam client to come up.
+    void setLaunchPending(bool pending);
     void updateGameStatus(const Game& game);
 
 signals:

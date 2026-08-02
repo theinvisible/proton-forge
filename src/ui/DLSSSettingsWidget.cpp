@@ -1034,6 +1034,18 @@ void DLSSSettingsWidget::setGameRunning(bool running)
     }
 }
 
+void DLSSSettingsWidget::setLaunchPending(bool pending)
+{
+    if (pending) {
+        m_playButton->setText("Waiting for Steam...");
+        m_playButton->setStyleSheet(AppStyle::playButtonRunningStyle());
+        m_playButton->setEnabled(false);
+        m_playButton->setToolTip("Waiting for the Steam client to become ready");
+    } else {
+        setGameRunning(false);
+    }
+}
+
 void DLSSSettingsWidget::blockSignalsForAll(bool block)
 {
     m_enableNVAPI->blockSignals(block);

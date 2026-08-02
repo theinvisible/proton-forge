@@ -6,6 +6,7 @@
 #include "utils/ProtonManager.h"
 #include "utils/GpuInfoCache.h"
 #include "utils/SteamPaths.h"
+#include "utils/SteamClient.h"
 #include "ui/ProtonVersionDialog.h"
 #include "ui/SettingsDialog.h"
 #include "ui/AboutDialog.h"
@@ -17,6 +18,7 @@
 #include <QClipboard>
 #include <QApplication>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QProgressDialog>
 #include <QTimer>
 #include <QDesktopServices>
@@ -60,6 +62,14 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_gameRunner, &GameRunner::launchWarning, this, [this](const Game&, const QString& message) {
         statusBar()->showMessage(message, 8000);
+    });
+
+    connect(m_gameRunner, &GameRunner::launchPending, this, [this](const Game& game) {
+        statusBar()->showMessage(QString("Waiting for Steam to become ready to launch %1...")
+                                     .arg(game.name()));
+        if (m_currentGame == game) {
+            m_settingsWidget->setLaunchPending(true);
+        }
     });
 
     connect(m_gameRunner, &GameRunner::launchError, this, [this](const Game& game, const QString& error) {
@@ -387,13 +397,37 @@ void MainWindow::onWriteToSteam()
         return;
     }
 
+    // Steam holds localconfig.vdf in memory and writes it back when it exits, so
+    // writing while it runs gets silently discarded — and telling the user to
+    // restart Steam is exactly what destroys the write.
+    const bool steamRunning = SteamClient::isRunning();
+    if (steamRunning) {
+        QMessageBox box(QMessageBox::Warning, "Steam Is Running",
+            "Steam is currently running.\n\n"
+            "It keeps localconfig.vdf in memory and writes it back when it exits, so it "
+            "will overwrite these launch options and your changes will be lost.\n\n"
+            "Close Steam first, then write the options.",
+            QMessageBox::NoButton, this);
+        QPushButton* writeAnyway = box.addButton("Write Anyway", QMessageBox::DestructiveRole);
+        QPushButton* cancel = box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(cancel);
+        box.exec();
+        if (box.clickedButton() != writeAnyway) {
+            return;
+        }
+    }
+
     DLSSSettings settings = m_settingsWidget->settings();
     bool success = launcher->applySettings(m_currentGame, settings);
 
     if (success) {
         QMessageBox::information(this, "Settings Applied",
-            "Launch options have been written to Steam's localconfig.vdf.\n\n"
-            "Please restart Steam for the changes to take effect.");
+            steamRunning
+                ? "Launch options have been written to Steam's localconfig.vdf.\n\n"
+                  "Steam is running and may discard them when it exits — check the launch "
+                  "options in Steam after restarting it."
+                : "Launch options have been written to Steam's localconfig.vdf.\n\n"
+                  "Start Steam to use them.");
     } else {
         QMessageBox::warning(this, "Error",
             "Failed to write settings to Steam configuration.\n"
