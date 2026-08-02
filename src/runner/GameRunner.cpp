@@ -179,6 +179,61 @@ QString GameRunner::findProtonFromConfig(const QString& appId) const
     return QString();
 }
 
+QString GameRunner::findRequiredRuntimeTool(const QString& protonPath, bool* required) const
+{
+    *required = false;
+
+    const QString manifestPath = protonPath + "/toolmanifest.vdf";
+    if (!QFile::exists(manifestPath)) {
+        return QString();
+    }
+
+    VDFParser parser;
+    if (!parser.parseFile(manifestPath)) {
+        return QString();
+    }
+
+    VDFNode root = parser.root();
+    if (!root.hasChild("manifest")) {
+        return QString();
+    }
+
+    const QString toolAppId = root.child("manifest").getString("require_tool_appid");
+    if (toolAppId.isEmpty()) {
+        // This Proton runs directly on the host; nothing to wrap it in.
+        return QString();
+    }
+
+    *required = true;
+    return findToolByAppId(toolAppId);
+}
+
+QString GameRunner::findToolByAppId(const QString& appId) const
+{
+    const QStringList libraryPaths = SteamLauncher::libraryPaths();
+
+    for (const QString& libPath : libraryPaths) {
+        const QString manifestPath = libPath + "/appmanifest_" + appId + ".acf";
+        if (!QFile::exists(manifestPath)) continue;
+
+        VDFParser parser;
+        if (!parser.parseFile(manifestPath)) continue;
+
+        VDFNode root = parser.root();
+        if (!root.hasChild("AppState")) continue;
+
+        const QString installDir = root.child("AppState").getString("installdir");
+        if (installDir.isEmpty()) continue;
+
+        const QString toolPath = libPath + "/common/" + installDir;
+        if (QFileInfo(toolPath + "/_v2-entry-point").isExecutable()) {
+            return toolPath;
+        }
+    }
+
+    return QString();
+}
+
 QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& settings)
 {
     // First check if user selected a specific Proton version
@@ -381,6 +436,20 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
 
     QString compatDataPath = getCompatDataPath(game);
 
+    // Resolve the Steam Linux Runtime this Proton asks for. Running inside it
+    // is what Steam does, and it keeps helper processes (MangoHud's popen()
+    // calls, protonfixes, ...) on the runtime's own userland instead of the
+    // host's, which is where host/Proton mismatches otherwise surface.
+    bool runtimeRequired = false;
+    const QString runtimePath = findRequiredRuntimeTool(protonPath, &runtimeRequired);
+    const bool useContainer = !runtimePath.isEmpty();
+
+    if (runtimeRequired && !useContainer) {
+        emit launchWarning(game, QString(
+            "Steam Linux Runtime not installed — launching %1 without the container. "
+            "Install it via Steam for the intended environment.").arg(game.name()));
+    }
+
     // Build environment
     QProcessEnvironment env = EnvBuilder::buildEnvironment(settings);
 
@@ -389,6 +458,26 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
     env.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH", SteamPaths::steamRoot());
     env.insert("SteamAppId", game.id());
     env.insert("SteamGameId", game.id());
+
+    QString shaderPath;
+    if (useContainer) {
+        // pressure-vessel only sees what it is told to mount, so anything the
+        // game touches has to be named here.
+        QStringList mounts = SteamLauncher::libraryPaths();
+        const QString exeDir = QFileInfo(gameExe).absolutePath();
+        if (!mounts.contains(exeDir)) {
+            mounts << exeDir;   // custom executablePath outside any library
+        }
+
+        shaderPath = game.libraryPath() + "/shadercache/" + game.id() + "/fozpipelinesv6";
+
+        env.insert("STEAM_COMPAT_APP_ID", game.id());
+        env.insert("STEAM_COMPAT_INSTALL_PATH", game.installPath());
+        env.insert("STEAM_COMPAT_LIBRARY_PATHS", game.libraryPath());
+        env.insert("STEAM_COMPAT_TOOL_PATHS", protonPath + ":" + runtimePath);
+        env.insert("STEAM_COMPAT_MOUNTS", mounts.join(":"));
+        env.insert("STEAM_COMPAT_SHADER_PATH", shaderPath);
+    }
 
     // Setup Steam Overlay and runtime
     env.insert("STEAM_RUNTIME", SteamPaths::steamRuntimePath());
@@ -420,6 +509,9 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
 
     // Create compat data directory if needed
     QDir().mkpath(compatDataPath);
+    if (!shaderPath.isEmpty()) {
+        QDir().mkpath(shaderPath);
+    }
 
     // Clean up previous process
     if (m_process) {
@@ -454,10 +546,23 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
         emit launchError(game, errorMsg);
     });
 
-    // Launch: proton run /path/to/game.exe [custom game args]
-    QStringList protonArgs = {"run", gameExe};
-    protonArgs << EnvBuilder::customGameArgs(settings);
-    m_process->start(protonExe, protonArgs);
+    // Launch, mirroring how Steam composes the compat tool chain:
+    //   <runtime>/_v2-entry-point --verb=waitforexitandrun -- <proton> waitforexitandrun <exe>
+    // Without a runtime this stays the plain `proton run <exe>`. The verb
+    // matters: --verb=run puts the entry point in batch mode, which is meant
+    // for setup commands rather than the main process.
+    QString program;
+    QStringList args;
+
+    if (useContainer) {
+        program = runtimePath + "/_v2-entry-point";
+        args << "--verb=waitforexitandrun" << "--" << protonExe << "waitforexitandrun" << gameExe;
+    } else {
+        program = protonExe;
+        args << "run" << gameExe;
+    }
+    args << EnvBuilder::customGameArgs(settings);
+    m_process->start(program, args);
 
     if (m_process->waitForStarted(5000)) {
         m_runningGame = game;  // Track running game

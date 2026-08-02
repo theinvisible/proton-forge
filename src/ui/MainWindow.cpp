@@ -58,6 +58,10 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
+    connect(m_gameRunner, &GameRunner::launchWarning, this, [this](const Game&, const QString& message) {
+        statusBar()->showMessage(message, 8000);
+    });
+
     connect(m_gameRunner, &GameRunner::launchError, this, [this](const Game& game, const QString& error) {
         // Update UI on error
         if (m_currentGame == game) {
