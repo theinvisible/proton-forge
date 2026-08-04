@@ -135,10 +135,12 @@ $(tail -n 15 "$CASE_OUT_DIR/gui-stdout.log" 2>/dev/null)"
 
 # gui_app_start_second -- a second instance sharing the same TMPDIR
 #
-# Exercises the QLockFile single-instance guard in main.cpp. Returns the pid; the
-# caller decides what "correct" looks like, because what actually happens (a
-# modal QMessageBox before the event loop, headless) is worth asserting rather
-# than assuming.
+# Exercises the QLockFile single-instance guard in main.cpp. Sets
+# LAB_GUI_SECOND_PID rather than printing it: reading a printed pid needs a
+# command substitution, the process would be that subshell's child, and once
+# orphaned nothing may reap it — leaving a zombie whose /proc entry makes "has it
+# exited?" answer no forever.
+LAB_GUI_SECOND_PID=""
 gui_app_start_second() {
     local bin; bin="$(app_require_bin)"
     env -i "PATH=$LAB_GUI_PATH" "HOME=$LAB_APP_HOME" \
@@ -148,7 +150,17 @@ gui_app_start_second() {
         "DISPLAY=$LAB_GUI_DISPLAY" \
         QT_QPA_PLATFORM=xcb PROTONFORGE_NO_STARTUP_CHECKS=1 \
         "$bin" >"$CASE_OUT_DIR/gui-second.log" 2>&1 &
-    printf '%s' "$!"
+    LAB_GUI_SECOND_PID=$!
+    return 0
+}
+
+# gui_second_stop -- reap the second instance, so its /proc entry really goes
+gui_second_stop() {
+    [[ -n "$LAB_GUI_SECOND_PID" ]] || return 0
+    kill "$LAB_GUI_SECOND_PID" 2>/dev/null
+    wait "$LAB_GUI_SECOND_PID" 2>/dev/null
+    LAB_GUI_SECOND_PID=""
+    return 0
 }
 
 gui_app_stop() {

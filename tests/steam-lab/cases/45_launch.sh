@@ -36,7 +36,7 @@ RUNTIME_APPID=1628350
 # every machine. It costs those ten seconds, which is why only the two parts that
 # spawn for real do it.
 launch_with_steam_ready() {
-    stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid" >/dev/null \
+    stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid" \
         || { fail "could not fake a running Steam client"; return 1; }
     app_cli --launch "$1" --timeout "$TIMEOUT_LAUNCH" >"$(case_log "launch-$1")" 2>&1
     local rc=$?
@@ -285,7 +285,7 @@ stub_records_reset
 
 # With a running client faked, so "nothing was started" cannot be explained away
 # by the readiness gate having refused the launch.
-stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid" >/dev/null
+stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid"
 app_cli --launch "$APPID" --dry-run >/dev/null
 stub_steam_pid_stop
 

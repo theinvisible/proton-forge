@@ -240,7 +240,8 @@ assert_true "the first instance is unaffected" gui_app_running
 
 part "   f2) on a screen, where a dialog is the right answer"
 
-SECOND_PID="$(gui_app_start_second)"
+gui_app_start_second
+SECOND_PID="$LAB_GUI_SECOND_PID"
 info "second instance pid $SECOND_PID"
 
 if DIALOG="$(gui_wait_window 'Already Running' 10 200)"; then
@@ -254,16 +255,17 @@ if DIALOG="$(gui_wait_window 'Already Running' 10 200)"; then
         waited=$(( waited + 1 ))
     done
     if pid_alive "$SECOND_PID"; then
-        kill "$SECOND_PID" 2>/dev/null
+        gui_second_stop
         fail "it did not exit after the warning was dismissed" \
             "still running ${waited}s after Return
 $(gui_list_windows)"
     else
         ok "and exits once the warning is dismissed (${waited}s)"
+        gui_second_stop
     fi
 else
     gui_screenshot second-instance >/dev/null
-    kill "$SECOND_PID" 2>/dev/null
+    gui_second_stop
     fail "no already-running warning appeared" \
 "windows on screen:
 $(gui_list_windows)

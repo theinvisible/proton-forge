@@ -65,11 +65,19 @@ stub_bin_clear() {
 # ------------------------------------------------------- a running "Steam"
 
 LAB_FAKE_STEAM_PID=""
+LAB_STUB_LAST_PID=""
 # Every fake process started here, so teardown cleans up all of them rather than
 # just the most recent one.
 LAB_STUB_PIDS=()
 
-# _stub_long_running <name> -> the pid of a live process whose comm is <name>
+# _stub_long_running <name> -- sets LAB_STUB_LAST_PID
+#
+# Deliberately sets a variable instead of printing the pid. A caller would have to
+# use a command substitution to read it, and that is a subshell — the background
+# process would be its child, orphaned the moment it exits, and this shell could
+# never `wait` to reap it. A killed-but-unreaped stub stays a zombie whose
+# /proc/<pid>/comm still reads "steam", which the app quite correctly reports as a
+# running client. That is the whole of the "stale pid file" case failing.
 #
 # /proc/<pid>/comm comes from the name of the executable that was exec'd, so a
 # process with a chosen comm needs a *copy* of a binary under that name. Two
@@ -120,10 +128,11 @@ _stub_long_running() {
         fi
     done
 
-    printf '%s' "$pid"
+    LAB_STUB_LAST_PID="$pid"
+    return 0
 }
 
-# stub_steam_pid <pid file path> -> the pid
+# stub_steam_pid <pid file path> -- sets LAB_FAKE_STEAM_PID
 #
 # SteamClient::isRunningNative() reads the pid file and then insists that
 # /proc/<pid>/comm is exactly "steam" — the guard that stops a stale or recycled
@@ -133,12 +142,13 @@ stub_steam_pid() {
     local pidfile="$1"
     mkdir -p "$(dirname "$pidfile")"
 
-    LAB_FAKE_STEAM_PID="$(_stub_long_running steam)" || return 1
+    _stub_long_running steam || return 1
+    LAB_FAKE_STEAM_PID="$LAB_STUB_LAST_PID"
     printf '%s\n' "$LAB_FAKE_STEAM_PID" >"$pidfile"
-    printf '%s' "$LAB_FAKE_STEAM_PID"
+    return 0
 }
 
-# stub_steam_pid_wrong_name <pid file path> -> the pid
+# stub_steam_pid_wrong_name <pid file path> -- sets LAB_FAKE_STEAM_PID
 #
 # The counter-example: a live process that is not named steam. The app must
 # still say not-running, or a recycled pid would read as a running client.
@@ -146,9 +156,10 @@ stub_steam_pid_wrong_name() {
     local pidfile="$1"
     mkdir -p "$(dirname "$pidfile")"
 
-    LAB_FAKE_STEAM_PID="$(_stub_long_running notsteam)" || return 1
+    _stub_long_running notsteam || return 1
+    LAB_FAKE_STEAM_PID="$LAB_STUB_LAST_PID"
     printf '%s\n' "$LAB_FAKE_STEAM_PID" >"$pidfile"
-    printf '%s' "$LAB_FAKE_STEAM_PID"
+    return 0
 }
 
 stub_steam_pid_stop() {
@@ -164,7 +175,8 @@ stub_steam_pid_stop() {
             sleep 0.1
             waited=$(( waited + 1 ))
             if (( waited > 50 )); then
-                warn "pid $pid is still in /proc after being killed and reaped"
+                warn "pid $pid is still in /proc after being killed — a zombie this
+shell could not reap, which means it was not its parent. See _stub_long_running."
                 break
             fi
         done

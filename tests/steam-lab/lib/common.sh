@@ -85,7 +85,24 @@ lab_mkdirs() {
 # ----------------------------------------------------------------- utilities
 
 # pid_alive <pid>
-pid_alive() { [[ -n "${1:-}" ]] && [[ -d "/proc/$1" ]]; }
+#
+# A zombie does not count. It has already exited and is only waiting to be
+# reaped, but /proc/<pid> and everything in it survive until someone does — and
+# nobody may: a process started inside a command substitution is reparented when
+# that subshell exits, and a container's PID 1 is frequently not a reaper. On a
+# desktop the orphan is collected almost immediately and this never shows; in CI
+# the entry lingers for the life of the job and "has it exited yet" answers no
+# forever.
+pid_alive() {
+    [[ -n "${1:-}" ]] || return 1
+    [[ -d "/proc/$1" ]] || return 1
+    local stat
+    stat="$(</proc/"$1"/stat)" 2>/dev/null || return 0
+    # Everything up to the last ") " is pid and comm; comm can contain spaces and
+    # parentheses, so it cannot be split on whitespace. The state follows.
+    [[ "${stat##*') '}" == Z* ]] && return 1
+    return 0
+}
 
 # pid_comm <pid> -> the kernel's idea of the process name. This is what
 # SteamClient checks, so the stubs have to satisfy it rather than a pattern.

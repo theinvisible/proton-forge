@@ -58,7 +58,8 @@ assert_json "with no session bus the app does not fall over" "$STATE" 'd["dbusCo
 # ---------------------------------------------------------------------------
 part "c) a live client that has not finished starting"
 
-PID="$(stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid")"
+stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid"
+PID="$LAB_FAKE_STEAM_PID"
 info "fake steam pid $PID, comm=$(pid_comm "$PID")"
 STATE="$(app_cli --steam-client)"
 
@@ -85,7 +86,8 @@ part "e) a recycled pid"
 
 # The guard that makes the above safe: a *live* process that is not Steam. In a
 # container pids are recycled aggressively, so this is not a theoretical case.
-PID="$(stub_steam_pid_wrong_name "$LAB_APP_HOME/.steam/steam.pid")"
+stub_steam_pid_wrong_name "$LAB_APP_HOME/.steam/steam.pid"
+PID="$LAB_FAKE_STEAM_PID"
 info "fake non-steam pid $PID, comm=$(pid_comm "$PID")"
 STATE="$(app_cli --steam-client)"
 

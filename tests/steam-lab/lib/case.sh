@@ -28,15 +28,26 @@ mkdir -p "$CASE_OUT_DIR" "$(dirname "$CASE_RESULT_FILE")"
 : >"$CASE_RESULT_FILE"
 
 case_setup() {
-    app_require_bin >/dev/null
     fx_reset
     stub_records_reset
-    info "binary: $(app_bin)"
+
+    # Deliberately not demanding a binary here. The container cases test the one
+    # the *package* installs and need none on the host — that is why they declare
+    # `docker` rather than `build`. Cases that do need one declare `build`, which
+    # the runner satisfies before any case starts, and app_cli dies with the same
+    # message if it is somehow still missing.
+    local bin
+    if bin="$(app_bin)"; then
+        info "binary: $bin"
+    else
+        info "no host binary — this case does not need one"
+    fi
     info "fake HOME: $LAB_APP_HOME"
 }
 
 case_teardown() {
     local rc=$?
+    gui_second_stop 2>/dev/null || true
     gui_stop_display 2>/dev/null || true
     stub_steam_pid_stop 2>/dev/null || true
     stub_steam_dbus_stop 2>/dev/null || true
