@@ -88,6 +88,7 @@ _have_requirement() {
         have cmake && { app_bin >/dev/null || have g++; }
         ;;
     docker)
+        [[ "${LAB_IN_CONTAINER:-0}" == "1" ]] && return 0
         have docker && docker info >/dev/null 2>&1
         ;;
     gui)

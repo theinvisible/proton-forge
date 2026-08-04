@@ -95,6 +95,17 @@ manifest = yaml.safe_load(open(src))
 
 module = manifest["modules"][0]
 kept = [s for s in module.get("sources", []) if s.get("type") != "archive"]
+
+# flatpak-builder resolves a source path relative to the manifest, and this
+# manifest is written outside the repository — so the plain filenames the
+# committed one uses ("org.protonforge.ProtonForge.desktop", ...) would not be
+# found. Absolutise them against the checkout.
+import os
+for source in kept:
+    path = source.get("path")
+    if path and not os.path.isabs(path):
+        source["path"] = os.path.join(repo, path)
+
 module["sources"] = [{"type": "dir", "path": repo}] + kept
 
 with open(dst, "w") as handle:

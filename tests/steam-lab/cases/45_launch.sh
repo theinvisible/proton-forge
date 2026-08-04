@@ -23,6 +23,27 @@ case_setup
 APPID=1245620
 RUNTIME_APPID=1628350
 
+# Actually launching a Steam game goes through the client-readiness gate first
+# (GameRunner.cpp:392), and what happens there depends on the machine: with a real
+# `steam` on $PATH the launch is deferred and waits, without one it is refused
+# outright. Neither is what these parts are testing, and either would make them
+# pass or fail for the wrong reason.
+#
+# So readiness is arranged deliberately. A pid file pointing at a process that
+# really is called steam makes SteamClient report Starting, and the deferred
+# launch then proceeds once the liveness grace has elapsed
+# (kSteamLivenessGraceMs = 10 s) — no client, no account, and the same answer on
+# every machine. It costs those ten seconds, which is why only the two parts that
+# spawn for real do it.
+launch_with_steam_ready() {
+    stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid" >/dev/null \
+        || { fail "could not fake a running Steam client"; return 1; }
+    app_cli --launch "$1" --timeout "$TIMEOUT_LAUNCH" >"$(case_log "launch-$1")" 2>&1
+    local rc=$?
+    stub_steam_pid_stop
+    return $rc
+}
+
 # ---------------------------------------------------------------------------
 part "a) Proton resolution follows the documented order"
 
@@ -110,9 +131,10 @@ assert_json "and the verb is run" "$PLAN" 'd["args"][0]' "run"
 assert_json "followed by the executable" "$PLAN" \
     'd["args"][1]' "$NATIVE/steamapps/common/ELDEN RING/ELDEN RING.exe"
 
-# And it really is what gets executed.
+# And it really is what gets executed. This one waits out the readiness grace;
+# see launch_with_steam_ready above.
 stub_records_reset
-app_cli --launch "$APPID" --timeout "$TIMEOUT_LAUNCH" >/dev/null
+launch_with_steam_ready "$APPID"
 assert_true "proton was actually executed" stub_proton_was_run
 assert_eq "with the run verb" "run" "$(stub_proton_args | head -n1)"
 assert_eq "STEAM_COMPAT_DATA_PATH arrived in the child" \
@@ -162,7 +184,7 @@ assert_json "STEAM_COMPAT_SHADER_PATH" "$PLAN" \
 
 # Now run it for real and read back what each side was handed.
 stub_records_reset
-app_cli --launch "$APPID" --timeout "$TIMEOUT_LAUNCH" >/dev/null
+launch_with_steam_ready "$APPID"
 
 assert_true "the entry point was executed" stub_runtime_was_run
 assert_eq "with the waitforexitandrun verb" "--verb=waitforexitandrun" "$(stub_runtime_args | head -n1)"
@@ -261,7 +283,11 @@ fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" installdir="ELDEN RING" >/dev/n
 stub_proton "$NATIVE" "proton-cachyos-11.0-20260703-slr-x86_64" >/dev/null
 stub_records_reset
 
+# With a running client faked, so "nothing was started" cannot be explained away
+# by the readiness gate having refused the launch.
+stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid" >/dev/null
 app_cli --launch "$APPID" --dry-run >/dev/null
+stub_steam_pid_stop
 
 assert_false "no process was started" stub_proton_was_run
 # GameRunner creates the prefix directory as a side effect of launching; a plan

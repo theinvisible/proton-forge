@@ -66,6 +66,12 @@ Known: $(printf '%s ' "${LAB_DISTROS_DEFAULT[@]%%|*}")"
 }
 
 dock_require() {
+    # In passthrough mode the agent runs right here instead of in a container —
+    # that is how CI runs these cases inside its own `container:` — so demanding a
+    # docker daemon would fail on the one setup that needs it least.
+    if [[ "${LAB_IN_CONTAINER:-0}" == "1" ]]; then
+        return 0
+    fi
     have docker || die "docker is missing: sudo apt install docker.io"
     docker info >/dev/null 2>&1 \
         || die "cannot talk to the docker daemon — is the user in the 'docker' group?
@@ -106,6 +112,11 @@ dock_cached_deb() {
 # Dockerfile.
 dock_build() {
     local image="$1" rebuild="${2:-}" ctx rc
+
+    # Nothing to build when the current environment *is* the target.
+    if [[ "${LAB_IN_CONTAINER:-0}" == "1" ]]; then
+        return 0
+    fi
 
     if [[ "$rebuild" != "--rebuild" ]] && dock_image_fresh "$image"; then
         return 0
@@ -187,7 +198,9 @@ dock_run() {
     mkdir -p "$(dock_deb_dir "$image")"
 
     if [[ "${LAB_IN_CONTAINER:-0}" == "1" ]]; then
-        env PF_LAB_DIR="$PF_LAB_DIR" PF_DEB_OUT="$(dock_deb_dir "$image")" \
+        env PF_LAB_DIR="$PF_LAB_DIR" \
+            PF_DEB_OUT="$(dock_deb_dir "$image")" \
+            PF_SRC_DIR="$REPO_ROOT" \
             bash "$LAB_SRC_DIR/docker/distro/in-container.sh" "$deb" "$@"
         return $?
     fi
@@ -220,7 +233,9 @@ dock_run_root() {
     mkdir -p "$(dock_deb_dir "$image")"
 
     if [[ "${LAB_IN_CONTAINER:-0}" == "1" ]]; then
-        env PF_LAB_DIR="$PF_LAB_DIR" PF_DEB_OUT="$(dock_deb_dir "$image")" \
+        env PF_LAB_DIR="$PF_LAB_DIR" \
+            PF_DEB_OUT="$(dock_deb_dir "$image")" \
+            PF_SRC_DIR="$REPO_ROOT" \
             bash "$LAB_SRC_DIR/docker/distro/in-container.sh" "$deb" "$@"
         return $?
     fi
@@ -244,6 +259,7 @@ dock_run_root() {
 }
 
 dock_cleanup() {
+    [[ "${LAB_IN_CONTAINER:-0}" == "1" ]] && return 0
     docker rm -f "protonforge-$(dock_slug "$1")" >/dev/null 2>&1 || true
 }
 

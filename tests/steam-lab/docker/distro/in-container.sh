@@ -26,6 +26,17 @@ result() { printf 'RESULT:%s=%s\n' "$1" "$2"; }
 note()   { printf '        %s\n' "$*"; }
 want()   { local s; for s in "${SECTIONS[@]}"; do [[ "$s" == "$1" ]] && return 0; done; return 1; }
 
+# Where the sources are. Under docker the harness bind-mounts the repository at
+# /src; in passthrough mode (LAB_IN_CONTAINER=1, which is how CI runs this inside
+# its own container) there is no mount and the checkout is wherever the job put
+# it, so the harness hands the path in.
+SRC="${PF_SRC_DIR:-/src}"
+[[ -f "$SRC/build-deb.sh" ]] || {
+    result fatal "no sources at $SRC — set PF_SRC_DIR"
+    printf 'RESULT:done=yes\n'
+    exit 1
+}
+
 BIN=/usr/bin/protonforge
 
 # ------------------------------------------------------------ 0) identify
@@ -71,7 +82,7 @@ if [[ "$DEB" == "build" ]]; then
     # produced a package linked against the wrong Qt.
     DEB_OUT="${PF_DEB_OUT:-${PF_LAB_DIR:-/tmp}/deb-out}"
     mkdir -p "$DEB_OUT"
-    if built="$(bash /src/build-deb.sh /src "$DEB_OUT" 2>/tmp/build.log | tail -n1)" \
+    if built="$(bash "$SRC/build-deb.sh" "$SRC" "$DEB_OUT" 2>/tmp/build.log | tail -n1)" \
        && [[ -f "$built" ]]; then
         result deb_build ok
         result deb_file "$(basename "$built")"
@@ -149,12 +160,12 @@ if [[ -f "$DESKTOP" ]]; then
 
     # The package's desktop entry and the one CMake installs used to be two
     # separate texts that had drifted apart. They come from one template now.
-    if diff -q <(sed 's/@PROJECT_VERSION@//g' /src/protonforge.desktop.in) \
+    if diff -q <(sed 's/@PROJECT_VERSION@//g' $SRC/protonforge.desktop.in) \
                <(sed 's/@PROJECT_VERSION@//g' "$DESKTOP") >/dev/null 2>&1; then
         result desktop_matches_template yes
     else
         result desktop_matches_template no
-        note "$(diff /src/protonforge.desktop.in "$DESKTOP" || true)"
+        note "$(diff $SRC/protonforge.desktop.in "$DESKTOP" || true)"
     fi
 else
     result desktop_valid missing
@@ -197,7 +208,7 @@ if [[ -x "$BIN" ]]; then
         result cli_version "failed: $out"
     fi
 
-    cmake_version="$(grep -oP 'project\(ProtonForge VERSION \K[0-9]+\.[0-9]+\.[0-9]+' /src/CMakeLists.txt)"
+    cmake_version="$(grep -oP 'project\(ProtonForge VERSION \K[0-9]+\.[0-9]+\.[0-9]+' $SRC/CMakeLists.txt)"
     if [[ "$(pf "$BIN" --version 2>/dev/null)" == "ProtonForge $cmake_version" ]]; then
         result cli_version_matches_cmake yes
     else

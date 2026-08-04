@@ -98,7 +98,10 @@ _stub_long_running() {
     # never see EOF and the run would look like a hang.
     "$fake" -c 'while :; do sleep 1; done' >/dev/null 2>&1 &
     local pid=$!
-    disown 2>/dev/null || true
+    # Deliberately not disowned: this shell has to stay the parent so it can
+    # `wait` and reap. A killed-but-unreaped child is a zombie, /proc/<pid> and
+    # its comm survive, and the app then still sees a live process called steam —
+    # which is exactly the "stale pid file" case failing to be stale.
     LAB_STUB_PIDS+=("$pid")
 
     # Wait for the kernel to have the name; the first read can otherwise race
@@ -149,9 +152,22 @@ stub_steam_pid_wrong_name() {
 }
 
 stub_steam_pid_stop() {
-    local pid
+    local pid waited
     for pid in "${LAB_STUB_PIDS[@]+"${LAB_STUB_PIDS[@]}"}"; do
         kill "$pid" 2>/dev/null
+        # Reap it, then make sure the kernel has actually torn the entry down
+        # before returning — the caller's next assertion depends on /proc/<pid>
+        # being gone.
+        wait "$pid" 2>/dev/null
+        waited=0
+        while pid_alive "$pid"; do
+            sleep 0.1
+            waited=$(( waited + 1 ))
+            if (( waited > 50 )); then
+                warn "pid $pid is still in /proc after being killed and reaped"
+                break
+            fi
+        done
     done
     LAB_STUB_PIDS=()
     LAB_FAKE_STEAM_PID=""
