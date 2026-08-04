@@ -6,12 +6,23 @@
 #include <QMessageBox>
 #include "ui/MainWindow.h"
 #include "ui/OpaqueTooltip.h"
+#include "core/Cli.h"
 #include "core/Game.h"
 #include "utils/ProtonManager.h"
 #include "Version.h"
 
 int main(int argc, char *argv[])
 {
+    // Headless commands run before any widget exists, on a QCoreApplication and
+    // without a display. Only arguments the CLI knows about divert here; a bare
+    // invocation and Qt's own flags fall through to the GUI unchanged.
+    if (Cli::isCliInvocation(argc, argv)) {
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+        QCoreApplication app(argc, argv);
+        Cli::configureMetadata(app);
+        return Cli::run(app);
+    }
+
     QApplication app(argc, argv);
 
     // Application metadata

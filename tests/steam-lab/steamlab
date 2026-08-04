@@ -1,0 +1,474 @@
+#!/usr/bin/env bash
+#
+# ProtonForge test lab
+#
+# Runs the real binary and the real package against synthetic and real Steam
+# installations, in containers and on a virtual screen. No Steam account is
+# involved anywhere. See TESTS.md in the repository root.
+
+set -uo pipefail
+
+LAB_SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$LAB_SRC_DIR/lib/common.sh"
+# shellcheck source=lib/app.sh
+source "$LAB_SRC_DIR/lib/app.sh"
+# shellcheck source=lib/fixtures.sh
+source "$LAB_SRC_DIR/lib/fixtures.sh"
+# shellcheck source=lib/docker.sh
+source "$LAB_SRC_DIR/lib/docker.sh"
+# shellcheck source=lib/flatpak.sh
+source "$LAB_SRC_DIR/lib/flatpak.sh"
+
+usage() {
+    cat <<EOF
+${C_BOLD}steamlab${C_OFF} — the ProtonForge test lab
+
+  ${C_BOLD}steamlab preflight${C_OFF}              check the tools and report what is missing
+  ${C_BOLD}steamlab build${C_OFF}                  build the binary and the unit tests
+  ${C_BOLD}steamlab image [--rebuild]${C_OFF}      build the distribution container images
+  ${C_BOLD}steamlab test [case...]${C_OFF}         run the cases (all of the runnable ones by default)
+  ${C_BOLD}steamlab fixtures <variant>${C_OFF}     write a Steam fixture tree and print its root
+  ${C_BOLD}steamlab shell <image>${C_OFF}          interactive shell in a distribution container
+  ${C_BOLD}steamlab status${C_OFF}                 what is present and what is not
+  ${C_BOLD}steamlab clean [--all]${C_OFF}          remove the work directory (--all: images too)
+
+${C_BOLD}test options${C_OFF}
+  --keep-going          carry on after a failing case
+  --list                list the cases and what each of them needs
+
+${C_BOLD}cases${C_OFF} are matched by name with or without the .sh, e.g.
+
+  steamlab test 30_discovery
+  LAB_DISTROS=debian:trixie steamlab test 20_deb_install
+  LAB_TEST_NETWORK=1 steamlab test 80_proton_mgr
+
+Each case declares what it needs in a "# lab-requires:" line, and only the
+requirements of the *selected* cases are enforced — so 60_gui runs on a machine
+with no docker.
+
+  build     a ProtonForge binary (or the ability to build one)
+  docker    a usable docker daemon
+  gui       a virtual screen: Xvfb, $LAB_GUI_WM, xdotool, xwininfo, xprop
+  flatpak   flatpak, flatpak-builder and python3-yaml
+
+config:     $LAB_SRC_DIR/lab.env   (see lab.env.example)
+work dir:   $PF_LAB_DIR
+results:    $LAB_OUT_DIR/junit.xml
+EOF
+}
+
+# ------------------------------------------------------------------ preflight
+
+# _case_requirements <case file...> -> sorted, deduplicated requirement tokens
+#
+# Every case declares what it needs in a "# lab-requires:" line near the top. A
+# case without the line is treated as needing docker — the safe assumption, so
+# nothing runs unguarded by accident.
+_case_requirements() {
+    local f line all=()
+    for f in "$@"; do
+        line="$(grep -m1 '^# lab-requires:' "$f" 2>/dev/null)"
+        line="${line#\# lab-requires:}"
+        [[ -z "${line// /}" ]] && line="docker"
+        # shellcheck disable=SC2206
+        all+=($line)
+    done
+    printf '%s\n' "${all[@]}" | sort -u | paste -sd' '
+}
+
+# _have_requirement <token> -- can this be satisfied here? No output, no dying.
+#
+# Used to filter the default selection. Naming a case explicitly goes through
+# _require instead, which dies with a remedy — if you asked for the GUI cases by
+# name you want to know why they cannot run, not to have them quietly skipped.
+_have_requirement() {
+    case "$1" in
+    build)
+        have cmake && { app_bin >/dev/null || have g++; }
+        ;;
+    docker)
+        have docker && docker info >/dev/null 2>&1
+        ;;
+    gui)
+        local tool
+        for tool in Xvfb "$LAB_GUI_WM" xdotool xwininfo xprop xdpyinfo; do
+            have "$tool" || return 1
+        done
+        ;;
+    flatpak)
+        have flatpak && have flatpak-builder && python3 -c 'import yaml' 2>/dev/null
+        ;;
+    *)  return 1 ;;
+    esac
+}
+
+# _require <token> -- die with the exact remedy when something is missing
+_require() {
+    case "$1" in
+    build)
+        have cmake || die "cmake is missing: sudo apt install cmake"
+        app_bin >/dev/null || app_build --tests
+        ;;
+    docker)
+        dock_require
+        ;;
+    gui)
+        local missing=() tool
+        for tool in Xvfb "$LAB_GUI_WM" xdotool xwininfo xprop xdpyinfo; do
+            have "$tool" || missing+=("$tool")
+        done
+        (( ${#missing[@]} )) && die "the GUI cases need: ${missing[*]}
+    sudo apt install xvfb xdotool openbox x11-utils x11-apps"
+        ;;
+    flatpak)
+        fp_require
+        ;;
+    *)
+        die "unknown requirement token '$1' — see 'steamlab' for the list"
+        ;;
+    esac
+}
+
+cmd_preflight() {
+    step "Preflight"
+
+    local missing=() tool
+    for tool in python3 tar gzip sed awk grep; do
+        have "$tool" || missing+=("$tool")
+    done
+    (( ${#missing[@]} )) && die "missing basic tools: ${missing[*]}"
+
+    printf '\n'
+    local -A groups=(
+        [build]="cmake g++"
+        [docker]="docker"
+        [gui]="Xvfb $LAB_GUI_WM xdotool xwininfo xprop xdpyinfo xwd"
+        [flatpak]="flatpak flatpak-builder"
+    )
+    local group t line
+    for group in build docker gui flatpak; do
+        printf '  %s%-9s%s' "$C_BOLD" "$group" "$C_OFF"
+        line=""
+        for t in ${groups[$group]}; do
+            if have "$t"; then
+                line+=" ${C_GREEN}${t}${C_OFF}"
+            else
+                line+=" ${C_RED}${t}${C_OFF}"
+            fi
+        done
+        printf '%s\n' "$line"
+    done
+
+    printf '  %s%-9s%s' "$C_BOLD" "python" "$C_OFF"
+    if python3 -c 'import yaml' 2>/dev/null; then
+        printf ' %syaml%s' "$C_GREEN" "$C_OFF"
+    else
+        printf ' %syaml%s' "$C_RED" "$C_OFF"
+    fi
+    if python3 -c 'import dbus' 2>/dev/null; then
+        printf ' %sdbus%s\n' "$C_GREEN" "$C_OFF"
+    else
+        printf ' %sdbus%s\n' "$C_RED" "$C_OFF"
+    fi
+    printf '\n'
+
+    local bin
+    if bin="$(app_bin)"; then
+        info "binary: $bin ($("$bin" --version 2>/dev/null || echo 'does not answer --version'))"
+    else
+        warn "no ProtonForge binary yet — run 'steamlab build'"
+    fi
+
+    if have docker && docker info >/dev/null 2>&1; then
+        info "docker: ok"
+    elif have docker; then
+        warn "docker is installed but the daemon is unreachable — is the user in the 'docker' group?"
+    fi
+
+    lab_mkdirs
+    info "work directory: $PF_LAB_DIR"
+    info "preflight done — red entries above are only a problem for the tiers that need them"
+}
+
+# --------------------------------------------------------------------- status
+
+cmd_status() {
+    step "Status"
+    local -a rows=()
+
+    local bin
+    if bin="$(app_bin)"; then rows+=("binary|$bin"); else rows+=("binary|missing"); fi
+
+    if [[ -d "$PF_LAB_DIR" ]]; then
+        rows+=("work dir|$PF_LAB_DIR ($(du -sh "$PF_LAB_DIR" 2>/dev/null | cut -f1))")
+    else
+        rows+=("work dir|not created yet")
+    fi
+
+    local images
+    images="$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | grep "^${LAB_DOCKER_PREFIX}:" | tr '\n' ' ')"
+    rows+=("images|${images:-none}")
+
+    local debs
+    debs="$(find "$LAB_DEB_DIR" -name 'protonforge_*.deb' 2>/dev/null | wc -l)"
+    rows+=("cached packages|$debs")
+
+    if [[ -d "$LAB_FLATPAK_DIR" ]]; then
+        rows+=("flatpak dir|$LAB_FLATPAK_DIR")
+    else
+        rows+=("flatpak dir|not created yet")
+    fi
+
+    if [[ -f "$LAB_OUT_DIR/junit.xml" ]]; then
+        rows+=("last report|$LAB_OUT_DIR/junit.xml")
+    else
+        rows+=("last report|none")
+    fi
+
+    local row
+    for row in "${rows[@]}"; do
+        printf '  %s%-16s%s %s\n' "$C_BOLD" "${row%%|*}" "$C_OFF" "${row#*|}"
+    done
+}
+
+cmd_clean() {
+    local all=0
+    [[ "${1:-}" == "--all" ]] && all=1
+
+    if [[ -d "$PF_LAB_DIR" ]]; then
+        step "Removing $PF_LAB_DIR"
+        # The isolated Flatpak installation may contain read-only trees.
+        chmod -R u+w "$PF_LAB_DIR" 2>/dev/null || true
+        rm -rf "$PF_LAB_DIR"
+    fi
+
+    if (( all )); then
+        step "Removing the container images"
+        local image
+        for image in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+                       | grep "^${LAB_DOCKER_PREFIX}:"); do
+            info "$image"
+            docker rmi -f "$image" >/dev/null 2>&1 || true
+        done
+    fi
+    info "clean"
+}
+
+cmd_fixtures() {
+    local variant="${1:-native}"
+    lab_mkdirs
+    local root
+    root="$(fx_steam_tree "$variant")"
+    fx_add_game "$root" 1245620 name="ELDEN RING" >/dev/null 2>&1 || true
+    info "fixture $variant written under $LAB_APP_HOME"
+    printf '%s\n' "$root"
+}
+
+cmd_shell() {
+    local image="${1:-ubuntu:26.04}"
+    dock_require
+    dock_build "$image"
+    docker run --rm -it \
+        --network "$LAB_DOCKER_NET" \
+        -v "$REPO_ROOT:/src:ro" \
+        -v "$PF_LAB_DIR:$PF_LAB_DIR" \
+        --entrypoint /bin/bash \
+        "$(dock_tag "$image")"
+}
+
+# ----------------------------------------------------------------------- test
+
+_write_junit() {
+    local results_dir="$1" out="$2"
+    python3 - "$results_dir" "$out" <<'PY'
+import glob, os, sys
+from xml.sax.saxutils import escape, quoteattr
+
+results_dir, out = sys.argv[1], sys.argv[2]
+suites = []
+for tsv in sorted(glob.glob(os.path.join(results_dir, "*.tsv"))):
+    name = os.path.basename(tsv)[:-4]
+    timefile = os.path.join(results_dir, name + ".time")
+    duration = open(timefile).read().strip() if os.path.exists(timefile) else "0"
+    cases = []
+    for line in open(tsv, errors="replace"):
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) < 2:
+            continue
+        status, check = parts[0], parts[1]
+        detail = parts[2] if len(parts) > 2 else ""
+        body = ""
+        if status == "fail":
+            body = "<failure message=%s>%s</failure>" % (
+                quoteattr(detail[:400] or check), escape(detail))
+        elif status == "skip":
+            body = "<skipped message=%s/>" % quoteattr(detail or "skipped")
+        cases.append("    <testcase classname=%s name=%s>%s</testcase>"
+                     % (quoteattr(name), quoteattr(check), body))
+    failures = sum(1 for line in open(tsv, errors="replace") if line.startswith("fail\t"))
+    suites.append('  <testsuite name=%s tests="%d" failures="%d" time="%s">\n%s\n  </testsuite>'
+                  % (quoteattr(name), len(cases), failures, duration, "\n".join(cases)))
+
+with open(out, "w") as handle:
+    handle.write('<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>\n')
+    handle.write("\n".join(suites))
+    handle.write("\n</testsuites>\n")
+PY
+}
+
+_list_cases() {
+    step "Cases"
+    local f name needs
+    for f in $(find "$LAB_SRC_DIR/cases" -name '*.sh' | sort); do
+        name="$(basename "$f" .sh)"
+        needs="$(_case_requirements "$f")"
+        printf '  %s%-18s%s %s\n' "$C_BOLD" "$name" "$C_OFF" "$needs"
+    done
+}
+
+cmd_test() {
+    local keep_going=0
+    local -a wanted=()
+    while (( $# )); do
+        case "$1" in
+        --keep-going) keep_going=1 ;;
+        --list)       _list_cases; return 0 ;;
+        -*)           die "unknown option: $1" ;;
+        *)            wanted+=("$1") ;;
+        esac
+        shift
+    done
+
+    lab_mkdirs
+
+    local -a files=()
+    local w f
+    if (( ${#wanted[@]} )); then
+        for w in "${wanted[@]}"; do
+            f="$LAB_SRC_DIR/cases/$w"
+            [[ -f "$f" ]] || f="$LAB_SRC_DIR/cases/${w}.sh"
+            [[ -f "$f" ]] || die "test case not found: $w
+$(_list_cases)"
+            files+=("$f")
+        done
+    else
+        mapfile -t files < <(find "$LAB_SRC_DIR/cases" -name '*.sh' | sort)
+    fi
+    (( ${#files[@]} )) || die "no test cases found under $LAB_SRC_DIR/cases"
+
+    local explicit=0
+    (( ${#wanted[@]} )) && explicit=1
+
+    local needs; needs="$(_case_requirements "${files[@]}")"
+    step "Requirements of this selection: ${needs:-none}"
+
+    local results_dir="$LAB_OUT_DIR/results"
+    rm -rf "$results_dir"
+    mkdir -p "$results_dir"
+
+    local token
+    if (( explicit )); then
+        # You asked for these by name, so a missing tool is an error with a fix.
+        for token in $needs; do
+            _require "$token"
+        done
+    else
+        # The default selection is everything, and few machines have every tier's
+        # tools. Drop what cannot run and say so in the report rather than
+        # refusing to run anything.
+        local -a runnable=() f_needs unmet
+        local f
+        for f in "${files[@]}"; do
+            f_needs="$(_case_requirements "$f")"
+            unmet=""
+            for token in $f_needs; do
+                _have_requirement "$token" || unmet+="$token "
+            done
+            if [[ -z "$unmet" ]]; then
+                runnable+=("$f")
+            else
+                local name; name="$(basename "$f" .sh)"
+                warn "skipping $name — needs: ${unmet% }"
+                printf 'skip\t%s\t%s\n' "the case could not run" \
+                    "requires ${unmet% } (run 'steamlab preflight')" \
+                    >"$results_dir/$name.tsv"
+                printf '0\n' >"$results_dir/$name.time"
+            fi
+        done
+        files=("${runnable[@]}")
+        if (( ${#files[@]} == 0 )); then
+            _write_junit "$results_dir" "$LAB_OUT_DIR/junit.xml"
+            die "no case can run on this machine — see 'steamlab preflight'"
+        fi
+        # Whatever survived still has to have its requirements set up.
+        needs="$(_case_requirements "${files[@]}")"
+        for token in $needs; do
+            _require "$token"
+        done
+    fi
+
+    local ran=0 failed=0 rc name case_out
+    local start_all=$SECONDS
+
+    for f in "${files[@]}"; do
+        name="$(basename "$f" .sh)"
+        ran=$(( ran + 1 ))
+        printf '\n%s>>> %s%s\n' "$C_BOLD" "$name" "$C_OFF"
+        case_out="$LAB_OUT_DIR/$name"
+        rm -rf "$case_out"; mkdir -p "$case_out"
+
+        local t0=$SECONDS
+        env LAB_SRC_DIR="$LAB_SRC_DIR" \
+            REPO_ROOT="$REPO_ROOT" \
+            CASE_NAME="$name" \
+            CASE_OUT_DIR="$case_out" \
+            CASE_RESULT_FILE="$results_dir/$name.tsv" \
+            bash "$f"
+        rc=$?
+        printf '%d\n' "$(( SECONDS - t0 ))" >"$results_dir/$name.time"
+
+        if (( rc != 0 )); then
+            failed=$(( failed + 1 ))
+            printf '%s<<< %s FAILED%s (logs: %s)\n' "$C_RED" "$name" "$C_OFF" "$case_out"
+            (( keep_going )) || { warn "stopping (use --keep-going to continue)"; break; }
+        else
+            printf '%s<<< %s ok%s\n' "$C_GREEN" "$name" "$C_OFF"
+        fi
+    done
+
+    _write_junit "$results_dir" "$LAB_OUT_DIR/junit.xml"
+
+    printf '\n%s' "$C_BOLD"
+    if (( failed == 0 )); then
+        printf 'Result: %d/%d test cases passed%s (%ds)\n' \
+            "$ran" "$ran" "$C_OFF" "$(( SECONDS - start_all ))"
+    else
+        printf 'Result: %s%d of %d test cases failed%s (%ds)\n' \
+            "$C_RED" "$failed" "$ran" "$C_OFF" "$(( SECONDS - start_all ))"
+    fi
+    info "JUnit report: $LAB_OUT_DIR/junit.xml"
+    return $(( failed > 0 ? 1 : 0 ))
+}
+
+# ----------------------------------------------------------------------- main
+
+main() {
+    local cmd="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    case "$cmd" in
+        preflight)         cmd_preflight ;;
+        build)             lab_mkdirs; app_build --tests ;;
+        image)             dock_require; dock_build_all "$@" ;;
+        fixtures)          cmd_fixtures "$@" ;;
+        shell)             cmd_shell "$@" ;;
+        test)              cmd_test "$@" ;;
+        status)            cmd_status ;;
+        clean)             cmd_clean "$@" ;;
+        ""|-h|--help|help) usage ;;
+        *)                 usage; die "unknown command: $cmd" ;;
+    esac
+}
+
+main "$@"

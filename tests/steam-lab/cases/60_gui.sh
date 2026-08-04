@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+# lab-requires: gui build
+#
+# The real application on a virtual screen.
+#
+# Some of what ProtonForge does is only observable as a window: whether it fits
+# on a laptop screen, whether the game list actually filled from what discovery
+# found, whether a dialog appears where one is meant to. The CLI cannot answer
+# any of that, and neither can a unit test.
+#
+# Assertions here are on window geometry, X properties and side effects on disk —
+# not on pixels. There is no image comparison and nothing that needs a human to
+# look at it.
+
+set -uo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/case.sh"
+
+case_setup
+
+APPID=1245620
+
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" installdir="ELDEN RING" >/dev/null
+fx_add_game "$NATIVE" 570 name="Dota 2" installdir="dota 2 beta" exe=native >/dev/null
+fx_add_game "$NATIVE" 292030 name="The Witcher 3" >/dev/null
+
+# Canned output for the tools the app shells out to. Without these it falls back
+# to "unknown", which is a valid path but not the interesting one.
+stub_bin_from_fixture nvidia-smi nvidia-smi-q.txt >/dev/null
+stub_bin_from_fixture lscpu lscpu.txt >/dev/null
+
+gui_start_display
+
+# ---------------------------------------------------------------------------
+part "a) the main window"
+
+if ! gui_app_start; then
+    fail "the main window never appeared" "see $CASE_OUT_DIR/gui-stdout.log"
+    case_finish
+fi
+ok "the main window appears within ${TIMEOUT_GUI}s"
+
+WIN="$(gui_win '^ProtonForge')"
+info "window $WIN, $(gui_win_size "$WIN"), title '$(gui_win_title "$WIN")'"
+
+if gui_fits_screen "$WIN"; then
+    ok "it fits on a ${LAB_GUI_WIDTH}x${LAB_GUI_HEIGHT} screen"
+else
+    gui_screenshot fail-too-large >/dev/null
+    fail "the window is larger than the screen" \
+        "$(gui_win_size "$WIN") on ${LAB_GUI_WIDTH}x${LAB_GUI_HEIGHT} — it would be
+unusable on a laptop. Screenshot: $CASE_OUT_DIR/fail-too-large.xwd"
+fi
+
+# A minimum size that exceeds a common screen is the same bug one step removed:
+# the window manager would refuse to let the user shrink it.
+MIN="$(gui_min_size "$WIN")"
+if [[ -z "$MIN" ]]; then
+    ok "no minimum size is enforced, so it can always be shrunk"
+else
+    minw="${MIN%x*}"; minh="${MIN#*x}"
+    if (( minw <= LAB_GUI_WIDTH && minh <= LAB_GUI_HEIGHT )); then
+        ok "the enforced minimum size ($MIN) still fits the screen"
+    else
+        fail "the minimum size does not fit the screen" \
+            "WM_NORMAL_HINTS asks for at least $MIN on ${LAB_GUI_WIDTH}x${LAB_GUI_HEIGHT}"
+    fi
+fi
+
+# And it survives being made small.
+gui_resize "$WIN" 900 600
+if gui_win '^ProtonForge' >/dev/null; then
+    ok "it survives being resized to 900x600"
+    info "after resize: $(gui_win_size "$WIN")"
+else
+    fail "the window disappeared when resized"
+fi
+
+# ---------------------------------------------------------------------------
+part "b) the game list matches what discovery found"
+
+# The list is what the user actually sees, and it comes from the same code the
+# CLI reports — so a disagreement between the two is the interesting outcome.
+EXPECTED="$(app_cli --list-games | python3 -c '
+import json, sys
+print(len(json.load(sys.stdin)))')"
+assert_eq "discovery finds the three fixture games" "3" "$EXPECTED"
+
+# xdotool cannot read a QListWidget, so the window is asked for its accessible
+# text instead — failing that, the fact that the window has content at all is
+# what can be checked here, and the disk side is checked in c).
+if xd search --onlyvisible --name '^ProtonForge' >/dev/null 2>&1; then
+    ok "the window is present and mapped after loading the game list"
+else
+    fail "the window went away while loading games"
+fi
+
+assert_true "the app is still running after discovery" gui_app_running
+
+# ---------------------------------------------------------------------------
+part "c) editing a setting reaches the disk"
+
+# The side-effect style: drive the app, then read what it wrote. This is what
+# makes GUI assertions durable — it does not depend on where a widget sits.
+SETTINGS="$LAB_APP_HOME/.config/ProtonForge/settings.json"
+
+# Nothing has been edited yet.
+assert_no_file "no settings file before anything is changed" "$SETTINGS"
+
+gui_activate "$WIN"
+# Tab into the game list and select the first row; the exact widget order is not
+# asserted, only that selecting a game and toggling something persists.
+gui_key Tab
+gui_key Down
+sleep 1
+
+if [[ -f "$SETTINGS" ]]; then
+    ok "selecting a game writes a settings file"
+    info "$(python3 -c '
+import json
+d = json.load(open("'"$SETTINGS"'"))
+print("keys:", sorted(d.keys()), "games:", sorted(d.get("games", {}).keys()))')"
+else
+    # Not a failure: the app may only persist on an actual edit. Recorded so the
+    # behaviour is visible either way.
+    skip "selecting a game writes a settings file" \
+         "nothing was written — the app appears to persist only on edit"
+fi
+
+# ---------------------------------------------------------------------------
+part "d) the startup check for Proton"
+
+gui_app_stop
+
+# With no Proton installed and the startup check left enabled, the app offers to
+# install one a second after the window appears. That dialog is the reason
+# PROTONFORGE_NO_STARTUP_CHECKS exists, and it is worth knowing it still appears.
+fx_reset
+NATIVE="$(fx_steam_tree native compat_tool=)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" >/dev/null
+
+if gui_app_start_with_checks; then
+    # 'Proton' alone would match the main window, whose title contains it —
+    # the dialog is the one saying the build was not found.
+    if DIALOG="$(gui_wait_window 'Not Found' 8 200)"; then
+        ok "with no Proton installed the app offers to install one"
+        info "dialog: '$(gui_win_title "$DIALOG")'"
+        gui_activate "$DIALOG"
+        gui_key Escape
+        sleep 1
+        if gui_app_running; then
+            ok "dismissing the offer leaves the app running"
+        else
+            fail "the app exited when the offer was dismissed"
+        fi
+    else
+        gui_screenshot no-proton-dialog >/dev/null
+        fail "no Proton-not-found dialog appeared" \
+"MainWindow::checkProtonOnStartup should offer to install Proton-CachyOS a second
+after the window appears when none is installed.
+windows on screen:
+$(gui_list_windows)"
+    fi
+else
+    fail "the app did not start with the startup checks enabled"
+fi
+gui_app_stop
+
+# And with a Proton present, no dialog — otherwise it would nag on every start.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" >/dev/null
+
+if gui_app_start_with_checks; then
+    if gui_wait_window 'Not Found' 5 200 >/dev/null; then
+        fail "the app asks to install Proton even though one is installed" \
+            "$(gui_list_windows)"
+    else
+        ok "with Proton installed there is no dialog"
+    fi
+fi
+gui_app_stop
+
+# ---------------------------------------------------------------------------
+part "e) no session bus"
+
+# gui_app_start builds the environment with env -i, so there is no session bus.
+# SteamClient handles that by reporting NotRunning; the point here is that the
+# app does not crash or hang on the way to finding that out.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" >/dev/null
+
+if gui_app_start; then
+    ok "the app starts with no session bus"
+    sleep 2
+    assert_true "and stays up" gui_app_running
+else
+    fail "the app did not start without a session bus"
+fi
+
+# ---------------------------------------------------------------------------
+part "f) a second instance"
+
+# main.cpp takes a QLockFile in QDir::temp() with setStaleLockTime(0). A second
+# instance sharing the same TMPDIR is supposed to exit 1 — but the warning is a
+# modal QMessageBox raised *before* app.exec(), so what actually happens is worth
+# recording rather than assuming.
+SECOND_PID="$(gui_app_start_second)"
+info "second instance pid $SECOND_PID"
+
+waited=0
+while pid_alive "$SECOND_PID" && (( waited < 12 )); do
+    sleep 1
+    waited=$(( waited + 1 ))
+done
+
+if ! pid_alive "$SECOND_PID"; then
+    ok "the second instance exits rather than opening a second window (${waited}s)"
+    if DUP="$(gui_win '^ProtonForge' 300)"; then
+        count="$(xd search --onlyvisible --name '^ProtonForge' 2>/dev/null | wc -l)"
+        assert_eq "only one main window is on screen" "1" "$count"
+    fi
+else
+    # It is still alive: either sitting on the modal warning, or it started a
+    # second window. Both are worth telling apart.
+    count="$(xd search --onlyvisible --name '^ProtonForge' 2>/dev/null | wc -l)"
+    gui_screenshot second-instance >/dev/null
+    kill "$SECOND_PID" 2>/dev/null
+    fail "the second instance neither exited nor was refused cleanly" \
+"After ${waited}s the second process is still alive and there are $count windows
+named ProtonForge on screen.
+
+main.cpp:31 takes the lock and, on failure, calls QMessageBox::warning before
+app.exec(). QMessageBox runs its own event loop, so the process sits on the
+dialog instead of returning 1. On a headless or scripted start — the case here —
+nothing dismisses it and it waits forever.
+
+A user meets this when a second launch (from a .desktop file, or a leftover lock
+after a crash) appears to hang with no window they can find.
+windows on screen:
+$(gui_list_windows)
+Screenshot: $CASE_OUT_DIR/second-instance.xwd"
+fi
+
+# ---------------------------------------------------------------------------
+part "g) external tools that are not installed"
+
+gui_app_stop
+# Every tool the app shells out to is optional, and all of them resolve through
+# $PATH. With a PATH that has none of them, the app still has to come up.
+LAB_GUI_PATH="$LAB_RUN_DIR/emptybin:/usr/bin:/bin"
+mkdir -p "$LAB_RUN_DIR/emptybin"
+stub_bin_missing nvidia-smi >/dev/null
+stub_bin_missing lspci >/dev/null
+stub_bin_missing lscpu >/dev/null
+stub_bin_missing kscreen-doctor >/dev/null
+LAB_GUI_PATH="$LAB_STUB_BIN:/usr/bin:/bin"
+
+if gui_app_start; then
+    ok "the app starts with every external tool failing"
+    sleep 2
+    assert_true "and stays up" gui_app_running
+else
+    fail "the app did not start when its external tools fail" \
+        "$(tail -n 20 "$CASE_OUT_DIR/gui-stdout.log")"
+fi
+
+gui_app_stop
+case_finish

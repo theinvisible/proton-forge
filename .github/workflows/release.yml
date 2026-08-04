@@ -60,9 +60,14 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release ..
           cmake --build . -j$(nproc)
 
+      # The binary was just built in this container against this container's Qt,
+      # so reusing it is correct here. Without the flag build-deb.sh rebuilds from
+      # scratch, because a binary from a different environment carries that
+      # environment's Qt symbol versions and would produce a package that installs
+      # and then refuses to start.
       - name: Build .deb package
         run: |
-          bash build-deb.sh
+          PROTONFORGE_REUSE_BINARY=1 bash build-deb.sh
 
       - name: Verify .deb package was created
         run: |

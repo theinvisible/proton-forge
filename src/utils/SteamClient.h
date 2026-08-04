@@ -23,6 +23,26 @@ State state();
 bool isRunning();   // state() != NotRunning
 bool isReady();     // state() == Ready
 
+// Everything state() looked at on its way to a verdict. Only the verdict
+// matters to the app, but "Steam is not detected as running" is a common and
+// opaque complaint, and without this the reason lives nowhere a user or a test
+// can reach. Exposed through `protonforge --steam-client`.
+struct Diagnostics {
+    State state = State::NotRunning;
+    QString variant;               // "native" | "flatpak" | "none"
+    QString detail;                // which check decided, in words
+    bool dbusConnected = false;
+    bool dbusNameRegistered = false;
+    QString pidFilePath;           // native only
+    bool pidFileExists = false;
+    qint64 pid = -1;               // as read from the pid file, -1 if unusable
+    QString comm;                  // /proc/<pid>/comm, empty when unreadable
+    bool flatpakProbeRan = false;  // flatpak only: `flatpak ps` completed
+    bool flatpakAppListed = false;
+};
+
+Diagnostics diagnose();
+
 // Starts the client detached and silently (tray only). Returns false and fills
 // `error` when no launch method could be determined or the spawn failed.
 bool start(QString* error = nullptr);

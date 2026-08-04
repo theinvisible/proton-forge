@@ -111,6 +111,102 @@ bool isReady()
     return state() == State::Ready;
 }
 
+Diagnostics diagnose()
+{
+    Diagnostics d;
+
+    const SteamPaths::Variant variant = SteamPaths::detectedVariant();
+    switch (variant) {
+    case SteamPaths::Variant::Native:  d.variant = "native";  break;
+    case SteamPaths::Variant::Flatpak: d.variant = "flatpak"; break;
+    case SteamPaths::Variant::None:    d.variant = "none";    break;
+    }
+
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    d.dbusConnected = bus.isConnected();
+    if (d.dbusConnected) {
+        d.dbusNameRegistered = launcherServiceRegistered();
+    }
+
+    if (d.dbusNameRegistered) {
+        d.state = State::Ready;
+        d.detail = QString("%1 is registered on the session bus")
+                       .arg(QString::fromLatin1(kLauncherServiceName));
+        return d;
+    }
+
+    switch (variant) {
+    case SteamPaths::Variant::Native: {
+        d.pidFilePath = SteamPaths::steamPidFilePath();
+        QFile pidFile(d.pidFilePath);
+        d.pidFileExists = pidFile.exists();
+        if (!d.pidFileExists) {
+            d.detail = "no pid file at " + d.pidFilePath;
+            break;
+        }
+        if (!pidFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            d.detail = "pid file is not readable: " + d.pidFilePath;
+            break;
+        }
+        bool ok = false;
+        const qint64 pid = pidFile.readAll().trimmed().toLongLong(&ok);
+        if (!ok || pid <= 0) {
+            d.detail = "pid file does not contain a usable pid";
+            break;
+        }
+        d.pid = pid;
+        QFile comm(QString("/proc/%1/comm").arg(pid));
+        if (!comm.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            d.detail = QString("pid %1 is gone — the pid file is stale").arg(pid);
+            break;
+        }
+        d.comm = QString::fromUtf8(comm.readAll()).trimmed();
+        if (d.comm != QLatin1String("steam")) {
+            d.detail = QString("pid %1 is alive but is '%2', not 'steam' — recycled pid")
+                           .arg(pid).arg(d.comm);
+            break;
+        }
+        d.state = State::Starting;
+        d.detail = QString("pid %1 is alive and named 'steam', but the launcher "
+                           "service is not registered yet").arg(pid);
+        break;
+    }
+
+    case SteamPaths::Variant::Flatpak: {
+        QProcess proc;
+        proc.start("flatpak", {"ps", "--columns=application"});
+        if (!proc.waitForFinished(3000)) {
+            proc.kill();
+            d.detail = "`flatpak ps` did not answer within 3 s";
+            break;
+        }
+        d.flatpakProbeRan = true;
+        const QStringList apps =
+            QString::fromUtf8(proc.readAllStandardOutput()).split('\n', Qt::SkipEmptyParts);
+        for (const QString& app : apps) {
+            if (app.trimmed() == QLatin1String("com.valvesoftware.Steam")) {
+                d.flatpakAppListed = true;
+                break;
+            }
+        }
+        if (d.flatpakAppListed) {
+            d.state = State::Starting;
+            d.detail = "com.valvesoftware.Steam is listed by `flatpak ps`, but the "
+                       "launcher service is not registered yet";
+        } else {
+            d.detail = "com.valvesoftware.Steam is not listed by `flatpak ps`";
+        }
+        break;
+    }
+
+    case SteamPaths::Variant::None:
+        d.detail = "no Steam installation detected";
+        break;
+    }
+
+    return d;
+}
+
 bool start(QString* error)
 {
     const auto fail = [error](const QString& message) {

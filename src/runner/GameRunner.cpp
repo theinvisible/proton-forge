@@ -462,18 +462,26 @@ bool GameRunner::isGameRunning(const Game& game) const
            m_runningGame == game;
 }
 
-bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings)
+GameRunner::LaunchPlan GameRunner::resolveLaunch(const Game& game, const DLSSSettings& settings)
 {
+    return game.isNativeLinux() ? resolveNativeLaunch(game, settings)
+                                : resolveProtonLaunch(game, settings);
+}
+
+GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const DLSSSettings& settings)
+{
+    LaunchPlan plan;
+
     QString protonPath = findProtonPath(game, settings);
     if (protonPath.isEmpty()) {
-        emit launchError(game, "Could not find Proton installation");
-        return false;
+        plan.error = "Could not find Proton installation";
+        return plan;
     }
 
     QString gameExe = findGameExecutable(game);
     if (gameExe.isEmpty()) {
-        emit launchError(game, "Could not find game executable");
-        return false;
+        plan.error = "Could not find game executable";
+        return plan;
     }
 
     QString compatDataPath = getCompatDataPath(game);
@@ -487,9 +495,9 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
     const bool useContainer = !runtimePath.isEmpty();
 
     if (runtimeRequired && !useContainer) {
-        emit launchWarning(game, QString(
+        plan.warning = QString(
             "Steam Linux Runtime not installed — launching %1 without the container. "
-            "Install it via Steam for the intended environment.").arg(game.name()));
+            "Install it via Steam for the intended environment.").arg(game.name());
     }
 
     // Build environment
@@ -549,10 +557,50 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
         }
     }
 
+    // Launch, mirroring how Steam composes the compat tool chain:
+    //   <runtime>/_v2-entry-point --verb=waitforexitandrun -- <proton> waitforexitandrun <exe>
+    // Without a runtime this stays the plain `proton run <exe>`. The verb
+    // matters: --verb=run puts the entry point in batch mode, which is meant
+    // for setup commands rather than the main process.
+    const QString protonExe = protonPath + "/proton";
+
+    if (useContainer) {
+        plan.program = runtimePath + "/_v2-entry-point";
+        plan.args << "--verb=waitforexitandrun" << "--" << protonExe << "waitforexitandrun" << gameExe;
+    } else {
+        plan.program = protonExe;
+        plan.args << "run" << gameExe;
+    }
+    plan.args << EnvBuilder::customGameArgs(settings);
+
+    plan.valid            = true;
+    plan.nativeLinux      = false;
+    plan.protonPath       = protonPath;
+    plan.runtimePath      = runtimePath;
+    plan.runtimeRequired  = runtimeRequired;
+    plan.gameExe          = gameExe;
+    plan.compatDataPath   = compatDataPath;
+    plan.shaderPath       = shaderPath;
+    plan.workingDirectory = QFileInfo(gameExe).absolutePath();
+    plan.env              = env;
+    return plan;
+}
+
+bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings)
+{
+    const LaunchPlan plan = resolveLaunch(game, settings);
+    if (!plan.valid) {
+        emit launchError(game, plan.error);
+        return false;
+    }
+    if (!plan.warning.isEmpty()) {
+        emit launchWarning(game, plan.warning);
+    }
+
     // Create compat data directory if needed
-    QDir().mkpath(compatDataPath);
-    if (!shaderPath.isEmpty()) {
-        QDir().mkpath(shaderPath);
+    QDir().mkpath(plan.compatDataPath);
+    if (!plan.shaderPath.isEmpty()) {
+        QDir().mkpath(plan.shaderPath);
     }
 
     // Clean up previous process
@@ -561,10 +609,8 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
     }
 
     m_process = new QProcess(this);
-    m_process->setProcessEnvironment(env);
-    m_process->setWorkingDirectory(QFileInfo(gameExe).absolutePath());
-
-    QString protonExe = protonPath + "/proton";
+    m_process->setProcessEnvironment(plan.env);
+    m_process->setWorkingDirectory(plan.workingDirectory);
 
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, game](int exitCode, QProcess::ExitStatus) {
@@ -588,23 +634,7 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
         emit launchError(game, errorMsg);
     });
 
-    // Launch, mirroring how Steam composes the compat tool chain:
-    //   <runtime>/_v2-entry-point --verb=waitforexitandrun -- <proton> waitforexitandrun <exe>
-    // Without a runtime this stays the plain `proton run <exe>`. The verb
-    // matters: --verb=run puts the entry point in batch mode, which is meant
-    // for setup commands rather than the main process.
-    QString program;
-    QStringList args;
-
-    if (useContainer) {
-        program = runtimePath + "/_v2-entry-point";
-        args << "--verb=waitforexitandrun" << "--" << protonExe << "waitforexitandrun" << gameExe;
-    } else {
-        program = protonExe;
-        args << "run" << gameExe;
-    }
-    args << EnvBuilder::customGameArgs(settings);
-    m_process->start(program, args);
+    m_process->start(plan.program, plan.args);
 
     if (m_process->waitForStarted(5000)) {
         m_runningGame = game;  // Track running game
@@ -682,12 +712,14 @@ QString GameRunner::findLinuxExecutable(const Game& game)
     return QString();
 }
 
-bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& settings)
+GameRunner::LaunchPlan GameRunner::resolveNativeLaunch(const Game& game, const DLSSSettings& settings)
 {
+    LaunchPlan plan;
+
     QString gameExe = findLinuxExecutable(game);
     if (gameExe.isEmpty()) {
-        emit launchError(game, "Could not find game executable");
-        return false;
+        plan.error = "Could not find game executable";
+        return plan;
     }
 
     // Build environment with DLSS settings
@@ -721,14 +753,36 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
         }
     }
 
+    // Launch the game directly, with any custom game args from launch params
+    plan.valid            = true;
+    plan.nativeLinux      = true;
+    plan.gameExe          = gameExe;
+    plan.program          = gameExe;
+    plan.args             = EnvBuilder::customGameArgs(settings);
+    plan.workingDirectory = QFileInfo(gameExe).absolutePath();
+    plan.env              = env;
+    return plan;
+}
+
+bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& settings)
+{
+    const LaunchPlan plan = resolveLaunch(game, settings);
+    if (!plan.valid) {
+        emit launchError(game, plan.error);
+        return false;
+    }
+    if (!plan.warning.isEmpty()) {
+        emit launchWarning(game, plan.warning);
+    }
+
     // Clean up previous process
     if (m_process) {
         m_process->deleteLater();
     }
 
     m_process = new QProcess(this);
-    m_process->setProcessEnvironment(env);
-    m_process->setWorkingDirectory(QFileInfo(gameExe).absolutePath());
+    m_process->setProcessEnvironment(plan.env);
+    m_process->setWorkingDirectory(plan.workingDirectory);
 
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, game](int exitCode, QProcess::ExitStatus) {
@@ -751,8 +805,7 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
         emit launchError(game, errorMsg);
     });
 
-    // Launch the game directly, with any custom game args from launch params
-    m_process->start(gameExe, EnvBuilder::customGameArgs(settings));
+    m_process->start(plan.program, plan.args);
 
     if (m_process->waitForStarted(5000)) {
         m_runningGame = game;  // Track running game

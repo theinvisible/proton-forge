@@ -218,7 +218,7 @@ void ProtonDBClient::fetchReportFile(const QString& appId, qint64 gameId)
     });
 }
 
-ProtonDBClient::Summary ProtonDBClient::parseSummary(const QByteArray& data) const
+ProtonDBClient::Summary ProtonDBClient::parseSummary(const QByteArray& data)
 {
     Summary summary;
     QJsonDocument doc = QJsonDocument::fromJson(data);
@@ -237,7 +237,7 @@ ProtonDBClient::Summary ProtonDBClient::parseSummary(const QByteArray& data) con
     return summary;
 }
 
-QList<ProtonDBClient::Report> ProtonDBClient::parseReports(const QByteArray& data) const
+QList<ProtonDBClient::Report> ProtonDBClient::parseReports(const QByteArray& data)
 {
     QList<Report> reports;
     const QJsonObject root = QJsonDocument::fromJson(data).object();

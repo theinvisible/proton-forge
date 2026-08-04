@@ -141,7 +141,11 @@ For the automation to work, ensure:
 
 Before creating a new release:
 
-- [ ] All tests pass locally
+- [ ] Unit tests pass: `ctest --test-dir cmake-build-debug --output-on-failure`
+      (configure with `-DPROTONFORGE_BUILD_TESTS=ON` first)
+- [ ] Integration tests pass: `tests/steam-lab/steamlab test`
+      See `TESTS.md`. Three cases fail on purpose — they are the open findings in
+      `TESTS.md §7`; check the list has not grown rather than that it is empty.
 - [ ] CHANGELOG updated (if you have one)
 - [ ] Version bumped in `CMakeLists.txt`
 - [ ] README updated if needed

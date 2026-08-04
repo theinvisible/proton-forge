@@ -477,6 +477,14 @@ void MainWindow::onImportFromSteam()
 
 void MainWindow::checkProtonOnStartup()
 {
+    // Both branches below are unhelpful when the app is being driven rather
+    // than used: the first pops a modal dialog a second after the window
+    // appears, the second reaches out to the GitHub API. Set
+    // PROTONFORGE_NO_STARTUP_CHECKS to skip them.
+    if (!qEnvironmentVariableIsEmpty("PROTONFORGE_NO_STARTUP_CHECKS")) {
+        return;
+    }
+
     ProtonManager& pm = ProtonManager::instance();
 
     if (!pm.isProtonCachyOSInstalled()) {

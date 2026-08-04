@@ -61,5 +61,12 @@ Version.h
 *.bak
 *.backup
 
-# Test executables
-test_hdr
+# Test lab
+#
+# The lab's own configuration — it may hold a GitHub token. Its work directory is
+# outside the repository by design (see PF_LAB_DIR in TESTS.md), so there is
+# nothing else here to ignore.
+tests/steam-lab/lab.env
+
+# Packaging staging directory
+debian-build/

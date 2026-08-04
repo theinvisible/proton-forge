@@ -1,0 +1,20 @@
+# Build dependencies for ProtonForge, one package per line.
+#
+# The single list. build-deb.sh installs from it when it runs as root,
+# .github/workflows/{ci,release}.yml install from it, and the test lab's
+# container images are built from it (tests/steam-lab/docker/distro/Dockerfile).
+# Add a dependency here and all of them follow; add it in one of those places
+# instead and the others break on a distribution you did not try.
+#
+# Debian/Ubuntu package names. Blank lines and # comments are ignored; consume
+# with:
+#     grep -vE '^\s*(#|$)' packaging/build-depends.txt | xargs apt-get install -y
+
+cmake
+build-essential
+qt6-base-dev
+qt6-base-dev-tools
+
+# dpkg-deb for the package, `file` for the architecture check
+dpkg-dev
+file

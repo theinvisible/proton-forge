@@ -8,9 +8,15 @@ on:
 
 jobs:
   build:
+    name: build and unit tests
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:25.10  # Test on latest Ubuntu release
+      # Newest LTS. Note this decides which Qt the uploaded .deb is linked
+      # against, and a package built against a newer Qt installs on an older
+      # system and then refuses to start — so the artifact from this job is only
+      # usable on 26.04 or later. release.yml makes the same choice for the
+      # published package; see the note there.
+      image: ubuntu:26.04
 
     steps:
       - name: Install Git
@@ -21,38 +27,33 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Qt6 and dependencies
+      # Build dependencies come from packaging/build-depends.txt, which the test
+      # lab's container images use as well — one list, so a new dependency cannot
+      # be added here and forgotten there.
+      - name: Install build dependencies
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            cmake \
-            build-essential \
-            qt6-base-dev \
-            qt6-base-dev-tools \
-            libqt6core6 \
-            libqt6widgets6 \
-            libqt6network6 \
-            libqt6concurrent6 \
-            file \
-            dpkg-dev
+          grep -vE '^\s*(#|$)' packaging/build-depends.txt \
+            | xargs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
 
-      - name: Build debug version
+      - name: Build debug version with tests
         run: |
-          mkdir -p cmake-build-debug
-          cd cmake-build-debug
-          cmake -DCMAKE_BUILD_TYPE=Debug ..
-          cmake --build . -j$(nproc)
+          cmake -S . -B cmake-build-debug -DCMAKE_BUILD_TYPE=Debug -DPROTONFORGE_BUILD_TESTS=ON
+          cmake --build cmake-build-debug -j$(nproc)
+
+      - name: Unit tests
+        run: ctest --test-dir cmake-build-debug --output-on-failure
 
       - name: Build release version
         run: |
-          mkdir -p cmake-build-release
-          cd cmake-build-release
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          cmake --build . -j$(nproc)
+          cmake -S . -B cmake-build-release -DCMAKE_BUILD_TYPE=Release
+          cmake --build cmake-build-release -j$(nproc)
 
-      - name: Test .deb package build
+      # The binary was just built in this container, against this container's Qt,
+      # so reusing it is safe here — which is exactly what the flag asserts.
+      - name: Build the .deb package
         run: |
-          bash build-deb.sh
+          PROTONFORGE_REUSE_BINARY=1 bash build-deb.sh
           ls -lh protonforge_*.deb
 
       - name: Upload build artifacts
@@ -63,3 +64,153 @@ jobs:
             cmake-build-release/ProtonForge
             protonforge_*.deb
           retention-days: 7
+
+  # The packaging and Steam-detection tiers of tests/steam-lab, one job per
+  # distribution. LAB_IN_CONTAINER=1 makes the harness run its agent directly
+  # instead of through docker, so this is the same case file a developer runs
+  # locally — no nested containers involved.
+  integration:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # LTS releases only — see the note on LAB_DISTROS_DEFAULT in
+        # tests/steam-lab/lib/docker.sh. Keep this list in step with that one.
+        image:
+          - debian:bookworm
+          - debian:trixie
+          - ubuntu:24.04
+          - ubuntu:26.04
+    container:
+      image: ${{ matrix.image }}
+
+    steps:
+      # git has to be there before checkout, or the action falls back to a
+      # tarball download.
+      - name: Prerequisites
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates python3 desktop-file-utils binutils
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          grep -vE '^\s*(#|$)' packaging/build-depends.txt \
+            | xargs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+
+      - name: Package tests
+        env:
+          LAB_IN_CONTAINER: "1"
+          LAB_DISTROS: ${{ matrix.image }}
+          NO_COLOR: "1"
+        run: tests/steam-lab/steamlab test 20_deb_install
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: steam-lab-${{ strategy.job-index }}
+          path: |
+            ~/.cache/protonforge-testlab/out/junit.xml
+            ~/.cache/protonforge-testlab/out/**/*.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  # The fixture-driven tiers need no container of their own — they need a binary,
+  # a virtual screen and nothing else.
+  behaviour:
+    name: behaviour and GUI
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:26.04
+
+    steps:
+      - name: Prerequisites
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates python3 python3-dbus python3-gi dbus \
+            xvfb openbox xdotool x11-utils x11-apps
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          grep -vE '^\s*(#|$)' packaging/build-depends.txt \
+            | xargs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+
+      - name: Build
+        run: |
+          cmake -S . -B cmake-build-debug -DCMAKE_BUILD_TYPE=Debug -DPROTONFORGE_BUILD_TESTS=ON
+          cmake --build cmake-build-debug -j$(nproc)
+
+      # 80_proton_mgr is left out on purpose: it downloads a Proton build and
+      # GitHub allows 60 unauthenticated API requests an hour per address, which
+      # runners share. Run it locally with LAB_TEST_NETWORK=1.
+      - name: Behaviour tests
+        env:
+          NO_COLOR: "1"
+        run: |
+          tests/steam-lab/steamlab test --keep-going \
+            05_unit 30_discovery 40_launchopts 45_launch 55_steamclient 60_gui
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: steam-lab-behaviour
+          path: |
+            ~/.cache/protonforge-testlab/out/junit.xml
+            ~/.cache/protonforge-testlab/out/**/*.log
+            ~/.cache/protonforge-testlab/out/**/*.xwd
+          retention-days: 7
+          if-no-files-found: warn
+
+  # The Flatpak, built from the working tree rather than from a release tarball.
+  # No container: flatpak needs bubblewrap, and bubblewrap needs privileges a
+  # normal container does not have (see tests/steam-lab/lib/flatpak.sh).
+  flatpak:
+    name: flatpak
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install flatpak
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder python3-yaml
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install build dependencies
+        run: |
+          grep -vE '^\s*(#|$)' packaging/build-depends.txt \
+            | xargs sudo apt-get install -y --no-install-recommends
+
+      - name: Build
+        run: |
+          cmake -S . -B cmake-build-debug -DCMAKE_BUILD_TYPE=Debug
+          cmake --build cmake-build-debug -j$(nproc)
+
+      - name: Flatpak tests
+        env:
+          NO_COLOR: "1"
+        run: tests/steam-lab/steamlab test 70_flatpak
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: steam-lab-flatpak
+          path: |
+            ~/.cache/protonforge-testlab/out/junit.xml
+            ~/.cache/protonforge-testlab/out/**/*.log
+          retention-days: 7
+          if-no-files-found: warn

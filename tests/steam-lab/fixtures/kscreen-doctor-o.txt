@@ -1,0 +1,24 @@
+[01;32mOutput: [0;0m1 eDP-1 00000000-0000-0000-0000-000000000000
+	[01;32menabled[0;0m
+	[01;32mconnected[0;0m
+	[01;32mpriority 1[0;0m
+	[01;33mPanel[0;0m
+	[01;33mreplication source:[0;0m0
+	[01;34mModes: [0;0m 1:[01;32m2560x1600@165.00*[0;0m!  2:2560x1600@60.00  3:1600x1200@59.87  4:1600x1200@164.88  5:1280x1024@59.90  6:1280x1024@164.81  7:1024x768@59.92  8:1024x768@164.78  9:1920x1200@59.88  10:1920x1200@164.87  11:1280x800@59.81  12:1280x800@164.81  13:2560x1440@59.96  14:2560x1440@164.90  15:1920x1080@59.96  16:1920x1080@164.83  17:1600x900@59.95  18:1600x900@164.77  19:1368x768@59.88  20:1368x768@164.98  21:1280x720@59.85  22:1280x720@164.71 
+[01;33m	Custom modes:[0;0m None
+[01;33m	Geometry: [0;0m0,0 2048x1280
+[01;33m	Scale: [0;0m1.25
+[01;33m	Rotation: [0;0m1
+[01;33m	Overscan: [0;0m0
+[01;33m	Vrr: [0;0mincapable
+[01;33m	RgbRange: [0;0mAutomatic
+[01;33m	HDR: [0;0mdisabled
+[01;33m	Wide Color Gamut: [0;0mdisabled
+[01;33m	ICC profile: [0;0mnone
+[01;33m	Color profile source: [0;0msRGB
+[01;33m	Color power preference: [0;0mprefer efficiency and performance
+[01;33m	Brightness control: [0;0msupported, set to 40% and dimming to 100%
+[01;33m	Color resolution: [0;0mautomatic (10), range: [6; 12] bits per color
+[01;33m	Allow EDR: [0;0malways
+[01;33m	Sharpness control: [0;0munsupported
+[01;33m	Automatic brightness: [0;0munsupported

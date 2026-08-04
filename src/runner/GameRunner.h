@@ -3,7 +3,9 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QElapsedTimer>
+#include <QStringList>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
 
@@ -15,11 +17,40 @@ class GameRunner : public QObject {
 public:
     explicit GameRunner(QObject* parent = nullptr);
 
+    // Everything needed to spawn a game, with nothing spawned and nothing
+    // written. resolveLaunch() fills it; launchWithProton()/launchNativeLinux()
+    // then create the directories and start the process. Keeping the two apart
+    // is what makes the launch chain — in particular the Steam Linux Runtime
+    // wrapping, which is easy to get subtly wrong — inspectable without
+    // actually running a game (see `protonforge --launch <appid> --dry-run`).
+    struct LaunchPlan {
+        bool valid = false;
+        QString error;             // set when !valid
+        QString warning;           // non-fatal; the launch still goes ahead
+
+        bool nativeLinux = false;
+        QString protonPath;        // empty on the native path
+        QString runtimePath;       // Steam Linux Runtime dir, empty when unused
+        bool runtimeRequired = false;
+        QString gameExe;
+        QString compatDataPath;    // empty on the native path
+        QString shaderPath;        // only set when the container is used
+
+        QString program;           // what gets exec'd
+        QStringList args;
+        QString workingDirectory;
+        QProcessEnvironment env;
+    };
+
     // Returns true when the launch was *accepted*. For Steam games that still
     // need the client to come up, the game starts later — watch gameStarted().
     bool launch(const Game& game, const DLSSSettings& settings);
     bool isGameRunning(const Game& game) const;
     bool isLaunchPending() const { return m_launchPending; }
+
+    // Pure resolution: no process started, no directory created. Dispatches to
+    // the native or Proton branch on game.isNativeLinux().
+    LaunchPlan resolveLaunch(const Game& game, const DLSSSettings& settings);
 
     // Proton detection
     QString findProtonPath(const Game& game, const DLSSSettings& settings = DLSSSettings());
@@ -49,6 +80,9 @@ private:
     QString findToolByAppId(const QString& appId) const;
     QStringList findExecutables(const QString& installPath) const;
     QString findLinuxExecutable(const Game& game);
+
+    LaunchPlan resolveProtonLaunch(const Game& game, const DLSSSettings& settings);
+    LaunchPlan resolveNativeLaunch(const Game& game, const DLSSSettings& settings);
 
     bool launchNativeLinux(const Game& game, const DLSSSettings& settings);
     bool launchWithProton(const Game& game, const DLSSSettings& settings);

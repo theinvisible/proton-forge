@@ -56,6 +56,17 @@ public:
     // Public ProtonDB page for a game (for "View on ProtonDB" links).
     static QString appUrl(const QString& appId);
 
+    // The three pure functions behind the two fetches above. Public because
+    // they are the parts worth testing — a third-party format we do not control
+    // and a hash we reimplemented from someone else's JavaScript — and none of
+    // them touch the network or this object's state.
+    static Summary parseSummary(const QByteArray& data);
+    static QList<Report> parseReports(const QByteArray& data);
+
+    // Reproduces ProtonDB's client-side gameId derivation from a Steam appId and
+    // the two salts in counts.json. See ProtonDBClient.cpp for the algorithm.
+    static qint64 computeGameId(qint64 appId, qint64 reports, qint64 timestamp);
+
 signals:
     void summaryReady(const QString& appId, const ProtonDBClient::Summary& summary);
     void summaryFailed(const QString& appId);
@@ -75,13 +86,6 @@ private:
 
     // Fetch the report file for an already-computed gameId, parse, and emit.
     void fetchReportFile(const QString& appId, qint64 gameId);
-
-    Summary parseSummary(const QByteArray& data) const;
-    QList<Report> parseReports(const QByteArray& data) const;
-
-    // Reproduces ProtonDB's client-side gameId derivation from a Steam appId and
-    // the two salts in counts.json. See ProtonDBClient.cpp for the algorithm.
-    static qint64 computeGameId(qint64 appId, qint64 reports, qint64 timestamp);
 
     QNetworkAccessManager* m_networkManager;
 };

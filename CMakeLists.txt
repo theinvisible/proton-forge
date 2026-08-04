@@ -9,6 +9,10 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Concurrent DBus)
 
+# Off by default: the Flatpak build and packaging never need it, and enabling it
+# pulls in Qt6::Test. CI turns it on for the debug build.
+option(PROTONFORGE_BUILD_TESTS "Build the unit tests (tests/unit)" OFF)
+
 # Generate version header from template
 configure_file(
     ${CMAKE_SOURCE_DIR}/src/core/Version.h.in
@@ -16,8 +20,11 @@ configure_file(
     @ONLY
 )
 
-set(SOURCES
-    src/main.cpp
+# Everything below the widgets. Split out of the executable so the unit tests
+# can link the real code instead of re-listing its sources — src/ui is what
+# needs a screen, and nothing here does.
+set(CORE_SOURCES
+    src/core/Cli.cpp
     src/core/Game.cpp
     src/core/DLSSSettings.cpp
     src/core/FeatureGate.cpp
@@ -41,6 +48,9 @@ set(SOURCES
     src/network/ImageCache.cpp
     src/network/ProtonDBClient.cpp
     src/runner/GameRunner.cpp
+)
+
+set(UI_SOURCES
     src/ui/MainWindow.cpp
     src/ui/GameListWidget.cpp
     src/ui/DLSSSettingsWidget.cpp
@@ -52,7 +62,8 @@ set(SOURCES
     src/ui/RecommendationsDialog.cpp
 )
 
-set(HEADERS
+set(CORE_HEADERS
+    src/core/Cli.h
     src/core/Game.h
     src/core/DLSSSettings.h
     src/core/FeatureGate.h
@@ -80,6 +91,9 @@ set(HEADERS
     src/network/ImageCache.h
     src/network/ProtonDBClient.h
     src/runner/GameRunner.h
+)
+
+set(UI_HEADERS
     src/ui/MainWindow.h
     src/ui/GameListWidget.h
     src/ui/DLSSSettingsWidget.h
@@ -96,14 +110,17 @@ set(RESOURCES
     resources.qrc
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS} ${RESOURCES})
+add_library(protonforge_core STATIC ${CORE_SOURCES} ${CORE_HEADERS})
 
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(protonforge_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/generated
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE
+# Widgets stays here rather than on the executable: a handful of non-UI classes
+# still reach for it, and splitting that out would be a change to the code
+# rather than to the build.
+target_link_libraries(protonforge_core PUBLIC
     Qt6::Core
     Qt6::Widgets
     Qt6::Network
@@ -111,6 +128,16 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::DBus
     ${CMAKE_DL_LIBS}   # dlopen() for NVML (libnvidia-ml) — loaded at runtime, not linked
 )
+
+add_executable(${PROJECT_NAME} src/main.cpp ${UI_SOURCES} ${UI_HEADERS} ${RESOURCES})
+
+target_link_libraries(${PROJECT_NAME} PRIVATE protonforge_core)
+
+if(PROTONFORGE_BUILD_TESTS)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    enable_testing()
+    add_subdirectory(tests/unit)
+endif()
 
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)
 
