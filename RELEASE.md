@@ -144,8 +144,8 @@ Before creating a new release:
 - [ ] Unit tests pass: `ctest --test-dir cmake-build-debug --output-on-failure`
       (configure with `-DPROTONFORGE_BUILD_TESTS=ON` first)
 - [ ] Integration tests pass: `tests/steam-lab/steamlab test`
-      See `TESTS.md`. Three cases fail on purpose — they are the open findings in
-      `TESTS.md §7`; check the list has not grown rather than that it is empty.
+      See `TESTS.md`. Everything should pass; `70_flatpak` skips itself unless
+      flatpak-builder is installed, and `80_proton_mgr` unless LAB_TEST_NETWORK=1.
 - [ ] CHANGELOG updated (if you have one)
 - [ ] Version bumped in `CMakeLists.txt`
 - [ ] README updated if needed

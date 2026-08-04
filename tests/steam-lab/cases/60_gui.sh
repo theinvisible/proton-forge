@@ -202,46 +202,76 @@ fi
 # ---------------------------------------------------------------------------
 part "f) a second instance"
 
-# main.cpp takes a QLockFile in QDir::temp() with setStaleLockTime(0). A second
-# instance sharing the same TMPDIR is supposed to exit 1 — but the warning is a
-# modal QMessageBox raised *before* app.exec(), so what actually happens is worth
-# recording rather than assuming.
+# main.cpp takes a QLockFile in QDir::temp() with setStaleLockTime(0), so a
+# second instance sharing the same TMPDIR must not open a second window. What it
+# should do instead depends on where it is running, and both halves are checked:
+# on a desktop a warning dialog is right, but QMessageBox runs its own event loop,
+# so anywhere nobody can click it the process has to say so on stderr and leave.
+
+part "   f1) headless, where nothing could dismiss a dialog"
+
+# The GUI started above still holds the lock. This one runs under the offscreen
+# platform with the same TMPDIR.
+SECOND_OUT="$(case_log second-headless)"
+timeout 15 env -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS \
+    HOME="$LAB_APP_HOME" \
+    XDG_CONFIG_HOME="$LAB_APP_HOME/.config" \
+    XDG_CACHE_HOME="$LAB_APP_HOME/.cache" \
+    TMPDIR="$LAB_APP_TMP" \
+    QT_QPA_PLATFORM=offscreen \
+    PROTONFORGE_NO_STARTUP_CHECKS=1 \
+    "$(app_bin)" >"$SECOND_OUT" 2>&1
+SECOND_RC=$?
+
+if (( SECOND_RC == 124 )); then
+    fail "a headless second instance exits instead of hanging" \
+"It was still running after 15s. QMessageBox::warning before app.exec() runs its
+own event loop, so with no one to dismiss it the process waits forever — which is
+what a user sees as a launch that hangs with no window they can find.
+output:
+$(cat "$SECOND_OUT")"
+else
+    ok "a headless second instance exits rather than hanging (rc=$SECOND_RC)"
+    assert_eq "and reports the single-instance refusal in its exit code" "1" "$SECOND_RC"
+    assert_contains "and says why, on stderr" "$SECOND_OUT" 'already running'
+fi
+
+assert_true "the first instance is unaffected" gui_app_running
+
+part "   f2) on a screen, where a dialog is the right answer"
+
 SECOND_PID="$(gui_app_start_second)"
 info "second instance pid $SECOND_PID"
 
-waited=0
-while pid_alive "$SECOND_PID" && (( waited < 12 )); do
-    sleep 1
-    waited=$(( waited + 1 ))
-done
+if DIALOG="$(gui_wait_window 'Already Running' 10 200)"; then
+    ok "it warns that ProtonForge is already running"
+    gui_activate "$DIALOG"
+    gui_key Return
 
-if ! pid_alive "$SECOND_PID"; then
-    ok "the second instance exits rather than opening a second window (${waited}s)"
-    if DUP="$(gui_win '^ProtonForge' 300)"; then
-        count="$(xd search --onlyvisible --name '^ProtonForge' 2>/dev/null | wc -l)"
-        assert_eq "only one main window is on screen" "1" "$count"
+    waited=0
+    while pid_alive "$SECOND_PID" && (( waited < 12 )); do
+        sleep 1
+        waited=$(( waited + 1 ))
+    done
+    if pid_alive "$SECOND_PID"; then
+        kill "$SECOND_PID" 2>/dev/null
+        fail "it did not exit after the warning was dismissed" \
+            "still running ${waited}s after Return
+$(gui_list_windows)"
+    else
+        ok "and exits once the warning is dismissed (${waited}s)"
     fi
 else
-    # It is still alive: either sitting on the modal warning, or it started a
-    # second window. Both are worth telling apart.
-    count="$(xd search --onlyvisible --name '^ProtonForge' 2>/dev/null | wc -l)"
     gui_screenshot second-instance >/dev/null
     kill "$SECOND_PID" 2>/dev/null
-    fail "the second instance neither exited nor was refused cleanly" \
-"After ${waited}s the second process is still alive and there are $count windows
-named ProtonForge on screen.
-
-main.cpp:31 takes the lock and, on failure, calls QMessageBox::warning before
-app.exec(). QMessageBox runs its own event loop, so the process sits on the
-dialog instead of returning 1. On a headless or scripted start — the case here —
-nothing dismisses it and it waits forever.
-
-A user meets this when a second launch (from a .desktop file, or a leftover lock
-after a crash) appears to hang with no window they can find.
-windows on screen:
+    fail "no already-running warning appeared" \
+"windows on screen:
 $(gui_list_windows)
 Screenshot: $CASE_OUT_DIR/second-instance.xwd"
 fi
+
+count="$(xd search --onlyvisible --name '^ProtonForge' 2>/dev/null | wc -l)"
+assert_eq "only one main window is left on screen" "1" "$count"
 
 # ---------------------------------------------------------------------------
 part "g) external tools that are not installed"

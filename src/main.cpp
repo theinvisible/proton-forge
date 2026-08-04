@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFile>
 #include <QMessageBox>
+#include <QGuiApplication>
+#include <QTextStream>
 #include "ui/MainWindow.h"
 #include "ui/OpaqueTooltip.h"
 #include "core/Cli.h"
@@ -40,12 +42,22 @@ int main(int argc, char *argv[])
     lockFile.setStaleLockTime(0);
 
     if (!lockFile.tryLock(100)) {
-        QMessageBox::warning(
-            nullptr,
-            "Application Already Running",
-            "ProtonForge is already running.\n\nOnly one instance of the application can run at a time.",
-            QMessageBox::Ok
-        );
+        const QString message =
+            "ProtonForge is already running.\n\n"
+            "Only one instance of the application can run at a time.";
+
+        // A dialog is the right thing on a desktop and the wrong thing anywhere
+        // else. QMessageBox runs its own event loop, so on a platform where
+        // nobody can click it — a scripted start, a CI run, anything under the
+        // offscreen or minimal plugin — the process would sit on it forever
+        // rather than exiting. Say it on stderr there instead.
+        const QString platform = QGuiApplication::platformName();
+        if (platform == QLatin1String("offscreen") || platform == QLatin1String("minimal")) {
+            QTextStream(stderr) << "protonforge: " << message.simplified() << Qt::endl;
+        } else {
+            QMessageBox::warning(nullptr, "Application Already Running", message,
+                                 QMessageBox::Ok);
+        }
         return 1;
     }
 

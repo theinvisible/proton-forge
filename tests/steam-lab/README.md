@@ -100,7 +100,8 @@ case fails immediately instead of quietly testing nothing.
 | `70_flatpak` | `flatpak build` | the Flatpak and its sandbox |
 | `80_proton_mgr` | `build` + `LAB_TEST_NETWORK=1` | installing Proton from GitHub |
 
-Three cases currently fail on purpose — see [TESTS.md §7](../../TESTS.md#7-findings).
+The three bugs this suite found are fixed — see [TESTS.md §7](../../TESTS.md#7-findings),
+which names the check that caught each one.
 
 ## Troubleshooting
 

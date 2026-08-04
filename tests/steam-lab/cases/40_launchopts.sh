@@ -7,13 +7,12 @@
 # the other half — the path from a stored setting through to what actually lands
 # in Steam's localconfig.vdf, with real files on both ends.
 #
-# Part e) is expected to fail. writeToLocalConfig matches an app section with
-# "\"<appid>\"\s*\{[^}]*\}" (SteamLauncher.cpp:228), and a [^}]* body cannot
-# span a nested {} block — which real localconfig.vdf app sections routinely
-# contain. When the regex misses, the function still rewrites the file with
-# unchanged content and returns true (the write at :254 is unconditional), so
-# the caller is told the settings were applied when nothing happened. See
-# TESTS.md for the write-up.
+# Part e) is where this suite earned its keep. writeToLocalConfig used to find the
+# app's section with a regex whose body was [^}]*, which stops at the first closing
+# brace — and real app sections contain nested blocks. Two of the four shapes in e)
+# failed silently: one wrote the options into the wrong block and left a duplicate
+# behind, the other changed nothing at all while reporting success. Both are fixed
+# (SteamLauncher.cpp counts braces now); e) is the regression test.
 
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/case.sh"
@@ -121,96 +120,110 @@ count="$(grep -c 'LaunchOptions' "$LOCALCONFIG")"
 assert_eq "applying twice leaves one LaunchOptions entry" "1" "$count"
 
 # ---------------------------------------------------------------------------
-part "e) --apply where the regex-based rewrite breaks down"
+part "e) the shapes a real localconfig.vdf comes in"
 
-# writeToLocalConfig finds the app section with "\"<appid>\"\s*\{[^}]*\}"
-# (SteamLauncher.cpp:229). Three things follow from a [^}]* body, and only the
-# first of them happens to work.
+# writeToLocalConfig edits the file in place, finding the app's section by
+# counting braces. It used to use "\"<appid>\"\\s*\\{[^}]*\\}", which cannot work: a
+# [^}]* body stops at the first closing brace, and real app sections contain
+# nested blocks in no guaranteed order. All four shapes below came out wrong in
+# some way, and two of them silently — see TESTS.md §7.
 
-# e1) A nested block *after* LaunchOptions. The match is cut short at the nested
-#     block's closing brace, but LaunchOptions is still inside what was matched,
-#     so the replacement lands correctly. This one is fine — asserted so a
-#     future fix does not regress it.
+# e1) A nested block after LaunchOptions. This one happened to work even before.
 LOCALCONFIG="$(fx_localconfig "$NATIVE" nested=after "$APPID=")"
 app_cli --apply "$APPID" --set enableProtonHDR=true >/dev/null
-assert_contains "a nested block after LaunchOptions still works" "$LOCALCONFIG" 'PROTON_ENABLE_HDR=1'
+assert_contains "a nested block after LaunchOptions: written" "$LOCALCONFIG" 'PROTON_ENABLE_HDR=1'
 assert_contains "and the nested block survives" "$LOCALCONFIG" 'BadgeData'
 
-# e2) The game has no entry in localconfig.vdf at all. This is the ordinary case
-#     for any game whose launch options have never been touched — Steam only
-#     writes a section once there is something to write. The regex finds nothing,
-#     so nothing is changed; but the write at :254 happens regardless of the
-#     match and true is returned either way.
-LOCALCONFIG="$(fx_localconfig "$NATIVE" "570=")"     # a different game only
+# e2) A nested block *before* LaunchOptions. The old code inserted a second
+#     LaunchOptions inside the nested block and left the original behind.
+LOCALCONFIG="$(fx_localconfig "$NATIVE" nested=before "$APPID=")"
+RESULT="$(app_cli --apply "$APPID" --set enableProtonHDR=true)"
+
+assert_contains "a nested block before LaunchOptions: written" "$LOCALCONFIG" 'PROTON_ENABLE_HDR=1'
+assert_json "and the read-back agrees" "$RESULT" 'd["matches"]' "true"
+assert_true "the options are not buried inside the nested block" \
+    python3 -c "
+import re, sys
+text = open('$LOCALCONFIG').read()
+badge = re.search(r'\"BadgeData\"\s*\{(.*?)\}', text, re.S)
+assert badge, 'the nested block disappeared'
+assert 'LaunchOptions' not in badge.group(1), 'LaunchOptions ended up inside BadgeData'
+assert text.count('LaunchOptions') == 1, 'there is more than one LaunchOptions key'
+"
+
+# e3) The game has no section at all — the ordinary case for anything whose
+#     launch options have never been set, because Steam only writes a section
+#     once there is something to write. The old code reported success and changed
+#     nothing.
+LOCALCONFIG="$(fx_localconfig "$NATIVE" "570=")"
 BEFORE="$(cat "$LOCALCONFIG")"
 RESULT="$(app_cli --apply "$APPID" --set enableProtonHDR=true)"
-AFTER="$(cat "$LOCALCONFIG")"
 
-if [[ "$BEFORE" == "$AFTER" && "$(json_get "$RESULT" 'd["applied"]')" == "true" ]]; then
-    fail "a game with no localconfig entry is silently not written" \
-"--apply reported success and the file is byte-identical afterwards.
+assert_ne "the file changed" "$BEFORE" "$(cat "$LOCALCONFIG")"
+assert_contains "a game with no section gets one" "$LOCALCONFIG" "\"$APPID\""
+assert_contains "with the options in it" "$LOCALCONFIG" 'PROTON_ENABLE_HDR=1'
+assert_json "and the read-back agrees" "$RESULT" 'd["matches"]' "true"
+assert_contains "the other game's section is untouched" "$LOCALCONFIG" '"570"'
+assert_true "the file is still balanced VDF" \
+    python3 -c "
+text = open('$LOCALCONFIG').read()
+assert text.count('{') == text.count('}'), 'unbalanced braces'
+"
 
-Any game whose launch options have never been set has no \"$APPID\" section in
-localconfig.vdf, so the regex at SteamLauncher.cpp:229 finds nothing. The
-if(match.hasMatch()) block is skipped, but the write at :254 is unconditional and
-:257 sets success = true — so applySettings() returns true having done nothing.
+# e4) Lower-case keys. Steam's casing has varied between client versions, so the
+#     walk down to the apps block has to be case-insensitive on the way in, not
+#     just on the way out.
+LOCALCONFIG="$(fx_localconfig "$NATIVE" casing=lower "$APPID=")"
+app_cli --apply "$APPID" --set protonUseNTSync=true >/dev/null
+assert_contains "lower-case keys are navigated too" "$LOCALCONFIG" 'PROTON_USE_NTSYNC=1'
 
-A user meets this as: press Apply on a fresh game, ProtonForge says it worked,
-Steam still launches without the options. It is the most likely path through
-this function, not an edge case.
+part "e5) failure is reported as failure"
 
-Fix: create the section when it is absent, and return false when the write
-cannot be made — the caller has no other way to find out.
---- what --apply reported ---
-$RESULT"
-else
-    assert_contains "a game with no localconfig entry gets one" "$LOCALCONFIG" 'PROTON_ENABLE_HDR=1'
-    assert_json "and the read-back agrees" "$RESULT" 'd["matches"]' "true"
-fi
+# The caller tells a user their settings reached Steam. When they did not, it has
+# to be able to find out — there is no other signal.
+fx_reset
+NOUSERDATA="$(fx_steam_tree native)"
+fx_add_game "$NOUSERDATA" "$APPID" name="ELDEN RING" >/dev/null
+rm -rf "$NOUSERDATA/userdata"
 
-# e3) A nested block *before* LaunchOptions. Now LaunchOptions falls outside the
-#     shortened match, so the "add it before the closing brace" branch runs and
-#     inserts it inside the nested block instead.
-LOCALCONFIG="$(fx_localconfig "$NATIVE" nested=before "$APPID=")"
-app_cli --apply "$APPID" --set enableProtonHDR=true >/dev/null
+RESULT="$(app_cli --apply "$APPID" --set enableProtonHDR=true)"
+assert_json "with no userdata at all, applying reports failure" "$RESULT" 'd["applied"]' "false"
+assert_eq "and the exit code says so" "1" "$(app_rc)"
 
-# Whatever else happens, the file has to stay parseable and the options must end
-# up somewhere Steam will read them — i.e. not buried in BadgeData.
-misplaced=0
-python3 - "$LOCALCONFIG" <<'PY' || misplaced=1
-import re, sys
-text = open(sys.argv[1]).read()
-badge = re.search(r'"BadgeData"\s*\{(.*?)\}', text, re.S)
-if badge and "LaunchOptions" in badge.group(1):
-    sys.exit(1)
-if text.count("LaunchOptions") > 1:
-    sys.exit(1)
-sys.exit(0)
-PY
+# A userdata directory with no localconfig.vdf in it is the same story.
+mkdir -p "$NOUSERDATA/userdata/21017850/config"
+RESULT="$(app_cli --apply "$APPID" --set enableProtonHDR=true)"
+assert_json "and with no localconfig.vdf either" "$RESULT" 'd["applied"]' "false"
 
-if (( misplaced )); then
-    fail "a nested block before LaunchOptions misplaces the write" \
-"The options were written into the nested BadgeData block, or written twice.
+part "e6) values that need escaping"
 
-With the nested block ahead of LaunchOptions, the [^}]* match ends before
-LaunchOptions is reached. launchRegex then finds nothing in the captured text, so
-the else branch at SteamLauncher.cpp:245 inserts at appSection.lastIndexOf('}') —
-which is the nested block's closing brace, not the app section's.
+# Custom launch parameters are free-form user text and can contain quotes and
+# backslashes. Written raw they would end the VDF string early and corrupt the
+# file; the round trip through VDFParser is what proves the escaping is right.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" >/dev/null
+LOCALCONFIG="$(fx_localconfig "$NATIVE" "$APPID=")"
 
-Steam will not read a LaunchOptions key from inside BadgeData, and the original
-key is left behind, so the file now has two.
---- the app section as written ---
-$(sed -n '/"'"$APPID"'"/,/^\t\{5\}}/p' "$LOCALCONFIG")"
-else
-    assert_contains "a nested block before LaunchOptions is handled" \
-        "$LOCALCONFIG" 'PROTON_ENABLE_HDR=1'
-fi
+app_cli --apply "$APPID" --set customLaunchParams='%command% -name "My Game" -path C:\dir' >/dev/null
+assert_true "a value with quotes and backslashes stays balanced VDF" \
+    python3 -c "
+text = open('$LOCALCONFIG').read()
+assert text.count('{') == text.count('}'), 'unbalanced braces'
+"
+GAMES="$(app_cli --list-games)"
+READBACK='[g["launchOptions"] for g in d if g["appId"]=="'"$APPID"'"][0]'
+assert_json_contains "and reads back with the quotes intact" "$GAMES" \
+    "$READBACK" '-name "My Game"'
+assert_json_contains "and the backslash intact" "$GAMES" \
+    "$READBACK" 'C:\dir'
 
 # ---------------------------------------------------------------------------
 part "f) the file is never left truncated"
 
-# There is no atomic temp+rename and no backup, so the worst outcome would be a
-# destroyed localconfig.vdf. Whatever else happens, it has to stay parseable.
+# The write goes through QSaveFile, so the original is replaced by a rename rather
+# than being opened for truncation. This is Steam's file and there is no backup: a
+# half-written localconfig.vdf loses every game's settings, not one game's.
 LOCALCONFIG="$(fx_localconfig "$NATIVE" "$APPID=PROTON_LOG=1 %command%" "570=")"
 app_cli --apply "$APPID" --set enableProtonHDR=true >/dev/null
 

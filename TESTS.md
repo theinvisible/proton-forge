@@ -310,37 +310,33 @@ three years later.
 
 ## 7. Findings
 
-Three defects the suite found on its first run, all still open. They are left
-failing on purpose: that is what the tests are for.
+What the suite found on its first run. All of it is fixed; the checks that
+caught each one are named so a regression has an obvious home.
 
-### 1. Applying settings to a game Steam has no entry for silently does nothing
+### 1. Applying settings to a game Steam had no entry for did nothing — fixed
 
-`40_launchopts` — *"a game with no localconfig entry is silently not written"*
+`40_launchopts e3` — *"a game with no section gets one"*
 
-`SteamLauncher::writeToLocalConfig` finds the app's section with
-`"\"<appid>\"\s*\{[^}]*\}"` (`SteamLauncher.cpp:229`). Any game whose launch
-options have never been set has no such section — Steam only writes one once
-there is something to write — so the regex finds nothing and the
-`if (match.hasMatch())` block is skipped. But the write at `:254` is
-unconditional and `:257` sets `success = true` regardless, so `applySettings()`
-returns true having changed nothing.
+`SteamLauncher::writeToLocalConfig` found the app's section with
+`"\"<appid>\"\s*\{[^}]*\}"`. Any game whose launch options had never been set has
+no such section — Steam only writes one once there is something to write — so the
+regex found nothing and the `if (match.hasMatch())` block was skipped. But the
+write was unconditional and `success = true` was set regardless, so
+`applySettings()` returned true having changed nothing.
 
-This is the most likely path through the function, not an edge case. A user meets
-it as: press Apply on a game you have not configured before, ProtonForge says it
-worked, Steam still launches without the options.
+This was the most likely path through the function, not an edge case: press Apply
+on a game you had not configured before, be told it worked, and Steam still
+launched without the options.
 
-**Fix:** create the section when it is absent, and return false when the write
-cannot be made — the caller has no other way to find out.
+### 2. A nested block before `LaunchOptions` corrupted the file — fixed
 
-### 2. A nested block before `LaunchOptions` corrupts the file
+`40_launchopts e2` — *"the options are not buried inside the nested block"*
 
-`40_launchopts` — *"a nested block before LaunchOptions misplaces the write"*
-
-`[^}]*` cannot span a nested `{}` block, and real `localconfig.vdf` app sections
-contain several in no guaranteed order. With one ahead of `LaunchOptions` the
-match ends early, `launchRegex` finds nothing inside it, and the else branch at
-`:245` inserts at `appSection.lastIndexOf('}')` — the nested block's closing
-brace. The observed result:
+`[^}]*` cannot span a nested `{}` block, and real app sections contain several in
+no guaranteed order. With one ahead of `LaunchOptions` the match ended early, the
+"add it before the closing brace" branch ran, and the insert landed on the *nested*
+block's closing brace. The original key was left behind, so the file ended up with
+two — one of them somewhere Steam would never read it:
 
 ```
 "1245620"
@@ -356,28 +352,35 @@ brace. The observed result:
     }
 ```
 
-Steam will not read a `LaunchOptions` key from inside `BadgeData`, the original is
-left behind, and the nesting is wrong — in a file Steam owns, written with no
-atomic rename and no backup.
+### 3. A second instance hung instead of exiting — fixed
 
-**Fix:** brace-count the section, or rewrite the file through `VDFParser`.
+`60_gui f1` — *"a headless second instance exits rather than hanging"*
 
-### 3. A second instance hangs instead of exiting
+`main.cpp` took the `QLockFile` and, on failure, called `QMessageBox::warning`
+before `app.exec()`. `QMessageBox` runs its own event loop, so on a scripted or
+headless start nothing dismissed it and the process waited forever — a launch that
+appears to hang with no window to be found.
 
-`60_gui` — *"the second instance neither exited nor was refused cleanly"*
+### What changed
 
-`main.cpp:31` takes a `QLockFile` and, on failure, calls `QMessageBox::warning`
-before `app.exec()`. `QMessageBox` runs its own event loop, so the process sits on
-the dialog rather than returning 1. On a scripted or headless start nothing
-dismisses it and it waits forever.
+`SteamLauncher::writeToLocalConfig` now finds the section by **counting braces**,
+skipping over quoted strings, and navigates down to the `apps` block one
+case-insensitive level at a time so a same-named key elsewhere cannot be mistaken
+for it. It creates the section when it is absent, escapes the value it writes
+(user launch parameters can contain quotes and backslashes, which written raw
+would end the VDF string early), writes through `QSaveFile` so the original is
+replaced by a rename rather than truncated, and **returns false when it could not
+make the change** — the caller is telling a user their settings reached Steam, and
+that was the missing signal.
 
-A user meets this when a second launch — from a `.desktop` file, or after a crash
-left the lock behind — appears to hang with no window they can find.
+`main.cpp` keeps the dialog where a dialog belongs and prints to stderr instead
+under the `offscreen` and `minimal` platform plugins, where nobody could dismiss
+one.
 
-**Fix:** for the no-display case, print to stderr and return 1 when there is no
-platform plugin that can show a dialog.
+The `40_launchopts e` and `60_gui f` sections cover all four shapes a real
+`localconfig.vdf` comes in, both platforms, and the failure path.
 
-### Also found, and fixed as part of this work
+### Also found, and fixed
 
 * **`build-deb.sh` packaged a binary from the wrong environment.** It reused
   `cmake-build-release/ProtonForge` whenever the file existed, so building inside
@@ -391,8 +394,8 @@ platform plugin that can show a dialog.
   CMake installed the template. Both come from the template now, and
   `20_deb_install` asserts they match.
 * **`Installed-Size` was appended after `Description:`** in the control file,
-  which works only because `Homepage:` happens to follow. It is now inserted
-  before `Homepage:`.
+  which worked only because `Homepage:` happened to follow. It is inserted before
+  `Homepage:` now.
 
 ### Noted, not defects
 
@@ -404,11 +407,14 @@ platform plugin that can show a dialog.
   Also fine today, also worth watching.
 * `desktop-file-validate` draws one hint: `Game` and `Utility` are both main
   categories, so the app may appear twice in a menu.
+* An option the CLI does not recognise falls through to `QApplication`, because Qt
+  accepts its own flags in double-dash form. So a mistyped option opens the GUI
+  rather than being rejected.
 * `ProtonDBClient::Report::tier` is declared, never written and never read.
 * A Steam that has been installed but never signed into is invisible to
   ProtonForge, because the bootstrap creates no `libraryfolders.vdf`. Asserted in
   both `30_discovery` and `50_real_steam` so a change to it is a decision.
-* `ProtonDB`'s `gameId` derivation takes a timestamp that, for every realistic
+* ProtonDB's `gameId` derivation takes a timestamp that, for every realistic
   input, has no effect at all — it only enters as a modulus. Matching the site is
   what matters, so this is pinned rather than corrected.
 
@@ -419,9 +425,9 @@ platform plugin that can show a dialog.
 Honest list of what these tests do **not** cover.
 
 * **A logged-in Steam client**, and therefore `localconfig.vdf` as Steam itself
-  writes it. Findings 1 and 2 above are about a file the lab wrote; proving the
-  fix survives a real Steam restart needs a real client. That is the main thing
-  [§10](#10-phase-2-the-vm-tier) is for.
+  writes it. Findings 1 and 2 were caught against a file the lab wrote, and the
+  fixes are verified the same way; proving they survive a real Steam restart needs
+  a real client. That is the main thing [§11](#11-phase-2-the-vm-tier) is for.
 * **A game actually starting.** `45_launch` verifies the exact command and
   environment down to the last variable, against a Proton that records instead of
   running. Whether that command then renders a frame is untested.

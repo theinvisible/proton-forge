@@ -4,6 +4,7 @@
 #include "utils/SteamPaths.h"
 #include <QDir>
 #include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QTextStream>
@@ -193,72 +194,281 @@ QString SteamLauncher::localConfigPath() const
     return SteamPaths::userDataPath();
 }
 
+namespace {
+
+// --- editing localconfig.vdf in place --------------------------------------
+//
+// This is a surgical text edit rather than a parse-and-rewrite, and deliberately
+// so: localconfig.vdf is Steam's file, it is large, and re-emitting it from a
+// parse tree would mean taking responsibility for every key in it. Only the one
+// value is touched and the rest of the bytes are left alone.
+//
+// It used to be done with the regex "\"<appid>\"\\s*\\{[^}]*\\}", which cannot
+// work: a [^}]* body stops at the first closing brace, and real app sections
+// contain nested blocks (BadgeData and friends) in no guaranteed order. Depending
+// on where the nested block sat, the edit either landed inside it or the section
+// was never found at all — and in the latter case the file was still rewritten
+// and success still reported. Hence brace counting.
+
+// Escape a value for a VDF quoted string, matching what VDFParser un-escapes.
+QString vdfEscape(const QString& value)
+{
+    QString out;
+    out.reserve(value.size() + 8);
+    for (const QChar c : value) {
+        switch (c.unicode()) {
+        case '\\': out += "\\\\"; break;
+        case '"':  out += "\\\""; break;
+        case '\n': out += "\\n";  break;
+        case '\t': out += "\\t";  break;
+        default:   out += c;      break;
+        }
+    }
+    return out;
+}
+
+// End of the quoted string that starts at `quote` (the index of its opening
+// quote), i.e. the index of its closing quote. -1 when unterminated.
+int endOfQuoted(const QString& text, int quote)
+{
+    for (int i = quote + 1; i < text.size(); ++i) {
+        if (text.at(i) == '\\') {
+            ++i;                    // skip the escaped character
+            continue;
+        }
+        if (text.at(i) == '"') {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// The '}' matching the '{' at `open`, skipping braces inside quoted strings.
+// -1 when the block is unbalanced.
+int matchingBrace(const QString& text, int open)
+{
+    int depth = 0;
+    for (int i = open; i < text.size(); ++i) {
+        const QChar c = text.at(i);
+        if (c == '"') {
+            const int end = endOfQuoted(text, i);
+            if (end < 0) {
+                return -1;
+            }
+            i = end;
+            continue;
+        }
+        if (c == '{') {
+            ++depth;
+        } else if (c == '}') {
+            if (--depth == 0) {
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+// Find the quoted key `key` at the top level of the block [from, to), i.e. not
+// inside any nested block, comparing case-insensitively — Steam's key casing has
+// varied between client versions. Returns the index of its opening quote, or -1.
+int findKeyAtDepth(const QString& text, const QString& key, int from, int to)
+{
+    int depth = 0;
+    for (int i = from; i < to && i < text.size(); ++i) {
+        const QChar c = text.at(i);
+        if (c == '"') {
+            const int end = endOfQuoted(text, i);
+            if (end < 0) {
+                return -1;
+            }
+            if (depth == 0
+                && QStringView(text).mid(i + 1, end - i - 1)
+                       .compare(key, Qt::CaseInsensitive) == 0) {
+                return i;
+            }
+            i = end;
+            continue;
+        }
+        if (c == '{') {
+            ++depth;
+        } else if (c == '}') {
+            if (depth == 0) {
+                return -1;      // left the block we were searching
+            }
+            --depth;
+        }
+    }
+    return -1;
+}
+
+// The block belonging to key `key` inside [from, to): returns its '{' and '}' in
+// *open and *close. False when the key or its block is not there.
+bool findBlock(const QString& text, const QString& key, int from, int to,
+               int* open, int* close)
+{
+    const int keyQuote = findKeyAtDepth(text, key, from, to);
+    if (keyQuote < 0) {
+        return false;
+    }
+    const int keyEnd = endOfQuoted(text, keyQuote);
+    if (keyEnd < 0) {
+        return false;
+    }
+    int i = keyEnd + 1;
+    while (i < to && text.at(i).isSpace()) {
+        ++i;
+    }
+    if (i >= to || text.at(i) != '{') {
+        return false;           // the key holds a value, not a block
+    }
+    const int end = matchingBrace(text, i);
+    if (end < 0) {
+        return false;
+    }
+    *open = i;
+    *close = end;
+    return true;
+}
+
+// Indentation of the line the given index sits on, so an inserted key lines up
+// with its neighbours instead of standing out.
+QString indentOf(const QString& text, int index)
+{
+    const int lineStart = text.lastIndexOf('\n', index) + 1;
+    int i = lineStart;
+    while (i < text.size() && (text.at(i) == '\t' || text.at(i) == ' ')) {
+        ++i;
+    }
+    return text.mid(lineStart, i - lineStart);
+}
+
+} // namespace
+
 bool SteamLauncher::writeToLocalConfig(const QString& appId, const QString& launchOptions)
 {
-    // Find user directories in userdata
+    if (appId.isEmpty()) {
+        return false;
+    }
+
     QDir userDataDir(localConfigPath());
     if (!userDataDir.exists()) {
         return false;
     }
 
-    QStringList userDirs = userDataDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    const QStringList userDirs = userDataDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     if (userDirs.isEmpty()) {
         return false;
     }
 
-    bool success = false;
+    // True only once a file has actually been changed. A run that finds nothing
+    // to edit has to report failure — the caller is telling a user their settings
+    // were applied to Steam, and there is no other way for it to find out.
+    bool wrote = false;
 
     for (const QString& userId : userDirs) {
-        QString configPath = localConfigPath() + "/" + userId + "/config/localconfig.vdf";
+        const QString configPath = localConfigPath() + "/" + userId + "/config/localconfig.vdf";
         QFile file(configPath);
-
         if (!file.exists()) {
             continue;
         }
-
-        // Read existing config
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qWarning("SteamLauncher: cannot read %s", qUtf8Printable(configPath));
             continue;
         }
-
         QString content = QTextStream(&file).readAll();
         file.close();
 
-        // Find or create the app entry with LaunchOptions
-        // This is a simplified approach - a full implementation would properly parse and modify VDF
-        QString pattern = QString("\"%1\"\\s*\\{[^}]*\\}").arg(appId);
-        QRegularExpression appRegex(pattern);
-        QRegularExpressionMatch match = appRegex.match(content);
-
-        if (match.hasMatch()) {
-            // App entry exists, update LaunchOptions
-            QString appSection = match.captured(0);
-
-            // Check if LaunchOptions exists
-            QRegularExpression launchRegex("\"LaunchOptions\"\\s*\"[^\"]*\"");
-            if (launchRegex.match(appSection).hasMatch()) {
-                // Update existing LaunchOptions
-                QString replacement = QString("\"LaunchOptions\"\t\t\"%1\"").arg(launchOptions);
-                appSection.replace(launchRegex, replacement);
-            } else {
-                // Add LaunchOptions before closing brace
-                int lastBrace = appSection.lastIndexOf('}');
-                QString insertion = QString("\n\t\t\t\t\t\"LaunchOptions\"\t\t\"%1\"\n\t\t\t\t").arg(launchOptions);
-                appSection.insert(lastBrace, insertion);
+        // Walk down to the apps block. Every level is matched case-insensitively
+        // and only at its own depth, so a key of the same name elsewhere in the
+        // file cannot be mistaken for it.
+        int from = 0;
+        int to = content.size();
+        bool navigated = true;
+        for (const QString& key : {QStringLiteral("UserLocalConfigStore"),
+                                   QStringLiteral("Software"),
+                                   QStringLiteral("Valve"),
+                                   QStringLiteral("Steam"),
+                                   QStringLiteral("apps")}) {
+            int open = 0;
+            int close = 0;
+            if (!findBlock(content, key, from, to, &open, &close)) {
+                qWarning("SteamLauncher: %s has no '%s' block",
+                         qUtf8Printable(configPath), qUtf8Printable(key));
+                navigated = false;
+                break;
             }
+            from = open + 1;
+            to = close;
+        }
+        if (!navigated) {
+            continue;
+        }
+        const int appsFrom = from;
+        const int appsTo = to;
 
-            content.replace(match.captured(0), appSection);
+        const QString escaped = vdfEscape(launchOptions);
+
+        int appOpen = 0;
+        int appClose = 0;
+        if (findBlock(content, appId, appsFrom, appsTo, &appOpen, &appClose)) {
+            // The app has a section. Replace its LaunchOptions if it has one,
+            // otherwise add one — in both cases at the section's own depth, so a
+            // nested block cannot swallow the edit.
+            const int keyQuote = findKeyAtDepth(content, QStringLiteral("LaunchOptions"),
+                                                appOpen + 1, appClose);
+            if (keyQuote >= 0) {
+                const int keyEnd = endOfQuoted(content, keyQuote);
+                int valueQuote = keyEnd + 1;
+                while (valueQuote < appClose && content.at(valueQuote).isSpace()) {
+                    ++valueQuote;
+                }
+                if (valueQuote >= appClose || content.at(valueQuote) != '"') {
+                    qWarning("SteamLauncher: LaunchOptions for %s has no value",
+                             qUtf8Printable(appId));
+                    continue;
+                }
+                const int valueEnd = endOfQuoted(content, valueQuote);
+                if (valueEnd < 0) {
+                    continue;
+                }
+                content.replace(valueQuote, valueEnd - valueQuote + 1, "\"" + escaped + "\"");
+            } else {
+                const QString indent = indentOf(content, appOpen) + "\t";
+                content.insert(appClose,
+                               indent + "\"LaunchOptions\"\t\t\"" + escaped + "\"\n"
+                                   + indentOf(content, appOpen));
+            }
+        } else {
+            // No section for this app. Steam only writes one once there is
+            // something to write, so this is the ordinary case for a game whose
+            // launch options have never been set — it has to be created, not
+            // silently skipped.
+            const QString indent = indentOf(content, appsFrom > 0 ? appsFrom - 1 : 0) + "\t";
+            const QString section = indent + "\"" + appId + "\"\n"
+                                    + indent + "{\n"
+                                    + indent + "\t\"LaunchOptions\"\t\t\"" + escaped + "\"\n"
+                                    + indent + "}\n";
+            content.insert(appsTo, section);
         }
 
-        // Write back
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream(&file) << content;
-            file.close();
-            success = true;
+        // Written through a temporary file and renamed over the original: this is
+        // Steam's file, there is no backup, and a half-written localconfig.vdf
+        // loses every game's settings rather than one game's.
+        QSaveFile out(configPath);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            qWarning("SteamLauncher: cannot write %s", qUtf8Printable(configPath));
+            continue;
         }
+        QTextStream(&out) << content;
+        if (!out.commit()) {
+            qWarning("SteamLauncher: could not commit %s", qUtf8Printable(configPath));
+            continue;
+        }
+        wrote = true;
     }
 
-    return success;
+    return wrote;
 }
 
 namespace {
