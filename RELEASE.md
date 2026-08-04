@@ -146,6 +146,9 @@ Before creating a new release:
 - [ ] Integration tests pass: `tests/steam-lab/steamlab test`
       See `TESTS.md`. Everything should pass; `70_flatpak` skips itself unless
       flatpak-builder is installed, and `80_proton_mgr` unless LAB_TEST_NETWORK=1.
+- [ ] The distribution matrix passes — this one is **not** run by CI, so a release
+      is the point at which it matters:
+      `tests/steam-lab/steamlab test 20_deb_install 50_real_steam`
 - [ ] CHANGELOG updated (if you have one)
 - [ ] Version bumped in `CMakeLists.txt`
 - [ ] README updated if needed

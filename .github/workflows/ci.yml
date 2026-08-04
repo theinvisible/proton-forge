@@ -65,60 +65,17 @@ jobs:
             protonforge_*.deb
           retention-days: 7
 
-  # The packaging and Steam-detection tiers of tests/steam-lab, one job per
-  # distribution. LAB_IN_CONTAINER=1 makes the harness run its agent directly
-  # instead of through docker, so this is the same case file a developer runs
-  # locally — no nested containers involved.
-  integration:
-    name: ${{ matrix.image }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # LTS releases only — see the note on LAB_DISTROS_DEFAULT in
-        # tests/steam-lab/lib/docker.sh. Keep this list in step with that one.
-        image:
-          - debian:bookworm
-          - debian:trixie
-          - ubuntu:24.04
-          - ubuntu:26.04
-    container:
-      image: ${{ matrix.image }}
-
-    steps:
-      # git has to be there before checkout, or the action falls back to a
-      # tarball download.
-      - name: Prerequisites
-        run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            git ca-certificates python3 desktop-file-utils binutils
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          grep -vE '^\s*(#|$)' packaging/build-depends.txt \
-            | xargs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
-
-      - name: Package tests
-        env:
-          LAB_IN_CONTAINER: "1"
-          LAB_DISTROS: ${{ matrix.image }}
-          NO_COLOR: "1"
-        run: tests/steam-lab/steamlab test 20_deb_install
-
-      - name: Upload the report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: steam-lab-${{ strategy.job-index }}
-          path: |
-            ~/.cache/protonforge-testlab/out/junit.xml
-            ~/.cache/protonforge-testlab/out/**/*.log
-          retention-days: 7
-          if-no-files-found: warn
+  # The distribution matrix (20_deb_install, 50_real_steam) is deliberately NOT
+  # here. It builds ProtonForge from source once per target — four full release
+  # builds plus an apt install of the Qt runtime each — which is minutes of CI for
+  # a question that only changes when packaging or a distribution does, not on
+  # every push. It is a local tool:
+  #
+  #     tests/steam-lab/steamlab test 20_deb_install
+  #     LAB_DISTROS=debian:trixie tests/steam-lab/steamlab test 20_deb_install
+  #
+  # Run it before a release (RELEASE.md lists it) and after touching build-deb.sh,
+  # debian/control or packaging/.
 
   # The fixture-driven tiers need no container of their own — they need a binary,
   # a virtual screen and nothing else.

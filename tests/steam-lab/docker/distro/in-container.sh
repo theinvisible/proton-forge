@@ -39,6 +39,39 @@ SRC="${PF_SRC_DIR:-/src}"
 
 BIN=/usr/bin/protonforge
 
+# Who to run the app as.
+#
+# The lab's own images create an unprivileged `labuser` — Steam refuses to run as
+# root outright, so the Steam section needs one. In passthrough mode
+# (LAB_IN_CONTAINER=1) the container is whatever the CI job pulled, a plain
+# debian:bookworm or ubuntu:24.04, and there is no labuser: `runuser -u labuser`
+# then fails with "user does not exist" and every smoke check reports it as the
+# app being broken.
+#
+# So the user is detected, and running as root is an acceptable fallback for the
+# CLI checks — nothing in --version, --help or --steam-info cares. HOME is always
+# a directory we create, because a user's home may not exist either.
+if id labuser >/dev/null 2>&1; then
+    RUN_AS=labuser
+    RUN_HOME=/home/labuser
+else
+    RUN_AS=""
+    RUN_HOME="${TMPDIR:-/tmp}/pf-run-home"
+fi
+mkdir -p "$RUN_HOME"
+[[ -n "$RUN_AS" ]] && chown "$RUN_AS" "$RUN_HOME" 2>/dev/null
+result run_as "${RUN_AS:-root}"
+
+# as_app <home> <command...> -- run something as that user, with that HOME
+as_app() {
+    local home="$1"; shift
+    if [[ -n "$RUN_AS" ]]; then
+        runuser -u "$RUN_AS" -- env QT_QPA_PLATFORM=offscreen HOME="$home" "$@"
+    else
+        env QT_QPA_PLATFORM=offscreen HOME="$home" "$@"
+    fi
+}
+
 # ------------------------------------------------------------ 0) identify
 #
 # Everything is detected, not assumed: the point of the matrix is that these
@@ -197,9 +230,11 @@ if [[ -x "$BIN" ]]; then
     # the GUI on purpose (see cli_unknown_flag below), and a GUI that comes up
     # never returns — so a missing timeout here would hang the whole run instead
     # of failing one check.
+    # The timeout goes *inside* as_app: timeout(1) execs a program and cannot run
+    # a shell function, so `timeout 30 as_app ...` fails with
+    # "failed to run command 'as_app'" — which then reads as the app being broken.
     pf() {
-        timeout 30 runuser -u labuser -- \
-            env QT_QPA_PLATFORM=offscreen HOME=/home/labuser "$@"
+        as_app "$RUN_HOME" timeout 30 "$@"
     }
 
     if out="$(pf "$BIN" --version 2>&1)"; then
@@ -216,7 +251,11 @@ if [[ -x "$BIN" ]]; then
     fi
 
     pf "$BIN" --help >/tmp/help.txt 2>&1
-    result cli_help "$([[ -s /tmp/help.txt ]] && echo ok || echo empty)"
+    if grep -q -- '--steam-info' /tmp/help.txt; then
+        result cli_help ok
+    else
+        result cli_help "no usage text: $(head -c 200 /tmp/help.txt | tr '\n' ' ')"
+    fi
 
     # A malformed --set is a usage error, and so is using it on a command that
     # would ignore it — a typo that looks applied is worse than one that is
@@ -236,8 +275,9 @@ if [[ -x "$BIN" ]]; then
     result cli_unknown_flag "$?"
 
     # With no Steam anywhere, --steam-info still answers and says so.
-    if out="$(timeout 30 runuser -u labuser -- \
-                env QT_QPA_PLATFORM=offscreen HOME=/tmp/emptyhome "$BIN" --steam-info 2>&1)"; then
+    mkdir -p "${TMPDIR:-/tmp}/pf-empty-home"
+    [[ -n "$RUN_AS" ]] && chown "$RUN_AS" "${TMPDIR:-/tmp}/pf-empty-home" 2>/dev/null
+    if out="$(as_app "${TMPDIR:-/tmp}/pf-empty-home" timeout 30 "$BIN" --steam-info 2>&1)"; then
         result cli_steaminfo_rc 0
     else
         result cli_steaminfo_rc "$?"
@@ -262,7 +302,7 @@ fi  # package section
 
 if want steam; then
 
-STEAM_HOME=/home/labuser
+STEAM_HOME="$RUN_HOME"
 
 # The package section ends by purging, so when both sections run the binary is
 # gone by the time we get here. Put it back rather than reordering: purging last
@@ -319,9 +359,8 @@ if [[ -f "$BOOTSTRAP" ]]; then
         "$([[ -f "$BS_HOME/.local/share/Steam/steamapps/libraryfolders.vdf" ]] && echo yes || echo no)"
 
     if [[ -x "$BIN" ]]; then
-        chown -R labuser:labuser "$BS_HOME" 2>/dev/null || true
-        out="$(runuser -u labuser -- env QT_QPA_PLATFORM=offscreen HOME="$BS_HOME" \
-                 "$BIN" --steam-info 2>/dev/null)"
+        [[ -n "$RUN_AS" ]] && chown -R "$RUN_AS" "$BS_HOME" 2>/dev/null
+        out="$(as_app "$BS_HOME" "$BIN" --steam-info 2>/dev/null)"
         result pf_variant_after_bootstrap \
             "$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["variant"])' 2>/dev/null || echo invalid)"
     fi
@@ -331,8 +370,7 @@ fi
 
 # ---- and what ProtonForge makes of the steamcmd tree ----
 if [[ -x "$BIN" && -f "$STEAM_HOME/.local/share/Steam/steamapps/libraryfolders.vdf" ]]; then
-    out="$(runuser -u labuser -- env QT_QPA_PLATFORM=offscreen HOME="$STEAM_HOME" \
-             "$BIN" --steam-info 2>/dev/null)"
+    out="$(as_app "$STEAM_HOME" "$BIN" --steam-info 2>/dev/null)"
     result pf_variant_after_steamcmd \
         "$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["variant"])' 2>/dev/null || echo invalid)"
     result pf_root_after_steamcmd \
@@ -340,8 +378,7 @@ if [[ -x "$BIN" && -f "$STEAM_HOME/.local/share/Steam/steamapps/libraryfolders.v
     result pf_libraries_after_steamcmd \
         "$(printf '%s' "$out" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["libraries"]))' 2>/dev/null || echo invalid)"
 
-    games="$(runuser -u labuser -- env QT_QPA_PLATFORM=offscreen HOME="$STEAM_HOME" \
-               "$BIN" --list-games 2>/dev/null)"
+    games="$(as_app "$STEAM_HOME" "$BIN" --list-games 2>/dev/null)"
     result pf_games_after_steamcmd \
         "$(printf '%s' "$games" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo invalid)"
     result pf_appids_after_steamcmd \

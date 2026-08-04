@@ -462,22 +462,39 @@ Honest list of what these tests do **not** cover.
 
 ## 10. CI
 
-`.github/workflows/ci.yml` has four jobs:
+`.github/workflows/ci.yml` has three jobs:
 
 * **build** — debug with tests, `ctest`, release, and the `.deb`.
-* **integration** — a matrix over the four LTS distributions, each in its own
-  `container:`, running `20_deb_install` with `LAB_IN_CONTAINER=1` so the agent
-  executes directly and no nested docker is involved. It is the same case file a
-  developer runs locally.
-* **behaviour** — the fixture-driven cases plus `60_gui` under Xvfb.
+* **behaviour** — the fixture-driven cases plus `60_gui` under Xvfb. This is the
+  bulk of the coverage and it runs in well under two minutes.
 * **flatpak** — the Flatpak built from the working tree. No `container:`, because
   bubblewrap needs privileges a normal container does not have.
 
-All four upload `junit.xml` and their logs.
+Both test jobs upload `junit.xml` and their logs.
 
-The distribution list exists twice — in the workflow matrix and in
-`lib/docker.sh` — because a GitHub matrix cannot read a bash array. They are a
-handful of lines each; keep them in step.
+**The distribution matrix is deliberately not in CI.** `20_deb_install` builds
+ProtonForge from source once per target — four full release builds, plus an `apt`
+install of the Qt runtime each — and answers a question that only changes when
+packaging or a distribution does, not on every push. It is a local tool:
+
+```bash
+tests/steam-lab/steamlab test 20_deb_install 50_real_steam
+LAB_DISTROS=debian:trixie tests/steam-lab/steamlab test 20_deb_install
+```
+
+Run it before a release (`RELEASE.md` lists it) and after touching
+`build-deb.sh`, `debian/control` or `packaging/`. Because the list lives only in
+`lib/docker.sh` and no workflow matrix mirrors it, adding a target really is one
+line.
+
+For anyone who does want to run it inside a container they already have —
+`LAB_IN_CONTAINER=1` makes the harness execute the agent directly instead of
+through docker, so no nested containers are involved:
+
+```bash
+docker run --rm -v "$PWD:/src:ro" -e LAB_IN_CONTAINER=1 -e LAB_DISTROS=debian:trixie \
+    debian:trixie bash -c 'cp -r /src /b && cd /b && tests/steam-lab/steamlab test 20_deb_install'
+```
 
 ---
 

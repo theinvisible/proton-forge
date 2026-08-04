@@ -90,11 +90,11 @@ case fails immediately instead of quietly testing nothing.
 | Case | Requires | Covers |
 |---|---|---|
 | `05_unit` | `build` | builds everything, folds `ctest` into this report |
-| `20_deb_install` | `docker` | the `.deb` on four LTS distributions |
+| `20_deb_install` | `docker` | the `.deb` on four LTS distributions — **local only**, not in CI |
 | `30_discovery` | `build` | Steam detection and game discovery |
 | `40_launchopts` | `build` | settings ↔ launch options ↔ `localconfig.vdf` |
 | `45_launch` | `build` | the launch chain, incl. the Steam Linux Runtime |
-| `50_real_steam` | `docker` | real Steam files vs what the app looks for |
+| `50_real_steam` | `docker` | real Steam files vs what the app looks for — **local only** |
 | `55_steamclient` | `build` | the client state machine, deferred launches |
 | `60_gui` | `gui build` | the real window on Xvfb |
 | `70_flatpak` | `flatpak build` | the Flatpak and its sandbox |
@@ -102,6 +102,10 @@ case fails immediately instead of quietly testing nothing.
 
 The three bugs this suite found are fixed — see [TESTS.md §7](../../TESTS.md#7-findings),
 which names the check that caught each one.
+
+The two `docker` cases compile ProtonForge once per target, so they are not in CI;
+run them before a release and after touching packaging. Everything else runs on
+every push. See [TESTS.md §10](../../TESTS.md#10-ci).
 
 ## Troubleshooting
 
