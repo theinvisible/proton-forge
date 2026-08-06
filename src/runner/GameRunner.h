@@ -36,6 +36,11 @@ public:
         QString compatDataPath;    // empty on the native path
         QString shaderPath;        // only set when the container is used
 
+        // Command prefix the game runs under — MangoHud, and any wrapper the
+        // user put before %command% in their custom params. Already folded into
+        // program/args below; kept separately so a dry run can show the nesting.
+        QStringList wrapper;
+
         QString program;           // what gets exec'd
         QStringList args;
         QString workingDirectory;

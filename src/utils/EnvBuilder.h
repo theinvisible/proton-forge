@@ -35,6 +35,13 @@ public:
     // for passing to the game process on a direct launch.
     static QStringList customGameArgs(const DLSSSettings& settings);
 
+    // The mirror image: tokens *before* "%command%" that are not KEY=VALUE, i.e.
+    // a wrapper command and its arguments ("gamemoderun", "strangle 60", …).
+    // Steam runs these; a direct launch has to prepend them itself or the user's
+    // wrapper silently does nothing. Empty when there is no "%command%" — by
+    // convention the custom params are then env vars only.
+    static QStringList customWrapper(const DLSSSettings& settings);
+
 private:
     static void addEnvVar(QStringList& vars, const QString& key, const QString& value);
     static void addEnvVar(QStringList& vars, const QString& key, int value);

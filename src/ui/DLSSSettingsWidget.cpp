@@ -845,12 +845,15 @@ QGroupBox* DLSSSettingsWidget::createOverlayGroup()
         "and fix compatibility issues in some games.");
     layout->addWidget(m_enableSteamOverlay);
 
-    m_enableMangoHud = new QCheckBox("MangoHud (MANGOHUD)", this);
+    m_enableMangoHud = new QCheckBox("MangoHud", this);
     m_enableMangoHud->setToolTip(
         "Enable MangoHud performance overlay.\n\n"
         "MangoHud displays real-time performance metrics including FPS, CPU/GPU usage, "
         "temperatures, frame times, and more. It is a Vulkan/OpenGL overlay similar to "
         "MSI Afterburner.\n\n"
+        "The game is started through the 'mangohud' command. That is what OpenGL "
+        "titles need — the MANGOHUD=1 variable on its own only enables the Vulkan "
+        "overlay.\n\n"
         "Requires: MangoHud must be installed on your system (mangohud package).");
 
     if (!MangoHudDialog::isMangoHudInstalled()) {

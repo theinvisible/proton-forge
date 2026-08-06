@@ -34,6 +34,12 @@ private slots:
     void customGameArgs_data();
     void customGameArgs();
     void environmentCarriesTheSameVariables();
+    void mangoHudIsAWrapperNotAVariable();
+    void mangoHudFollowsEveryEnvVar();
+    void mangoHudWrapsAUserWrapper();
+    void legacyMangoHudVariableStillParses();
+    void customWrapper_data();
+    void customWrapper();
 
 private:
     // parseLaunchOptions folds unrecognised tokens into customParams, which the
@@ -76,7 +82,9 @@ void TstEnvBuilder::emitsKnownVariables_data()
     QTest::newRow("ntsync")          << "protonUseNTSync"         << "PROTON_USE_NTSYNC=1";
     QTest::newRow("d7vk")            << "protonUseD7VK"           << "PROTON_USE_D7VK=1";
     QTest::newRow("proton log")      << "protonLog"               << "PROTON_LOG=1";
-    QTest::newRow("mangohud")        << "enableMangoHud"          << "MANGOHUD=1";
+    // Not an env var: MANGOHUD=1 only enables the Vulkan implicit layer, so the
+    // launch options carry the wrapper command that also covers OpenGL.
+    QTest::newRow("mangohud")        << "enableMangoHud"          << "mangohud";
 }
 
 void TstEnvBuilder::emitsKnownVariables()
@@ -360,6 +368,94 @@ void TstEnvBuilder::environmentCarriesTheSameVariables()
     QCOMPARE(env.value("PROTON_USE_NTSYNC"), QString("1"));
     QCOMPARE(env.value("DXVK_FRAME_RATE"), QString("90"));
     QCOMPARE(env.value("VKD3D_FRAME_RATE"), QString("90"));
+}
+
+void TstEnvBuilder::mangoHudIsAWrapperNotAVariable()
+{
+    // MANGOHUD=1 only switches on the Vulkan implicit layer, so an OpenGL game
+    // (Stellaris and every other Clausewitz title) showed no overlay at all.
+    // The launch options carry the wrapper command instead, which preloads
+    // libMangoHud and therefore covers OpenGL too.
+    DLSSSettings settings;
+    settings.enableMangoHud = true;
+
+    const QString built = EnvBuilder::buildLaunchOptions(settings);
+    QVERIFY2(built.contains("mangohud %command%"), qPrintable(built));
+
+    // The environment keeps the variable: it is what the wrapper itself sets,
+    // and it is the fallback that still covers Vulkan if mangohud is missing.
+    QCOMPARE(EnvBuilder::buildEnvironment(settings).value("MANGOHUD"), QString("1"));
+}
+
+void TstEnvBuilder::mangoHudFollowsEveryEnvVar()
+{
+    // Ordering is not cosmetic: "mangohud FOO=1 game" hands FOO=1 to mangohud as
+    // an argument instead of putting it in the game's environment.
+    DLSSSettings settings;
+    settings.enableMangoHud = true;
+    settings.customLaunchParams = "FOO=1";      // extra env vars, no %command%
+
+    const QString built = EnvBuilder::buildLaunchOptions(settings);
+    QVERIFY2(built.indexOf("FOO=1") < built.indexOf("mangohud"), qPrintable(built));
+    QVERIFY2(built.endsWith("mangohud %command%"), qPrintable(built));
+}
+
+void TstEnvBuilder::mangoHudWrapsAUserWrapper()
+{
+    // Two wrappers nest: mangohud outside, the user's own inside, and both in
+    // front of %command%.
+    DLSSSettings settings;
+    settings.enableMangoHud = true;
+    settings.customLaunchParams = "gamemoderun %command%";
+
+    const QString built = EnvBuilder::buildLaunchOptions(settings);
+    QVERIFY2(built.endsWith("mangohud gamemoderun %command%"), qPrintable(built));
+
+    // And it survives a round trip without the token being duplicated or
+    // demoted into customParams.
+    const DLSSSettings parsed = reparse(built, DLSSSettings());
+    QVERIFY(parsed.enableMangoHud);
+    QCOMPARE(parsed.customLaunchParams.count("mangohud"), 0);
+    QCOMPARE(EnvBuilder::buildLaunchOptions(parsed), built);
+}
+
+void TstEnvBuilder::legacyMangoHudVariableStillParses()
+{
+    // Options written by an older ProtonForge, or by hand, say MANGOHUD=1.
+    // Reading them must still tick the box — it just gets rewritten as the
+    // wrapper on the next save.
+    const DLSSSettings parsed = reparse("MANGOHUD=1 %command%", DLSSSettings());
+    QVERIFY(parsed.enableMangoHud);
+    QVERIFY2(!parsed.customLaunchParams.contains("MANGOHUD"),
+             qPrintable(parsed.customLaunchParams));
+
+    QVERIFY(EnvBuilder::buildLaunchOptions(parsed).contains("mangohud %command%"));
+}
+
+void TstEnvBuilder::customWrapper_data()
+{
+    QTest::addColumn<QString>("custom");
+    QTest::addColumn<QStringList>("expected");
+
+    QTest::newRow("empty")           << QString()                     << QStringList{};
+    // No %command%: by convention the whole string is env vars, nothing wraps.
+    QTest::newRow("no %command%")    << "FOO=1 gamemoderun"           << QStringList{};
+    QTest::newRow("bare wrapper")    << "gamemoderun %command%"       << QStringList{"gamemoderun"};
+    QTest::newRow("env then wrapper")<< "FOO=1 gamemoderun %command%" << QStringList{"gamemoderun"};
+    QTest::newRow("wrapper args")    << "strangle 60 %command%"       << QStringList{"strangle", "60"};
+    QTest::newRow("env only")        << "FOO=1 %command%"             << QStringList{};
+    // Trailing game arguments belong to customGameArgs(), not here.
+    QTest::newRow("args after")      << "gamemoderun %command% -novid" << QStringList{"gamemoderun"};
+}
+
+void TstEnvBuilder::customWrapper()
+{
+    QFETCH(QString, custom);
+    QFETCH(QStringList, expected);
+
+    DLSSSettings settings;
+    settings.customLaunchParams = custom;
+    QCOMPARE(EnvBuilder::customWrapper(settings), expected);
 }
 
 QTEST_MAIN(TstEnvBuilder)

@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDirIterator>
+#include <QStandardPaths>
 #include <QTimer>
 
 namespace {
@@ -18,6 +19,50 @@ constexpr int kSteamPollIntervalMs  = 500;
 // alive this long, stop waiting for a signal that may never come.
 constexpr int kSteamLivenessGraceMs = 10000;
 constexpr int kSteamReadyTimeoutMs  = 60000;
+
+// The command prefix the game is launched under, outermost first.
+//
+// MangoHud has to be a wrapper, not just MANGOHUD=1: that variable only enables
+// the Vulkan implicit layer, so an OpenGL game (Stellaris, and every other
+// Clausewitz title) shows nothing. The wrapper script preloads libMangoHud,
+// which is what covers OpenGL.
+//
+// A user wrapper from customLaunchParams ("gamemoderun %command%") goes inside
+// it — Steam honours those and a direct launch used to drop them silently.
+// Resolves the prefix, records it on the plan and folds it into what actually
+// gets exec'd:  wrapper=[mangohud], program=game, args=[-x] -> mangohud game -x
+// Call once, at the end of a resolver, after program and args are final.
+void applyWrapper(GameRunner::LaunchPlan& plan, const DLSSSettings& settings)
+{
+    if (settings.enableMangoHud) {
+        const QString mangohud = QStandardPaths::findExecutable("mangohud");
+        if (mangohud.isEmpty()) {
+            // Not fatal: MANGOHUD=1 is still in the environment, so a Vulkan
+            // game keeps its overlay. Only OpenGL loses out. Append rather than
+            // assign — the Proton path may already have a warning of its own.
+            const QString note =
+                "MangoHud is enabled but the 'mangohud' command was not found in "
+                "PATH — the overlay will only appear in Vulkan games. Install the "
+                "mangohud package for OpenGL titles.";
+            plan.warning = plan.warning.isEmpty() ? note : plan.warning + "\n\n" + note;
+        } else {
+            plan.wrapper << mangohud;
+        }
+    }
+
+    plan.wrapper << EnvBuilder::customWrapper(settings);
+
+    if (plan.wrapper.isEmpty()) {
+        return;
+    }
+
+    QStringList args = plan.wrapper.mid(1);
+    args << plan.program;
+    args << plan.args;
+
+    plan.program = plan.wrapper.first();
+    plan.args    = args;
+}
 
 } // namespace
 
@@ -588,6 +633,10 @@ GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const D
     plan.shaderPath       = shaderPath;
     plan.workingDirectory = QFileInfo(gameExe).absolutePath();
     plan.env              = env;
+
+    // Outermost, in front of the whole compat-tool chain — the same nesting
+    // Steam produces from "mangohud %command%".
+    applyWrapper(plan, settings);
     return plan;
 }
 
@@ -766,6 +815,8 @@ GameRunner::LaunchPlan GameRunner::resolveNativeLaunch(const Game& game, const D
     plan.args             = EnvBuilder::customGameArgs(settings);
     plan.workingDirectory = QFileInfo(gameExe).absolutePath();
     plan.env              = env;
+
+    applyWrapper(plan, settings);
     return plan;
 }
 

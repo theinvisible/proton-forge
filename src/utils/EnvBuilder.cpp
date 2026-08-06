@@ -305,9 +305,16 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         envVars << "PROTON_LOG=1";
     }
 
-    // Overlay
+    // Everything from here on is the command part, which has to follow every
+    // KEY=VALUE token: `mangohud FOO=1 game` would hand FOO=1 to mangohud as an
+    // argument instead of setting it in the environment.
+    QStringList tail;
+
+    // Overlay. MANGOHUD=1 alone only switches on the Vulkan implicit layer;
+    // OpenGL games need libMangoHud preloaded, and the mangohud wrapper script
+    // is what arranges that.
     if (settings.enableMangoHud) {
-        envVars << "MANGOHUD=1";
+        tail << "mangohud";
     }
 
     // Custom launch parameters. If they contain "%command%", the custom text
@@ -315,15 +322,15 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
     // otherwise it is treated as extra env vars before an appended %command%.
     const QString custom = settings.customLaunchParams.trimmed();
     if (custom.contains("%command%")) {
-        envVars << custom;
+        tail << custom;
     } else {
         if (!custom.isEmpty()) {
-            envVars << custom;
+            envVars << custom;   // pure env vars — they belong in front
         }
-        envVars << "%command%";
+        tail << "%command%";
     }
 
-    return envVars.join(" ");
+    return (envVars + tail).join(" ");
 }
 
 QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
@@ -496,6 +503,14 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
             leftover << token;
             continue;
         }
+        // The MangoHud wrapper, as buildLaunchOptions writes it. Consumed rather
+        // than kept as a custom param, or the next rebuild would emit it twice.
+        // Any other wrapper (gamemoderun, …) falls through to `leftover` and is
+        // re-applied from there — see customWrapper().
+        if (token == "mangohud") {
+            s.enableMangoHud = true;
+            continue;
+        }
         int eq = token.indexOf('=');
         if (eq > 0) {
             const QString key = token.left(eq);
@@ -524,4 +539,26 @@ QStringList EnvBuilder::customGameArgs(const DLSSSettings& settings)
     }
     const QString argsPart = custom.mid(cmdIdx + QStringLiteral("%command%").length());
     return tokenize(argsPart);
+}
+
+QStringList EnvBuilder::customWrapper(const DLSSSettings& settings)
+{
+    const QString custom = settings.customLaunchParams;
+    int cmdIdx = custom.indexOf("%command%");
+    if (cmdIdx < 0) {
+        // No %command%: the whole string is env vars, nothing wraps the game.
+        return {};
+    }
+
+    QStringList wrapper;
+    for (const QString& token : tokenize(custom.left(cmdIdx))) {
+        // KEY=VALUE is an environment assignment, applied by buildEnvironment().
+        // Anything else in front of %command% is the wrapper command or one of
+        // its arguments.
+        if (token.indexOf('=') > 0) {
+            continue;
+        }
+        wrapper << token;
+    }
+    return wrapper;
 }

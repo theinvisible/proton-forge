@@ -275,6 +275,61 @@ assert_json "custom arguments are passed to the game, in order" "$PLAN" \
     'd["args"]' '["-novid", "-console"]'
 
 # ---------------------------------------------------------------------------
+part "   g1) the game runs under its wrappers"
+
+# MangoHud has to be a wrapper, not just MANGOHUD=1: that variable only enables
+# the Vulkan implicit layer, so an OpenGL game — Stellaris and every other
+# Clausewitz title — showed no overlay at all. Stubbed rather than taken from
+# the host so the assertion holds on a machine without MangoHud.
+NATIVE_EXE="$NATIVE/steamapps/common/dota 2 beta/dota 2 beta"
+MANGOHUD="$(stub_bin mangohud <<'EOF'
+#!/bin/sh
+exec "$@"
+EOF
+)"
+
+PLAN="$(app_cli --launch 570 --dry-run --set enableMangoHud=true)"
+assert_json "MangoHud wraps the game" "$PLAN" 'd["wrapper"]' "[\"$MANGOHUD\"]"
+assert_json "and is what actually gets exec'd" "$PLAN" 'd["program"]' "$MANGOHUD"
+assert_json "with the game as its first argument" "$PLAN" 'd["args"][0]' "$NATIVE_EXE"
+assert_json "MANGOHUD=1 is still in the environment" "$PLAN" \
+    'd["env"].get("MANGOHUD", "")' "1"
+
+# A wrapper the user put in front of %command% is executed by Steam, so the
+# direct launch has to run it too — it used to be dropped without a word.
+PLAN="$(app_cli --launch 570 --dry-run \
+    --set customLaunchParams="gamemoderun %command% -novid")"
+assert_json "a user's own wrapper is applied as well" "$PLAN" \
+    'd["wrapper"]' '["gamemoderun"]'
+assert_json "the game comes after it" "$PLAN" 'd["args"][0]' "$NATIVE_EXE"
+assert_json "and the game arguments last" "$PLAN" 'd["args"][1]' "-novid"
+
+# Both at once nest, MangoHud outermost — the same order Steam gets from
+# "mangohud gamemoderun %command%".
+PLAN="$(app_cli --launch 570 --dry-run --set enableMangoHud=true \
+    --set customLaunchParams="gamemoderun %command%")"
+assert_json "both wrappers nest, MangoHud outermost" "$PLAN" \
+    'd["wrapper"]' "[\"$MANGOHUD\", \"gamemoderun\"]"
+assert_json "and the game sits inside both" "$PLAN" 'd["args"]' \
+    "[\"gamemoderun\", \"$NATIVE_EXE\"]"
+
+# Without MangoHud installed the game must still start — unwrapped, with an
+# explanation. A missing overlay is not a reason to refuse a launch.
+LAB_APP_PATH="$LAB_STUB_BIN:$LAB_RUN_DIR/emptybin"
+mkdir -p "$LAB_RUN_DIR/emptybin"
+rm -f "$LAB_STUB_BIN/mangohud"
+export LAB_APP_PATH
+
+PLAN="$(app_cli --launch 570 --dry-run --set enableMangoHud=true)"
+assert_json "with no mangohud on PATH the launch still goes ahead" "$PLAN" \
+    'd["valid"]' "true"
+assert_json "unwrapped" "$PLAN" 'd["program"]' "$NATIVE_EXE"
+assert_json_contains "and it says why the overlay may not show" "$PLAN" \
+    'd["warning"]' "mangohud"
+
+unset LAB_APP_PATH
+
+# ---------------------------------------------------------------------------
 part "h) --dry-run really does nothing"
 
 fx_reset

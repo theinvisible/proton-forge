@@ -419,6 +419,14 @@ QJsonObject planToJson(const GameRunner::LaunchPlan& plan)
     o["program"]          = plan.program;
     o["workingDirectory"] = plan.workingDirectory;
 
+    // Already folded into program/args; reported on its own because otherwise
+    // the nesting is only visible as "program is suddenly mangohud".
+    QJsonArray wrapper;
+    for (const QString& part : plan.wrapper) {
+        wrapper.append(part);
+    }
+    o["wrapper"] = wrapper;
+
     QJsonArray args;
     for (const QString& arg : plan.args) {
         args.append(arg);
@@ -434,6 +442,10 @@ QJsonObject planToJson(const GameRunner::LaunchPlan& plan)
         "STEAM_COMPAT_MOUNTS", "STEAM_COMPAT_SHADER_PATH",
         "STEAM_RUNTIME", "SteamAppId", "SteamGameId",
         "LD_PRELOAD", "DISPLAY",
+        // Not injected by GameRunner, but it is the other half of the overlay
+        // story: with the wrapper it is redundant, without it it is all that is
+        // left, and only Vulkan games benefit then.
+        "MANGOHUD",
     });
     return o;
 }
