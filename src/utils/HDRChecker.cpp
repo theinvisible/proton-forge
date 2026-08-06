@@ -1,11 +1,12 @@
 #include "HDRChecker.h"
-#include <QProcess>
+#include "utils/KScreenDoctor.h"
+#include "utils/ProcessRunner.h"
 #include <QProcessEnvironment>
 #include <QFile>
 #include <QTextStream>
 #include <QRegularExpression>
 
-HDRChecker::HDRStatus HDRChecker::checkHDRStatus()
+HDRChecker::HDRStatus HDRChecker::checkHDRStatus(const QString& kscreenOutput)
 {
     HDRStatus status;
     status.de = detectDesktopEnvironment();
@@ -21,7 +22,7 @@ HDRChecker::HDRStatus HDRChecker::checkHDRStatus()
     // Check based on desktop environment
     switch (status.de) {
         case KDE:
-            return checkKDEHDR();
+            return checkKDEHDR(kscreenOutput);
         case Gnome:
             return checkGnomeHDR();
         default:
@@ -66,25 +67,19 @@ bool HDRChecker::isWaylandSession()
     return sessionType == "wayland" || !waylandDisplay.isEmpty();
 }
 
-HDRChecker::HDRStatus HDRChecker::checkKDEHDR()
+HDRChecker::HDRStatus HDRChecker::checkKDEHDR(const QString& kscreenOutput)
 {
     HDRStatus status;
     status.de = KDE;
     status.isSupported = true;
 
-    // Method 1: Try kscreen-doctor to check display configuration
-    QProcess process;
-    process.start("kscreen-doctor", QStringList() << "-o");
-    process.waitForFinished(3000);
+    // Method 1: the kscreen-doctor dump. Use the caller's copy when it has one —
+    // DisplayDetector shares it with KdeDisplayProbe rather than running the tool
+    // twice. A null string means the tool could not be asked (missing, timed out,
+    // non-zero exit), which must not be read as "HDR off": fall through to kwinrc.
+    const QString output = kscreenOutput.isNull() ? KScreenDoctor::run() : kscreenOutput;
 
-    if (process.error() == QProcess::UnknownError) {
-        QString output = process.readAllStandardOutput();
-
-        // Remove ANSI color codes for easier parsing
-        // ANSI codes: \033[XXm or \x1b[XXm
-        output.remove(QRegularExpression("\x1b\\[[0-9;]*m"));
-        output.remove(QRegularExpression("\\033\\[[0-9;]*m"));
-
+    if (!output.isNull()) {
         // Look for HDR status in output
         // Format: "HDR: enabled" or "HDR: disabled"
         QRegularExpression hdrRegex("HDR:\\s*(enabled|disabled|on|off)", QRegularExpression::CaseInsensitiveOption);
@@ -134,13 +129,10 @@ HDRChecker::HDRStatus HDRChecker::checkGnomeHDR()
     status.isSupported = true;
 
     // Check if HDR is enabled in Mutter experimental features
-    QProcess process;
-    process.start("gsettings", QStringList() << "get" << "org.gnome.mutter" << "experimental-features");
-    process.waitForFinished(3000);
+    const QString output =
+        ProcessRunner::run("gsettings", {"get", "org.gnome.mutter", "experimental-features"});
 
-    if (process.error() == QProcess::UnknownError) {
-        QString output = process.readAllStandardOutput().trimmed();
-
+    if (!output.isNull()) {
         // Output format: ['feature1', 'feature2', 'hdr', ...]
         // or: @as []
         if (output.contains("'hdr'") || output.contains("\"hdr\"")) {

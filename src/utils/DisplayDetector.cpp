@@ -2,6 +2,7 @@
 #include "utils/IDisplayProbe.h"
 #include "utils/KdeDisplayProbe.h"
 #include "utils/HDRChecker.h"
+#include "utils/KScreenDoctor.h"
 
 #include <QGuiApplication>
 #include <QScreen>
@@ -46,13 +47,20 @@ QList<DisplayInfo> DisplayDetector::detect()
     }
 
     // ── Desktop-specific enrichment: VRR, per-channel bit depth, native mode ──
+    //
+    // The probe and HDRChecker both read the same `kscreen-doctor -o` dump on
+    // KDE, so it is fetched once here and handed to both. Null means the tool
+    // could not be asked; each consumer then falls back on its own terms.
+    QString kscreenOutput;
     if (std::unique_ptr<IDisplayProbe> probe = probeForCurrentDesktop()) {
-        if (probe->available())
-            probe->enrich(displays);
+        if (probe->available()) {
+            kscreenOutput = KScreenDoctor::run();
+            probe->enrich(displays, kscreenOutput);
+        }
     }
 
     // ── HDR is session-wide; reuse HDRChecker for every display ──
-    const HDRChecker::HDRStatus hdr = HDRChecker::checkHDRStatus();
+    const HDRChecker::HDRStatus hdr = HDRChecker::checkHDRStatus(kscreenOutput);
     for (DisplayInfo& d : displays) {
         d.hdrSupported = hdr.isSupported;
         d.hdrEnabled   = hdr.isEnabled;

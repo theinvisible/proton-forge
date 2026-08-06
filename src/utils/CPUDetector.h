@@ -29,8 +29,8 @@ struct CPUInfo {
     QString microcode;
     QString virtualization;        // "VT-x" / "AMD-V" / empty
 
-    double  baseFreqMHz    = 0.0;  // NOTE: lscpu "CPU min MHz" — shown as "Min Frequency"
-    double  maxFreqMHz     = 0.0;
+    double  baseFreqMHz    = 0.0;  // lowest cpuinfo_min_freq — shown as "Min Frequency"
+    double  maxFreqMHz     = 0.0;  // highest cpuinfo_max_freq across all CPUs
     double  currentFreqMHz = 0.0;  // average across all cores
 
     int     l1dCacheKiB    = 0;
@@ -65,20 +65,31 @@ struct CPUInfo {
     quint64 prevTotalJiffies = 0;
 };
 
-// All-static CPU probe. Portable-first: primary data comes from locale/vendor-neutral
-// /proc and /sys; the few vendor-specific values (turbo path, temperature sensor,
-// hybrid split, RAPL power limits) are read by trying known Intel *and* AMD paths and
-// are simply omitted when unavailable. lscpu is run with LC_ALL=C for stable parsing.
+// All-static CPU probe. Everything comes from /proc and /sys — no subprocess, so
+// nothing here can time out or depend on a tool being installed, and the parsing
+// is locale-independent by construction. The few vendor-specific values (turbo
+// path, temperature sensor, hybrid split, RAPL power limits) are read by trying
+// known Intel *and* AMD paths and are simply omitted when unavailable.
 class CPUDetector {
 public:
-    // Full detection via lscpu + /proc + /sys.
+    // Full detection from /proc + /sys.
     static CPUInfo detect();
 
     // Refresh only the fast-changing values (freq, per-core freq, temps, utilization,
     // load average, governor/turbo). Carries everything else over from `base`.
     static CPUInfo detectDynamic(const CPUInfo& base);
 
+    // Core counts, sockets, NUMA nodes, the frequency envelope and cache sizes —
+    // the part that used to be parsed out of lscpu's output. The roots are
+    // parameters so tests can point at a fixture tree, the same way
+    // GPUDetector::displayDeviceVendors() takes a pciRoot.
+    static void readTopology(CPUInfo& info,
+                             const QString& sysRoot  = QStringLiteral("/sys"),
+                             const QString& procRoot = QStringLiteral("/proc"));
+
 private:
+    static void readCacheSizes(CPUInfo& info, const QString& cpuRoot, const QList<int>& cpus);
+
     static int    parseCacheKiB(const QString& val);
     static double readCurrentFreqMHz();
     static int    readTemperatureCelsius();

@@ -19,8 +19,13 @@ public:
         DesktopEnvironment de = Unknown;
     };
 
-    // Check if HDR is enabled system-wide
-    static HDRStatus checkHDRStatus();
+    // Check if HDR is enabled system-wide.
+    //
+    // `kscreenOutput` lets a caller that already ran `kscreen-doctor -o` hand the
+    // text in rather than have a second copy spawned — DisplayDetector does that,
+    // since KdeDisplayProbe needs the same dump. Omit it and the KDE branch
+    // fetches its own via KScreenDoctor::run().
+    static HDRStatus checkHDRStatus(const QString& kscreenOutput = QString());
 
     // Get current desktop environment
     static DesktopEnvironment detectDesktopEnvironment();
@@ -29,7 +34,7 @@ public:
     static QString getWarningMessage(const HDRStatus& status);
 
 private:
-    static HDRStatus checkKDEHDR();
+    static HDRStatus checkKDEHDR(const QString& kscreenOutput);
     static HDRStatus checkGnomeHDR();
     static bool isWaylandSession();
 };

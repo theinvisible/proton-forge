@@ -420,8 +420,13 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
 void GameRunner::onSteamWaitTick()
 {
     const qint64 waited = m_steamWaitElapsed.elapsed();
-    const bool ready = SteamClient::isReady()
-        || (waited >= kSteamLivenessGraceMs && SteamClient::isRunning());
+
+    // One state query per tick. isReady() and isRunning() each re-run the full
+    // probe, which on a Flatpak Steam install means a blocking `flatpak ps` — at
+    // a 500 ms interval, asking twice doubled that for no new information.
+    const SteamClient::State state = SteamClient::state();
+    const bool ready = state == SteamClient::State::Ready
+        || (waited >= kSteamLivenessGraceMs && state != SteamClient::State::NotRunning);
 
     if (!ready && waited < kSteamReadyTimeoutMs) {
         return;

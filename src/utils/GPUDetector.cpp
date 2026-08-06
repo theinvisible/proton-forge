@@ -4,6 +4,7 @@
 #include "utils/IGpuTelemetrySource.h"
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 
 namespace {
 // Vendor → telemetry source. Add AMD/Intel by implementing IGpuTelemetrySource
@@ -65,44 +66,60 @@ QList<GPUInfo> GPUDetector::detectAllGPUs()
     return allGPUs;
 }
 
-QList<GPUInfo::Vendor> GPUDetector::displayDeviceVendors(const QString& pciRoot)
+QList<PciDisplayDevice> GPUDetector::displayDevices(const QString& pciRoot)
 {
-    QList<GPUInfo::Vendor> vendors;
+    QList<PciDisplayDevice> devices;
 
     const QDir root(pciRoot);
-    const QStringList devices = root.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    for (const QString& device : devices) {
+    const QStringList entries = root.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& entry : entries) {
         // PCI class register. Base class 0x03 is "display controller" and covers
         // VGA compatible (0x0300), 3D controller (0x0302 — how Optimus dGPUs
         // announce themselves) and other display controllers (0x0380).
-        const qint64 classCode = readSysfsHex(root.filePath(device + "/class"));
+        const qint64 classCode = readSysfsHex(root.filePath(entry + "/class"));
         if (classCode < 0 || (classCode >> 16) != 0x03)
             continue;
 
-        const qint64 vendorId = readSysfsHex(root.filePath(device + "/vendor"));
+        const qint64 vendorId = readSysfsHex(root.filePath(entry + "/vendor"));
         if (vendorId < 0)
             continue;
 
-        vendors.append(vendorFromPciId(static_cast<quint16>(vendorId)));
+        PciDisplayDevice device;
+        device.address = entry;
+        device.vendor  = vendorFromPciId(static_cast<quint16>(vendorId));
+
+        const qint64 deviceId = readSysfsHex(root.filePath(entry + "/device"));
+        if (deviceId >= 0)
+            device.deviceId = static_cast<quint16>(deviceId);
+
+        // The `driver` symlink points at the bound driver's directory; its base
+        // name is the driver. Absent when nothing has claimed the device.
+        const QFileInfo driverLink(root.filePath(entry + "/driver"));
+        if (driverLink.exists())
+            device.boundDriver = driverLink.symLinkTarget().isEmpty()
+                                     ? driverLink.fileName()
+                                     : QFileInfo(driverLink.symLinkTarget()).fileName();
+
+        devices.append(device);
     }
 
-    return vendors;
+    return devices;
 }
 
 GPUDetector::HybridGpu GPUDetector::detectHybridGpu(const QString& pciRoot)
 {
-    const QList<GPUInfo::Vendor> vendors = displayDeviceVendors(pciRoot);
-    if (vendors.isEmpty()) {
+    const QList<PciDisplayDevice> devices = displayDevices(pciRoot);
+    if (devices.isEmpty()) {
         // Nothing readable — say so rather than claiming a non-hybrid system.
         return HybridGpu::Unknown;
     }
 
     bool hasNvidia = false;
     bool hasOtherVendor = false;
-    for (GPUInfo::Vendor vendor : vendors) {
-        if (vendor == GPUInfo::NVIDIA) {
+    for (const PciDisplayDevice& device : devices) {
+        if (device.vendor == GPUInfo::NVIDIA) {
             hasNvidia = true;
-        } else if (vendor != GPUInfo::Unknown) {
+        } else if (device.vendor != GPUInfo::Unknown) {
             hasOtherVendor = true;
         }
     }

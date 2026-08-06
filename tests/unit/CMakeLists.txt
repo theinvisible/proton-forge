@@ -14,11 +14,18 @@ set(UNIT_TESTS
     tst_launchoptionextractor
     tst_steampaths
     tst_gpudetector
+    tst_cpudetector
+    tst_kscreendoctor
+    tst_processrunner
 )
 
 foreach(test IN LISTS UNIT_TESTS)
     add_executable(${test} ${test}.cpp)
     target_link_libraries(${test} PRIVATE protonforge_core Qt6::Test)
+    # Captured real output of the external tools, shared with the lab's stubs —
+    # one copy, so a test and a stub can never drift apart.
+    target_compile_definitions(${test} PRIVATE
+        PROTONFORGE_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../steam-lab/fixtures")
     add_test(NAME ${test} COMMAND ${test})
     # No display anywhere in CI, and none of these need one.
     set_tests_properties(${test} PROPERTIES

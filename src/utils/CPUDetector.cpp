@@ -1,10 +1,9 @@
 #include "CPUDetector.h"
 #include <QDir>
 #include <QFile>
-#include <QProcess>
-#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSet>
+#include <QSysInfo>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small helpers
@@ -166,6 +165,139 @@ bool CPUDetector::readAggregateJiffies(quint64& idle, quint64& total)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Topology, frequency envelope and caches — everything lscpu used to be run for
+// ─────────────────────────────────────────────────────────────────────────────
+
+void CPUDetector::readCacheSizes(CPUInfo& info, const QString& cpuRoot, const QList<int>& cpus)
+{
+    // Report the total per level the way lscpu does — and note that summing
+    // requires visiting the instances individually: on a hybrid CPU they differ
+    // in size (P cores 48K L1d, E cores 32K), so counting one and multiplying
+    // would be wrong. Two CPUs sharing a cache report the same shared_cpu_list,
+    // which is what deduplicates them here.
+    QSet<QString> seen;
+    int l1d = 0, l1i = 0, l2 = 0, l3 = 0;
+
+    for (int cpu : cpus) {
+        const QString cacheRoot = QString("%1/cpu%2/cache").arg(cpuRoot).arg(cpu);
+        const QStringList indices =
+            QDir(cacheRoot).entryList({"index*"}, QDir::Dirs | QDir::NoDotAndDotDot);
+
+        for (const QString& entry : indices) {
+            const QString dir   = cacheRoot + "/" + entry + "/";
+            const QString level = readSysFile(dir + "level");
+            const QString type  = readSysFile(dir + "type");
+            const QString size  = readSysFile(dir + "size");
+            if (level.isEmpty() || size.isEmpty())
+                continue;
+
+            // Without shared_cpu_list every CPU's index0 would look identical
+            // and collapse into one instance, so key on the CPU itself instead.
+            const QString shared = readSysFile(dir + "shared_cpu_list");
+            const QString key = level + '/' + type + '/'
+                              + (shared.isEmpty() ? QString::number(cpu) : shared);
+            if (seen.contains(key))
+                continue;
+            seen.insert(key);
+
+            const int kib = parseCacheKiB(size);
+            if (kib <= 0)
+                continue;
+
+            if (level == "1" && type.startsWith("Data", Qt::CaseInsensitive))
+                l1d += kib;
+            else if (level == "1" && type.startsWith("Instruction", Qt::CaseInsensitive))
+                l1i += kib;
+            else if (level == "2")
+                l2 += kib;
+            else if (level == "3")
+                l3 += kib;
+        }
+    }
+
+    if (l1d > 0) info.l1dCacheKiB = l1d;
+    if (l1i > 0) info.l1iCacheKiB = l1i;
+    if (l2  > 0) info.l2CacheKiB  = l2;
+    if (l3  > 0) info.l3CacheKiB  = l3;
+}
+
+void CPUDetector::readTopology(CPUInfo& info, const QString& sysRoot, const QString& procRoot)
+{
+    const QString cpuRoot = sysRoot + "/devices/system/cpu";
+
+    QList<int> cpus = parseCpuList(readSysFile(cpuRoot + "/present"));
+    if (cpus.isEmpty()) {
+        // No sysfs (a sandbox that does not mount it): count the processor
+        // blocks in /proc/cpuinfo so at least the logical count survives.
+        QFile f(procRoot + "/cpuinfo");
+        if (f.open(QIODevice::ReadOnly)) {
+            int n = 0;
+            for (const QString& line : QString::fromLocal8Bit(f.readAll()).split('\n')) {
+                if (line.startsWith("processor", Qt::CaseInsensitive) && line.contains(':'))
+                    ++n;
+            }
+            for (int i = 0; i < n; ++i)
+                cpus << i;
+        }
+    }
+    if (cpus.isEmpty())
+        return;
+
+    info.logicalCores = cpus.size();
+
+    // One socket per distinct physical_package_id, one physical core per
+    // distinct (package, core_id) pair — core_id is only unique within a package.
+    QSet<int> packages;
+    QSet<QPair<int, int>> cores;
+    for (int cpu : cpus) {
+        const QString topo = QString("%1/cpu%2/topology/").arg(cpuRoot).arg(cpu);
+        const QString pkg  = readSysFile(topo + "physical_package_id");
+        const QString core = readSysFile(topo + "core_id");
+        if (pkg.isEmpty() || core.isEmpty())
+            continue;
+        packages.insert(pkg.toInt());
+        cores.insert(qMakePair(pkg.toInt(), core.toInt()));
+    }
+    if (!packages.isEmpty())
+        info.sockets = packages.size();
+    if (!cores.isEmpty())
+        info.physicalCores = cores.size();
+
+    // How many logical CPUs share the first core. On hybrid parts cpu0 is a P
+    // core, which is the higher of the two counts — the same number lscpu shows.
+    const QList<int> siblings = parseCpuList(readSysFile(
+        QString("%1/cpu%2/topology/thread_siblings_list").arg(cpuRoot).arg(cpus.first())));
+    if (!siblings.isEmpty())
+        info.threadsPerCore = siblings.size();
+
+    const int nodes = QDir(sysRoot + "/devices/system/node")
+                          .entryList({"node[0-9]*"}, QDir::Dirs | QDir::NoDotAndDotDot).size();
+    if (nodes > 0)
+        info.numaNodes = nodes;
+
+    // The widest envelope any CPU offers. cpu0 alone is not enough: on this
+    // 13th-gen part cpu0 reports 4700 MHz while the favoured P cores reach 4900.
+    double maxKHz = 0.0;
+    double minKHz = 0.0;
+    for (int cpu : cpus) {
+        const QString cf = QString("%1/cpu%2/cpufreq/").arg(cpuRoot).arg(cpu);
+        bool ok = false;
+        const double hi = readSysFile(cf + "cpuinfo_max_freq").toDouble(&ok);
+        if (ok && hi > maxKHz)
+            maxKHz = hi;
+        const double lo = readSysFile(cf + "cpuinfo_min_freq").toDouble(&ok);
+        if (ok && lo > 0.0 && (minKHz == 0.0 || lo < minKHz))
+            minKHz = lo;
+    }
+    if (maxKHz > 0.0)
+        info.maxFreqMHz = maxKHz / 1000.0;
+    if (minKHz > 0.0)
+        info.baseFreqMHz = minKHz / 1000.0;
+
+    readCacheSizes(info, cpuRoot, cpus);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Identity / features from /proc/cpuinfo (locale- and vendor-neutral)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -188,6 +320,7 @@ void CPUDetector::readCpuInfoIdentity(CPUInfo& info)
         const QString val = line.mid(colon + 1).trimmed();
 
         if      (key == "model name" && info.modelName.isEmpty()) info.modelName = val;
+        else if (key == "vendor_id" && info.vendor.isEmpty())     info.vendor    = val;
         else if (key == "cpu family")  info.cpuFamily = val.toInt();
         else if (key == "model")       info.cpuModel  = val.toInt();
         else if (key == "stepping")    info.stepping  = val.toInt();
@@ -312,45 +445,13 @@ CPUInfo CPUDetector::detect()
 {
     CPUInfo info;
 
-    // lscpu with LC_ALL=C → stable English keys and '.' decimals regardless of locale.
-    QProcess proc;
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("LC_ALL", "C");
-    proc.setProcessEnvironment(env);
-    proc.start("lscpu", {});
-    int coresPerSocket = 0;
-    int sockets        = 1;
-    if (proc.waitForFinished(4000)) {
-        const QString output = proc.readAllStandardOutput();
-        for (const QString& line : output.split('\n')) {
-            const int colon = line.indexOf(':');
-            if (colon < 0) continue;
-            const QString key = line.left(colon).trimmed().toLower();
-            const QString val = line.mid(colon + 1).trimmed();
-            if (val.isEmpty()) continue;
+    // Compile-time, no file and no subprocess.
+    info.architecture = QSysInfo::currentCpuArchitecture();
 
-            if      (key == "model name")          info.modelName      = val;
-            else if (key == "vendor id")           info.vendor         = val;
-            else if (key == "architecture")        info.architecture   = val;
-            else if (key == "cpu(s)")              info.logicalCores   = val.toInt();
-            else if (key == "core(s) per socket")  coresPerSocket      = val.toInt();
-            else if (key == "socket(s)")           sockets             = val.toInt();
-            else if (key == "thread(s) per core")  info.threadsPerCore = val.toInt();
-            else if (key == "numa node(s)")        info.numaNodes      = val.toInt();
-            else if (key == "cpu max mhz")         info.maxFreqMHz     = val.toDouble();
-            else if (key == "cpu min mhz")         info.baseFreqMHz    = val.toDouble();
-            else if (key == "l1d cache" || key == "l1d")  info.l1dCacheKiB = parseCacheKiB(val);
-            else if (key == "l1i cache" || key == "l1i")  info.l1iCacheKiB = parseCacheKiB(val);
-            else if (key == "l2 cache"  || key == "l2")   info.l2CacheKiB  = parseCacheKiB(val);
-            else if (key == "l3 cache"  || key == "l3")   info.l3CacheKiB  = parseCacheKiB(val);
-        }
-    }
+    // Cores, sockets, NUMA, frequency envelope, caches.
+    readTopology(info);
 
-    info.sockets = sockets;
-    if (coresPerSocket > 0)
-        info.physicalCores = coresPerSocket * sockets;
-
-    // Identity + instruction sets + model-name fallback (locale/vendor-neutral).
+    // Identity + instruction sets (locale/vendor-neutral).
     readCpuInfoIdentity(info);
 
     // Hybrid P/E, frequency policy, power limits (vendor-aware, graceful when absent).

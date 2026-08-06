@@ -26,7 +26,12 @@ public:
     // in `displays`, matching by connector name. Fields it cannot determine are
     // left untouched so the QScreen baseline survives. Must tolerate being called
     // even when available() is false (should then be a no-op).
-    virtual void enrich(QList<DisplayInfo>& displays) = 0;
+    //
+    // `probeOutput` is the desktop tool's already-captured output — DisplayDetector
+    // fetches it once and shares it with the other consumers instead of every
+    // parser spawning its own copy. A null string means "could not ask": treat it
+    // as no information rather than as a negative answer.
+    virtual void enrich(QList<DisplayInfo>& displays, const QString& probeOutput) = 0;
 };
 
 #endif // IDISPLAYPROBE_H

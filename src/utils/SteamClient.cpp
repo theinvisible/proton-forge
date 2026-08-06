@@ -1,5 +1,6 @@
 #include "SteamClient.h"
 #include "SteamPaths.h"
+#include "utils/ProcessRunner.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -61,13 +62,10 @@ bool nativeClientAlive()
 // written inside the sandbox means nothing on the host. Ask flatpak instead.
 bool flatpakClientAlive()
 {
-    QProcess proc;
-    proc.start("flatpak", {"ps", "--columns=application"});
-    if (!proc.waitForFinished(3000)) {
-        proc.kill();
+    const QString output = ProcessRunner::run("flatpak", {"ps", "--columns=application"});
+    if (output.isNull())
         return false;
-    }
-    const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+
     const QStringList apps = output.split('\n', Qt::SkipEmptyParts);
     for (const QString& app : apps) {
         if (app.trimmed() == "com.valvesoftware.Steam") {
@@ -173,16 +171,13 @@ Diagnostics diagnose()
     }
 
     case SteamPaths::Variant::Flatpak: {
-        QProcess proc;
-        proc.start("flatpak", {"ps", "--columns=application"});
-        if (!proc.waitForFinished(3000)) {
-            proc.kill();
-            d.detail = "`flatpak ps` did not answer within 3 s";
+        const QString output = ProcessRunner::run("flatpak", {"ps", "--columns=application"});
+        if (output.isNull()) {
+            d.detail = "`flatpak ps` did not answer within 3 s, or is unavailable";
             break;
         }
         d.flatpakProbeRan = true;
-        const QStringList apps =
-            QString::fromUtf8(proc.readAllStandardOutput()).split('\n', Qt::SkipEmptyParts);
+        const QStringList apps = output.split('\n', Qt::SkipEmptyParts);
         for (const QString& app : apps) {
             if (app.trimmed() == QLatin1String("com.valvesoftware.Steam")) {
                 d.flatpakAppListed = true;

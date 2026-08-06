@@ -87,22 +87,31 @@ struct GPUInfo {
     QMap<QString, QString> extraData;
 };
 
+// One PCI display-class device as sysfs describes it.
+struct PciDisplayDevice {
+    QString address;                                // domain:bus:slot.func, e.g. "0000:01:00.0"
+    GPUInfo::Vendor vendor = GPUInfo::Unknown;
+    quint16 deviceId = 0;                           // PCI device id, e.g. 0x2d18
+    QString boundDriver;                            // "nvidia", "nouveau", … empty if unbound
+};
+
 class GPUDetector
 {
 public:
-    // Tri-state result of the hybrid-graphics probe. Unknown when lspci is
-    // unavailable or reports no display devices — callers must stay lenient.
+    // Tri-state result of the hybrid-graphics probe. Unknown when sysfs is
+    // unreadable or reports no display devices — callers must stay lenient.
     enum class HybridGpu { Unknown, No, Yes };
 
     static QList<GPUInfo> detectAllGPUs();
 
-    // Vendors of every PCI display-class device the kernel reports, read straight
-    // out of sysfs (`class` + `vendor` per device). Pure file reads: no subprocess,
-    // so unlike the lspci call this replaced it cannot time out and silently report
-    // an empty machine. An empty list means sysfs was unreadable or holds no
-    // display device — callers must treat that as "unknown", not "none".
-    // `pciRoot` exists so tests can point at a fixture tree.
-    static QList<GPUInfo::Vendor> displayDeviceVendors(
+    // Every PCI display-class device the kernel reports, read straight out of
+    // sysfs (`class`, `vendor`, `device` and the `driver` symlink per device).
+    // Pure file reads: no subprocess, so unlike the lspci calls this replaced it
+    // cannot time out and silently report an empty machine. An empty list means
+    // sysfs was unreadable or holds no display device — callers must treat that
+    // as "unknown", not "none". `pciRoot` exists so tests can point at a fixture
+    // tree.
+    static QList<PciDisplayDevice> displayDevices(
         const QString& pciRoot = QStringLiteral("/sys/bus/pci/devices"));
 
     // Overlays driver-direct telemetry onto `info` by routing to the vendor's

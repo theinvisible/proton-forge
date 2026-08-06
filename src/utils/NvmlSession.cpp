@@ -43,10 +43,57 @@ constexpr unsigned NVML_DEVICE_ARCH_ADA       = 8;
 constexpr unsigned NVML_DEVICE_ARCH_HOPPER    = 9;
 constexpr unsigned NVML_DEVICE_ARCH_BLACKWELL = 10;
 
+// Buffer sizes NVML documents for its string getters.
+constexpr unsigned NVML_DEVICE_NAME_BUFFER_SIZE          = 64;
+constexpr unsigned NVML_DEVICE_UUID_BUFFER_SIZE          = 80;
+constexpr unsigned NVML_DEVICE_VBIOS_VERSION_BUFFER_SIZE = 32;
+constexpr unsigned NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE = 80;
+
+// nvmlBrandType_t — the values worth showing as a product brand.
+constexpr unsigned NVML_BRAND_QUADRO      = 1;
+constexpr unsigned NVML_BRAND_TESLA       = 2;
+constexpr unsigned NVML_BRAND_NVS         = 3;
+constexpr unsigned NVML_BRAND_GEFORCE     = 5;
+constexpr unsigned NVML_BRAND_TITAN       = 6;
+constexpr unsigned NVML_BRAND_QUADRO_RTX  = 12;
+constexpr unsigned NVML_BRAND_NVIDIA_RTX  = 13;
+constexpr unsigned NVML_BRAND_NVIDIA      = 14;
+constexpr unsigned NVML_BRAND_GEFORCE_RTX = 15;
+constexpr unsigned NVML_BRAND_TITAN_RTX   = 16;
+
 // nvmlMemory_t (v1): field order is total, free, used.
 struct nvmlMemory_t { unsigned long long total, free, used; };
 // nvmlUtilization_t
 struct nvmlUtilization_t { unsigned int gpu, memory; };
+// nvmlBAR1Memory_t: total, free, used — same shape as nvmlMemory_t.
+struct nvmlBAR1Memory_t { unsigned long long total, free, used; };
+
+// nvmlPciInfo_t. Only busIdLegacy is read, and it has been the first member —
+// offset 0 — in every version of this struct; the tail has been reshuffled and
+// grown across NVML releases (reserved words became busId). The generous padding
+// is there so a newer library writing a larger struct cannot run off the end.
+struct nvmlPciInfo_t {
+    char busIdLegacy[16];       // "0000:01:00.0"
+    unsigned domain, bus, device, pciDeviceId, pciSubSystemId;
+    char tail[128];             // busId + whatever this NVML version appends
+};
+
+QString brandToString(unsigned brand)
+{
+    switch (brand) {
+        case NVML_BRAND_GEFORCE:     return "GeForce";
+        case NVML_BRAND_GEFORCE_RTX: return "GeForce RTX";
+        case NVML_BRAND_QUADRO:      return "Quadro";
+        case NVML_BRAND_QUADRO_RTX:  return "Quadro RTX";
+        case NVML_BRAND_TESLA:       return "Tesla";
+        case NVML_BRAND_TITAN:       return "Titan";
+        case NVML_BRAND_TITAN_RTX:   return "Titan RTX";
+        case NVML_BRAND_NVS:         return "NVS";
+        case NVML_BRAND_NVIDIA:      return "NVIDIA";
+        case NVML_BRAND_NVIDIA_RTX:  return "NVIDIA RTX";
+        default:                     return QString();
+    }
+}
 
 QString archToString(unsigned arch)
 {
@@ -85,6 +132,18 @@ struct NvmlSession::Fns {
     int (*shutdown)();
     int (*handleByPci)(const char*, nvmlDevice_t*);
     int (*handleByIndex)(unsigned, nvmlDevice_t*);
+
+    // Enumeration + static identity — what `nvidia-smi -q` used to be parsed for.
+    int (*deviceCount)(unsigned*);
+    int (*name)(nvmlDevice_t, char*, unsigned);
+    int (*uuid)(nvmlDevice_t, char*, unsigned);
+    int (*vbiosVersion)(nvmlDevice_t, char*, unsigned);
+    int (*driverVersion)(char*, unsigned);
+    int (*cudaDriverVersion)(int*);
+    int (*brand)(nvmlDevice_t, unsigned*);
+    int (*pciInfo)(nvmlDevice_t, nvmlPciInfo_t*);
+    int (*bar1MemInfo)(nvmlDevice_t, nvmlBAR1Memory_t*);
+    int (*displayActive)(nvmlDevice_t, unsigned*);
 
     int (*numGpuCores)(nvmlDevice_t, unsigned*);
     int (*cudaCC)(nvmlDevice_t, int*, int*);
@@ -164,6 +223,17 @@ bool NvmlSession::ensureLoadedLocked()
     f->handleByPci        = reinterpret_cast<int(*)(const char*, nvmlDevice_t*)>(sym("nvmlDeviceGetHandleByPciBusId_v2"));
     f->handleByIndex      = reinterpret_cast<int(*)(unsigned, nvmlDevice_t*)>(sym("nvmlDeviceGetHandleByIndex_v2"));
 
+    f->deviceCount        = reinterpret_cast<int(*)(unsigned*)>(sym("nvmlDeviceGetCount_v2"));
+    f->name               = reinterpret_cast<int(*)(nvmlDevice_t, char*, unsigned)>(sym("nvmlDeviceGetName"));
+    f->uuid               = reinterpret_cast<int(*)(nvmlDevice_t, char*, unsigned)>(sym("nvmlDeviceGetUUID"));
+    f->vbiosVersion       = reinterpret_cast<int(*)(nvmlDevice_t, char*, unsigned)>(sym("nvmlDeviceGetVbiosVersion"));
+    f->driverVersion      = reinterpret_cast<int(*)(char*, unsigned)>(sym("nvmlSystemGetDriverVersion"));
+    f->cudaDriverVersion  = reinterpret_cast<int(*)(int*)>(sym("nvmlSystemGetCudaDriverVersion_v2"));
+    f->brand              = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*)>(sym("nvmlDeviceGetBrand"));
+    f->pciInfo            = reinterpret_cast<int(*)(nvmlDevice_t, nvmlPciInfo_t*)>(sym("nvmlDeviceGetPciInfo_v3"));
+    f->bar1MemInfo        = reinterpret_cast<int(*)(nvmlDevice_t, nvmlBAR1Memory_t*)>(sym("nvmlDeviceGetBAR1MemoryInfo"));
+    f->displayActive      = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*)>(sym("nvmlDeviceGetDisplayActive"));
+
     f->numGpuCores        = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*)>(sym("nvmlDeviceGetNumGpuCores"));
     f->cudaCC             = reinterpret_cast<int(*)(nvmlDevice_t, int*, int*)>(sym("nvmlDeviceGetCudaComputeCapability"));
     f->architecture       = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*)>(sym("nvmlDeviceGetArchitecture"));
@@ -188,7 +258,12 @@ bool NvmlSession::ensureLoadedLocked()
     f->decoderUtil        = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*, unsigned*)>(sym("nvmlDeviceGetDecoderUtilization"));
     f->jpgUtil            = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*, unsigned*)>(sym("nvmlDeviceGetJpgUtilization"));
     f->ofaUtil            = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*, unsigned*)>(sym("nvmlDeviceGetOfaUtilization"));
-    f->throttleReasons    = reinterpret_cast<int(*)(nvmlDevice_t, unsigned long long*)>(sym("nvmlDeviceGetCurrentClocksThrottleReasons"));
+    // "…ThrottleReasons" is the deprecated spelling of "…EventReasons" and
+    // "…FanSpeed_v2" supersedes "…FanSpeed"; prefer the current names and fall
+    // back so older drivers keep working.
+    f->throttleReasons    = reinterpret_cast<int(*)(nvmlDevice_t, unsigned long long*)>(sym("nvmlDeviceGetCurrentClocksEventReasons"));
+    if (!f->throttleReasons)
+        f->throttleReasons = reinterpret_cast<int(*)(nvmlDevice_t, unsigned long long*)>(sym("nvmlDeviceGetCurrentClocksThrottleReasons"));
     f->fanSpeed           = reinterpret_cast<int(*)(nvmlDevice_t, unsigned*)>(sym("nvmlDeviceGetFanSpeed"));
 
     // Only the bootstrap trio is mandatory; every data getter is probed per call
@@ -214,13 +289,120 @@ bool NvmlSession::ensureLoadedLocked()
     return true;
 }
 
+QList<GPUInfo> NvmlSession::enumerate()
+{
+    QMutexLocker lock(&m_mutex);
+    QList<GPUInfo> gpus;
+    if (!ensureLoadedLocked())
+        return gpus;
+
+    const Fns* f = m_fns;
+    if (!f->deviceCount || !f->handleByIndex)
+        return gpus;
+
+    unsigned count = 0;
+    if (f->deviceCount(&count) != NVML_SUCCESS || count == 0)
+        return gpus;
+
+    // System-wide, identical for every device — query once.
+    QString driverVersion;
+    if (f->driverVersion) {
+        char buf[NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE] = {};
+        if (f->driverVersion(buf, sizeof(buf)) == NVML_SUCCESS)
+            driverVersion = QString::fromLatin1(buf);
+    }
+    QString cudaVersion;
+    if (f->cudaDriverVersion) {
+        int cuda = 0;
+        if (f->cudaDriverVersion(&cuda) == NVML_SUCCESS && cuda > 0) {
+            // Encoded as major * 1000 + minor * 10.
+            cudaVersion = QString("%1.%2").arg(cuda / 1000).arg((cuda % 1000) / 10);
+        }
+    }
+
+    for (unsigned i = 0; i < count; ++i) {
+        nvmlDevice_t dev = nullptr;
+        if (f->handleByIndex(i, &dev) != NVML_SUCCESS || !dev)
+            continue;
+
+        GPUInfo info;
+        info.vendor = GPUInfo::NVIDIA;
+        info.index  = static_cast<int>(i);
+        info.driverVersion = driverVersion;
+        info.cudaVersion   = cudaVersion;
+
+        if (f->name) {
+            char buf[NVML_DEVICE_NAME_BUFFER_SIZE] = {};
+            if (f->name(dev, buf, sizeof(buf)) == NVML_SUCCESS)
+                info.name = QString::fromUtf8(buf);
+        }
+        if (f->uuid) {
+            char buf[NVML_DEVICE_UUID_BUFFER_SIZE] = {};
+            if (f->uuid(dev, buf, sizeof(buf)) == NVML_SUCCESS)
+                info.uuid = QString::fromLatin1(buf);
+        }
+        if (f->vbiosVersion) {
+            char buf[NVML_DEVICE_VBIOS_VERSION_BUFFER_SIZE] = {};
+            if (f->vbiosVersion(dev, buf, sizeof(buf)) == NVML_SUCCESS)
+                info.vbiosVersion = QString::fromLatin1(buf);
+        }
+        if (f->pciInfo) {
+            nvmlPciInfo_t pci{};
+            if (f->pciInfo(dev, &pci) == NVML_SUCCESS) {
+                pci.busIdLegacy[sizeof(pci.busIdLegacy) - 1] = '\0';
+                // NVML upper-cases the hex digits; sysfs and /proc use lower
+                // case, and both enrich() and the /proc/driver/nvidia/gpus/…
+                // lookup key on this string.
+                info.pciId = QString::fromLatin1(pci.busIdLegacy).toLower();
+            }
+        }
+        if (f->brand) {
+            unsigned brand = 0;
+            if (f->brand(dev, &brand) == NVML_SUCCESS)
+                info.gpuPartNumber = brandToString(brand);
+        }
+        if (f->bar1MemInfo) {
+            nvmlBAR1Memory_t bar1{};
+            if (f->bar1MemInfo(dev, &bar1) == NVML_SUCCESS && bar1.total > 0)
+                info.bar1TotalMB = static_cast<int>(bar1.total >> 20);
+        }
+        if (f->displayActive) {
+            unsigned active = 0;
+            if (f->displayActive(dev, &active) == NVML_SUCCESS)
+                info.displayConnected = (active != 0);
+        }
+
+        // Live values plus the remaining static ones (architecture, cores,
+        // memory, clocks, PCIe, power, …) — the exact same code enrich() runs.
+        enrichLocked(info);
+
+        // Resizeable BAR means BAR1 was sized to map all of VRAM instead of the
+        // legacy 256 MiB aperture. The old text-parsing path tested
+        // "bar1 >= 16384", which reported ReBAR off on every card with less than
+        // 16 GB of VRAM — including this 8 GB one, where BAR1 is the full 8 GiB.
+        if (info.bar1TotalMB > 0 && info.memoryTotalMB > 0)
+            info.resizeableBarEnabled = info.bar1TotalMB >= (info.memoryTotalMB - 256);
+
+        if (!info.name.isEmpty())
+            gpus.append(info);
+    }
+
+    return gpus;
+}
+
 void NvmlSession::enrich(GPUInfo& info)
 {
     QMutexLocker lock(&m_mutex);
     if (!ensureLoadedLocked())
         return;
+    enrichLocked(info);
+}
 
+void NvmlSession::enrichLocked(GPUInfo& info)
+{
     const Fns* f = m_fns;
+    if (!f)
+        return;
 
     // Resolve the device handle: prefer the PCI bus id so we address the exact
     // card in multi-GPU systems; fall back to the enumeration index.

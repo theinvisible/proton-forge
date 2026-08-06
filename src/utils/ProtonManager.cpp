@@ -8,6 +8,8 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QTimer>
+#include <memory>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QRegularExpression>
@@ -686,20 +688,57 @@ void ProtonManager::extractArchive(const QString& archivePath, const ProtonRelea
     // Extract using tar
     QProcess* process = new QProcess(this);
 
-    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, process, archivePath, release](int exitCode, QProcess::ExitStatus) {
+    // Guaranteed to run exactly once, however the extraction ends. Without this
+    // the install could never finish: only `finished` was connected, and QProcess
+    // does not emit that when the program fails to start — a missing `tar` left
+    // the progress UI waiting forever, as did a wedged one, since there was no
+    // timeout either.
+    // Shared, because all three handlers below hold a copy of `report` and
+    // whichever fires first has to lock the others out.
+    auto done = std::make_shared<bool>(false);
+    auto* watchdog = new QTimer(process);
+    auto report = [this, process, watchdog, done, archivePath, release](bool ok, const QString& detail) {
+        if (*done)
+            return;
+        *done = true;
+        watchdog->stop();
         process->deleteLater();
 
         // Clean up downloaded archive
         QFile::remove(archivePath);
 
-        if (exitCode == 0) {
-            QString name = release.type == ProtonGE ? "Proton-GE" : "Proton-CachyOS";
+        if (ok) {
+            const QString name = release.type == ProtonGE ? "Proton-GE" : "Proton-CachyOS";
             emit installationComplete(true, name + " installed successfully");
         } else {
-            emit installationComplete(false, "Extraction failed: " + process->errorString());
+            emit installationComplete(false, "Extraction failed: " + detail);
+        }
+    };
+
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [process, report](int exitCode, QProcess::ExitStatus status) {
+        const bool ok = status == QProcess::NormalExit && exitCode == 0;
+        report(ok, ok ? QString() : process->errorString());
+    });
+
+    connect(process, &QProcess::errorOccurred, this,
+            [process, report](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            report(false, "could not run tar — is it installed?");
+        } else if (error != QProcess::Crashed) {
+            // Crashes arrive via finished() as well; anything else would not.
+            report(false, process->errorString());
         }
     });
+
+    // Generous: this unpacks a few hundred MB onto whatever disk the user has.
+    // It exists to bound a hang, not to police slow hardware.
+    watchdog->setSingleShot(true);
+    connect(watchdog, &QTimer::timeout, this, [process, report]() {
+        process->kill();
+        report(false, "tar did not finish within 10 minutes");
+    });
+    watchdog->start(10 * 60 * 1000);
 
     // Extract to compatibilitytools.d
     process->setWorkingDirectory(protonCachyOSPath());

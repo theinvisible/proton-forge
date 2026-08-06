@@ -6,7 +6,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QScrollArea>
-#include <QProcess>
+#include <QStandardPaths>
 #include <QRegularExpression>
 #include <QFileDialog>
 #include "utils/CPUDetector.h"
@@ -31,10 +31,12 @@ MangoHudDialog::MangoHudDialog(QWidget* parent)
 
 bool MangoHudDialog::isMangoHudInstalled()
 {
-    QProcess process;
-    process.start("which", {"mangohud"});
-    process.waitForFinished(1000);
-    return process.exitCode() == 0;
+    // A PATH lookup, not a subprocess — same as KdeDisplayProbe::available().
+    // The previous "which mangohud" dropped waitForFinished()'s return value and
+    // then read exitCode(), which is 0 on a process that never ran: an empty
+    // PATH reported MangoHud as installed. This is also on the per-game-click
+    // path via DLSSSettingsWidget::setSettings().
+    return !QStandardPaths::findExecutable("mangohud").isEmpty();
 }
 
 QString MangoHudDialog::configFilePath() const

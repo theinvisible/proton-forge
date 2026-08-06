@@ -33,6 +33,7 @@ set(CORE_SOURCES
     src/launchers/LauncherManager.cpp
     src/launchers/SteamLauncher.cpp
     src/utils/EnvBuilder.cpp
+    src/utils/ProcessRunner.cpp
     src/utils/ProtonManager.cpp
     src/utils/LaunchOptionExtractor.cpp
     src/utils/GpuInfoCache.cpp
@@ -44,6 +45,7 @@ set(CORE_SOURCES
     src/utils/NvidiaGPUDetector.cpp
     src/utils/NvmlSession.cpp
     src/utils/DisplayDetector.cpp
+    src/utils/KScreenDoctor.cpp
     src/utils/KdeDisplayProbe.cpp
     src/network/ImageCache.cpp
     src/network/ProtonDBClient.cpp
@@ -73,6 +75,7 @@ set(CORE_HEADERS
     src/launchers/LauncherManager.h
     src/launchers/SteamLauncher.h
     src/utils/EnvBuilder.h
+    src/utils/ProcessRunner.h
     src/utils/ProtonManager.h
     src/utils/LaunchOptionExtractor.h
     src/utils/GpuInfoCache.h
@@ -86,6 +89,7 @@ set(CORE_HEADERS
     src/utils/IGpuTelemetrySource.h
     src/utils/DisplayInfo.h
     src/utils/IDisplayProbe.h
+    src/utils/KScreenDoctor.h
     src/utils/KdeDisplayProbe.h
     src/utils/DisplayDetector.h
     src/network/ImageCache.h

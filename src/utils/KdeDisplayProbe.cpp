@@ -1,29 +1,21 @@
 #include "utils/KdeDisplayProbe.h"
+#include "utils/KScreenDoctor.h"
 
-#include <QProcess>
 #include <QRegularExpression>
-#include <QStandardPaths>
 #include <QMap>
 #include <QStringList>
 
 bool KdeDisplayProbe::available()
 {
-    return !QStandardPaths::findExecutable("kscreen-doctor").isEmpty();
+    return KScreenDoctor::available();
 }
 
-void KdeDisplayProbe::enrich(QList<DisplayInfo>& displays)
+void KdeDisplayProbe::enrich(QList<DisplayInfo>& displays, const QString& probeOutput)
 {
-    if (displays.isEmpty())
+    if (displays.isEmpty() || probeOutput.isNull())
         return;
 
-    QProcess process;
-    process.start("kscreen-doctor", QStringList() << "-o");
-    process.waitForFinished(3000);
-    if (process.error() != QProcess::UnknownError)
-        return;
-
-    QString output = QString::fromUtf8(process.readAllStandardOutput());
-    output.remove(QRegularExpression("\x1b\\[[0-9;]*m"));  // strip ANSI colour codes
+    const QString& output = probeOutput;
 
     // Per-output values parsed from the `kscreen-doctor -o` text.
     struct Rec {

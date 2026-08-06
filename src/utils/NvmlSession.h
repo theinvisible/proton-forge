@@ -12,9 +12,11 @@
 // resolved by name. nvmlInit_v2 is called once and the handle is kept open for
 // the process lifetime (mirrors how nvidia-smi keeps NVML initialized internally).
 //
-// This is the single place that talks to NVML. It replaces the earlier per-call
-// dlopen used only for the CUDA core count and is meant as the clean base for all
-// driver-direct GPU data (and future live monitoring).
+// This is the single place that talks to NVML, and the only source of GPU data:
+// enumerate() replaced parsing `nvidia-smi -q`, whose ~300 lines of key/value and
+// structural regexes hard-coded the field order of a driver-version-dependent text
+// format — and then had most of its results overwritten by the NVML values below
+// anyway.
 //
 // Thread-safe: enrich() is called from the GpuInfoCache worker thread, the
 // SystemInfoDialog refresh worker, and synchronously from the GUI thread. A single
@@ -23,6 +25,12 @@ class NvmlSession : public IGpuTelemetrySource
 {
 public:
     static NvmlSession& instance();
+
+    // Every NVIDIA GPU the driver can enumerate, fully populated (identity via
+    // this function, live values via enrich()). Empty when NVML is unavailable or
+    // reports no device — the latter is the normal state of an Optimus dGPU
+    // asleep in D3cold, and callers fall back to NvidiaGPUDetector::detectFromPci().
+    QList<GPUInfo> enumerate();
 
     // Overlays every field NVML can supply onto `info`, addressing the device by
     // info.pciId (falling back to info.index). Fields NVML cannot provide are left
@@ -42,6 +50,10 @@ private:
     // One-time dlopen + symbol resolution + nvmlInit_v2. Caller must hold m_mutex.
     // Sets and returns m_available; safe to call repeatedly (guarded by m_initTried).
     bool ensureLoadedLocked();
+
+    // Body of enrich() without the locking, so enumerate() can fill live values
+    // for each device without releasing and retaking the mutex per GPU.
+    void enrichLocked(GPUInfo& info);
 
     struct Fns;              // resolved NVML function pointers; defined in the .cpp
 

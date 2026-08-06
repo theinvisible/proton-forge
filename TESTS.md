@@ -3,7 +3,9 @@
 Two tiers, both runnable on a developer machine and both wired into CI:
 
 * **`tests/unit/`** — QtTest, one executable per subject, linking the real code.
-  Pure logic only: no network, no display, no Steam, no GPU. Runs in under a second.
+  Pure logic only: no network, no display, no Steam, no GPU. The system probes are
+  covered here too, because they read `/proc` and `/sys` paths that are parameters
+  and can therefore point at a fixture tree. Runs in under a second.
 * **`tests/steam-lab/`** — a bash harness that drives the real binary and the real
   `.deb` against Steam installations, in containers and on a virtual screen.
 
@@ -162,8 +164,13 @@ D-Bus name — so all of it can be satisfied honestly rather than worked around:
   `_v2-entry-point` that record their `argv` and environment. That is all
   `GameRunner` ever requires of either, and it turns the whole compat-tool chain
   into something a test can read back.
-* `stub_bin_from_fixture` replaces `nvidia-smi`, `lspci`, `lscpu` and
-  `kscreen-doctor` with captured real output from `tests/steam-lab/fixtures/`.
+* `stub_bin_from_fixture` replaces `kscreen-doctor` with captured real output from
+  `tests/steam-lab/fixtures/`. The `nvidia-smi`, `lspci` and `lscpu` fixtures are
+  still there and still used — but by the **unit** tests now, not as stubs: the
+  app stopped shelling out to those three (see [§7](#7-findings), finding 5), so
+  stubbing them changes nothing about what it reads. `tst_kscreendoctor` reads
+  `kscreen-doctor-o.txt` from the same directory, so a test and a stub cannot
+  drift apart.
 
 **The CLI** (`src/core/Cli.cpp`) is what lets any of this be asserted cheaply. See
 [§5](#5-the-cli).
@@ -414,6 +421,69 @@ The gap that let this through: `60_gui g` already started the app with `lspci`,
 `nvidia-smi`, `lscpu` and `kscreen-doctor` stubbed missing, but only asserted the
 app stayed up. It now drives Alt+H, S and waits for the dialog.
 
+### 5. The same dropped-timeout mistake in five more places — fixed
+
+`tst_processrunner`, `tst_cpudetector`, `tst_kscreendoctor`, `tst_gpudetector`
+
+Finding 4 was not a one-off. `src/` was swept for the pattern, and every
+hand-rolled `QProcess` call site made some version of the same mistake:
+
+| Site | What it did |
+|---|---|
+| `MangoHudDialog::isMangoHudInstalled` | `which mangohud`, return value dropped, then `exitCode() == 0` — which is **0 on a process that never ran**, so an empty PATH reported MangoHud as *installed*. Also re-ran on every game click. |
+| `HDRChecker` (×2), `KdeDisplayProbe` | Checked `error() == UnknownError`, which a timeout leaves untouched — so a slow `kscreen-doctor` read as a successful "HDR: disabled" on a machine with HDR on. |
+| `CPUDetector`, `NvidiaGPUDetector` | Returned on timeout without `kill()`, leaving `~QProcess` to block on the live child. |
+| `ProtonManager::extractArchive` | `tar` with no timeout *and* only `finished` connected — and `finished` is not emitted when a program fails to start, so a missing `tar` hung the install UI forever. |
+
+All of it now goes through `ProcessRunner::run()`, which checks
+`waitForStarted`, checks `waitForFinished`, kills the child on timeout, checks
+the exit code, and expresses failure as a **null** `QString` — a value that
+empty-but-successful output can never be confused with. `tst_processrunner` pins
+that contract, including that a timeout returns null within a fraction of the
+child's remaining lifetime.
+
+Four of the subprocesses turned out not to be needed at all:
+
+* **`lscpu`** — every field it supplied is in `/proc/cpuinfo` and `/sys`.
+  `CPUDetector::readTopology()` reads them, which also removed the `LC_ALL=C`
+  locale workaround. Two subtleties the fixture tests pin: the frequency envelope
+  has to consider every CPU (cpu0 reports 4700 MHz on the machine this was
+  written on while the favoured cores reach 4900), and cache totals must sum the
+  individual instances, because a hybrid CPU's P and E cores differ — lscpu's
+  "544 KiB (14 instances)" is 6×48K + 8×32K, not 14×48K.
+* **`lspci -D -nnk`** — `GPUDetector::displayDevices()` reads
+  `class`/`vendor`/`device` and the `driver` symlink straight from sysfs. The
+  D3cold fallback then reads `/proc/driver/nvidia/gpus/<bdf>/information`, which
+  is strictly better than what it replaced: the driver's own model name plus the
+  GPU UUID and VBIOS version, none of which the lspci parse could fill in.
+* **`modinfo -F license nvidia`** — `/sys/module/nvidia/taint` answers the same
+  question (`P` = proprietary, otherwise the open module).
+* **`nvidia-smi -q`** — replaced by NVML, which was already loaded via `dlopen`
+  and already overwrote most of what the text parse produced. ~300 lines of
+  key/value and structural regexes went with it, including six that hard-coded
+  the field *order* of a driver-version-dependent format. Two bugs surfaced while
+  porting: the Resizeable BAR test was `bar1 >= 16384`, which reported ReBAR off
+  on every card with less than 16 GB of VRAM (it is now "BAR1 covers VRAM"), and
+  the release date was parsed as "everything after the version", which on a
+  driver that prints build metadata yielded
+  `Release Build (dvs-builder@…) Tue May 19 …` instead of a date.
+
+Measured on the reporting machine: `nvidia-smi -q` cost 2.65 s cold, and NVML's
+one-time `nvmlInit_v2` costs the same 2.6 s — but it is paid once, off the GUI
+thread, by `GpuInfoCache::refreshAsync()` at startup, after which detection is
+6 ms. Opening System Information used to run `nvidia-smi` + `lscpu` + two
+`kscreen-doctor` invocations synchronously on the GUI thread.
+
+Two more redundancies went with it: `kscreen-doctor -o` ran **twice** per
+`DisplayDetector::detect()` (`KdeDisplayProbe` and `HDRChecker` each spawned their
+own), and `GameRunner::onSteamWaitTick()` evaluated `SteamClient::state()` twice
+per 500 ms tick — which on a Flatpak Steam install meant two blocking
+`flatpak ps` calls per tick.
+
+Verified with `strace -f -e trace=execve` across a full pass of the UI: the only
+`execve` left is ProtonForge itself, plus one `kscreen-doctor` on a KDE session
+where there used to be two.
+
 ### Also found, and fixed
 
 * **`build-deb.sh` packaged a binary from the wrong environment.** It reused
@@ -465,11 +535,22 @@ Honest list of what these tests do **not** cover.
 * **A game actually starting.** `45_launch` verifies the exact command and
   environment down to the last variable, against a Proton that records instead of
   running. Whether that command then renders a frame is untested.
-* **A real NVIDIA GPU.** `FeatureGate` is unit-tested against synthetic contexts,
-  the `nvidia-smi` parsers against captured output and the PCI scan against a
-  fixture `sysfs` tree; no driver is involved. Note that stubbing `nvidia-smi`
-  missing does **not** produce a GPU-less app: `/proc/driver/nvidia` and NVML via
-  `dlopen` are both independent of `$PATH`, so `60_gui g` still sees the real card.
+* **A real NVIDIA GPU.** `FeatureGate` is unit-tested against synthetic contexts
+  and the PCI scan against a fixture `sysfs` tree; no driver is involved. Note
+  that a GPU-less app cannot be staged by emptying `$PATH` at all any more:
+  NVML arrives via `dlopen` and the fallback reads `/proc/driver/nvidia`, neither
+  of which `$PATH` touches, so `60_gui g` still sees the real card.
+* **The D3cold fallback path.** `NvidiaGPUDetector::detectFromPci()` is what runs
+  when NVML enumerates nothing — an Optimus dGPU in runtime suspend. It can be
+  exercised by hand on this hardware, but nothing asserts it automatically, and
+  one question about it is open: whether reading
+  `/proc/driver/nvidia/gpus/<bdf>/information` *wakes* a suspended GPU.
+  `/proc/driver/nvidia/version` does not; the per-GPU file is unverified. If it
+  turns out to wake it, that read has to go and the name has to come from the PCI
+  device id instead.
+* **A proprietary NVIDIA kernel module.** The open/proprietary split now reads
+  `/sys/module/nvidia/taint` and treats a `P` as proprietary. Only the open
+  module (`O`) was available to check against.
 * **Widget-level GUI assertions.** `60_gui` checks window geometry, X properties
   and side effects on disk. It cannot read a `QListWidget`, so "the list shows the
   right rows" is verified through the CLI reporting the same data, not by reading

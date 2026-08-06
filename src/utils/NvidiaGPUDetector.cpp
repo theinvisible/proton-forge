@@ -1,159 +1,119 @@
 #include "NvidiaGPUDetector.h"
-#include <QProcess>
+#include "utils/NvmlSession.h"
 #include <QRegularExpression>
 #include <QFile>
 #include <QDateTime>
 #include <QLocale>
 #include <QDebug>
 
+namespace {
+// Trimmed contents of a small sysfs/proc attribute, empty when unreadable.
+QString readTrimmedFile(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QString();
+    return QString::fromUtf8(f.readAll()).trimmed();
+}
+} // namespace
+
 QList<GPUInfo> NvidiaGPUDetector::detect()
 {
-    QList<GPUInfo> gpus;
+    // Straight from the driver via NVML. This used to run `nvidia-smi -q` and
+    // parse its text — a subprocess costing 2.6 s on a cold start, whose parsed
+    // values were then almost entirely overwritten by these same NVML calls.
+    QList<GPUInfo> gpus = NvmlSession::instance().enumerate();
 
-    QProcess process;
-    process.start("nvidia-smi", QStringList() << "-q");
-
-    if (process.waitForStarted(1000) && process.waitForFinished(5000)) {
-        const QString output = QString::fromUtf8(process.readAllStandardOutput());
-
-        // nvidia-smi exits non-zero (commonly 6) and prints "No devices were
-        // found" when the driver is loaded but NVML can't enumerate a GPU — the
-        // typical state of an Optimus dGPU suspended in runtime D3cold.
-        const bool noDevices = process.exitCode() != 0 ||
-                               output.contains("No devices were found", Qt::CaseInsensitive);
-
-        if (!output.isEmpty() && !noDevices) {
-            // Split output by GPU sections
-            QStringList sections = output.split(QRegularExpression("GPU \\d+:"), Qt::SkipEmptyParts);
-
-            // Driver info is system-wide; detect once and share across all NVIDIA GPUs.
-            DriverInfo sharedDriverInfo;
-            bool driverInfoDetected = false;
-
-            for (int i = 0; i < sections.size(); ++i) {
-                GPUInfo info = parseNvidiaSmiOutput(sections[i], i);
-                if (!info.name.isEmpty()) {
-                    if (!driverInfoDetected) {
-                        sharedDriverInfo = detectDriverInfo(info.driverVersion);
-                        driverInfoDetected = true;
-                    }
-                    info.driverInfo = sharedDriverInfo;
-                    gpus.append(info);
-                }
-            }
+    if (!gpus.isEmpty()) {
+        // Driver metadata is system-wide; detect once and share across all GPUs.
+        const DriverInfo sharedDriverInfo = detectDriverInfo(gpus.first().driverVersion);
+        for (GPUInfo& info : gpus) {
+            info.driverInfo = sharedDriverInfo;
+            if (info.architecture.isEmpty())
+                info.architecture = inferArchitecture(info.name);
+            if (info.cudaCores == 0)
+                info.cudaCores = getCudaCoreCountFallback(info.name);
         }
-    } else {
-        qWarning() << "nvidia-smi did not run (missing or timed out)";
+        return gpus;
     }
 
-    // Fallback: nvidia-smi couldn't enumerate a GPU. If the nvidia driver is
-    // loaded and lspci shows an NVIDIA display device (e.g. an Optimus dGPU
-    // asleep in D3cold), report it from static sources so the UI still shows
-    // the card instead of claiming there's no compatible GPU.
-    if (gpus.isEmpty()) {
-        gpus = detectFromPci();
-    }
-
-    return gpus;
+    // Fallback: NVML enumerated nothing. If the nvidia driver is loaded and sysfs
+    // shows an NVIDIA display device (e.g. an Optimus dGPU asleep in D3cold),
+    // report it from static sources so the UI still shows the card instead of
+    // claiming there's no compatible GPU.
+    return detectFromPci();
 }
 
-QList<GPUInfo> NvidiaGPUDetector::detectFromPci()
+QList<GPUInfo> NvidiaGPUDetector::detectFromPci(const QString& pciRoot, const QString& procRoot)
 {
     QList<GPUInfo> gpus;
 
     // The nvidia kernel module must be loaded for DLSS/NVAPI to be usable at
     // all; /proc/driver/nvidia/version stays readable regardless of GPU power
     // state, so use its presence as the gate.
-    if (!QFile::exists("/proc/driver/nvidia/version"))
+    if (!QFile::exists(procRoot + "/driver/nvidia/version"))
         return gpus;
 
-    QProcess process;
-    process.start("lspci", QStringList() << "-D" << "-nnk");
-    if (!process.waitForStarted(1000) || !process.waitForFinished(3000))
-        return gpus;
-
-    const QString output = QString::fromUtf8(process.readAllStandardOutput());
-    if (output.isEmpty())
-        return gpus;
-
-    // Driver metadata is system-wide; read once from /proc + modinfo.
+    // Driver metadata is system-wide; read once.
     const DriverInfo driverInfo = detectDriverInfo();
 
-    // lspci -D block format (a device header followed by indented detail lines):
-    //   0000:01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GB206M [GeForce RTX 5070 Max-Q / Mobile] [10de:2d18] (rev a1)
-    //       Kernel driver in use: nvidia
-    const QRegularExpression headerRe(
-        "^([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\\.[0-9a-fA-F])\\s+(.*)$");
-
-    const QStringList lines = output.split('\n');
     int index = 0;
-    for (int i = 0; i < lines.size(); ++i) {
-        const QRegularExpressionMatch m = headerRe.match(lines[i]);
-        if (!m.hasMatch())
+    for (const PciDisplayDevice& device : GPUDetector::displayDevices(pciRoot)) {
+        if (device.vendor != GPUInfo::NVIDIA)
             continue;
-
-        const QString desc = m.captured(2);
-        // Only NVIDIA display devices: VGA controller [0300] or 3D controller [0302].
-        const bool isDisplay = desc.contains("[0300]") || desc.contains("[0302]");
-        const bool isNvidia  = desc.contains("[10de:", Qt::CaseInsensitive) ||
-                               desc.contains("NVIDIA", Qt::CaseInsensitive);
-        if (!isDisplay || !isNvidia)
-            continue;
-
-        // Scan the indented detail lines for the bound kernel driver.
-        QString boundDriver;
-        for (int j = i + 1; j < lines.size(); ++j) {
-            if (!lines[j].startsWith(' ') && !lines[j].startsWith('\t'))
-                break;  // reached the next device block
-            const QString detail = lines[j].trimmed();
-            if (detail.startsWith("Kernel driver in use:"))
-                boundDriver = detail.section(':', 1).trimmed();
-        }
         // Skip an NVIDIA GPU that isn't actually bound to the nvidia driver
         // (e.g. nouveau) — DLSS/NVAPI wouldn't work there anyway.
-        if (!boundDriver.isEmpty() && boundDriver != "nvidia")
+        if (!device.boundDriver.isEmpty() && device.boundDriver != "nvidia")
             continue;
 
         GPUInfo info;
         info.vendor = GPUInfo::NVIDIA;
         info.index = index++;
-        info.pciId = m.captured(1);
-        info.name = marketingNameFromLspci(desc);
-        info.architecture = inferArchitecture(info.name);
+        info.pciId = device.address;
         info.driverInfo = driverInfo;
         info.driverVersion = driverInfo.version;
         info.telemetryAvailable = false;  // GPU asleep / NVML couldn't enumerate it
+
+        // The driver's own per-GPU record. Better than anything derivable from a
+        // PCI id table: it carries NVIDIA's marketing name, the UUID and the
+        // VBIOS version, none of which the old lspci parse could fill in.
+        readProcGpuInformation(info, procRoot);
+
+        if (info.name.isEmpty())
+            info.name = QString("NVIDIA GPU %1").arg(device.address);
+        if (info.architecture.isEmpty())
+            info.architecture = inferArchitecture(info.name);
+
         gpus.append(info);
     }
 
     return gpus;
 }
 
-QString NvidiaGPUDetector::marketingNameFromLspci(const QString& desc)
+void NvidiaGPUDetector::readProcGpuInformation(GPUInfo& info, const QString& procRoot)
 {
-    // Prefer the bracketed marketing name, e.g.
-    //   "NVIDIA Corporation GB206M [GeForce RTX 5070 Max-Q / Mobile] [10de:2d18] (rev a1)"
-    // -> "GeForce RTX 5070 Max-Q / Mobile". The [10de:....] vendor:device id is
-    // skipped because it lacks a marketing keyword.
-    const QRegularExpression brandRe(
-        "\\[([^\\]]*(?:GeForce|RTX|GTX|Quadro|Titan|Tesla|NVIDIA)[^\\]]*)\\]",
-        QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch bm = brandRe.match(desc);
+    // /proc/driver/nvidia/gpus/<domain:bus:slot.func>/information, e.g.
+    //   Model:       NVIDIA GeForce RTX 5070 Laptop GPU
+    //   GPU UUID:    GPU-0c31c1e7-f65e-f49b-a577-ec96b893c09d
+    //   Video BIOS:  98.06.34.00.eb
+    QFile file(QString("%1/driver/nvidia/gpus/%2/information").arg(procRoot, info.pciId));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
 
-    QString name;
-    if (bm.hasMatch()) {
-        name = bm.captured(1).trimmed();
-    } else {
-        // Fall back to the text after the class label, stripped of trailing ids.
-        QString s = desc.section(':', 1).trimmed();  // drop "VGA compatible controller [0300]"
-        s.remove(QRegularExpression("\\s*\\[[0-9a-fA-F]{4}:[0-9a-fA-F]{4}\\].*$"));
-        s.remove(QRegularExpression("\\s*\\(rev [^)]*\\)\\s*$"));
-        name = s.trimmed();
+    const QString content = QString::fromUtf8(file.readAll());
+    for (const QString& line : content.split('\n')) {
+        const int colon = line.indexOf(':');
+        if (colon < 0)
+            continue;
+        const QString key = line.left(colon).trimmed();
+        const QString val = line.mid(colon + 1).trimmed();
+        if (val.isEmpty())
+            continue;
+
+        if      (key == "Model")      info.name = val;
+        else if (key == "GPU UUID")   info.uuid = val;
+        else if (key == "Video BIOS") info.vbiosVersion = val;
     }
-
-    if (!name.contains("NVIDIA", Qt::CaseInsensitive))
-        name = "NVIDIA " + name;
-    return name;
 }
 
 QString NvidiaGPUDetector::inferArchitecture(const QString& name)
@@ -185,24 +145,33 @@ DriverInfo NvidiaGPUDetector::detectDriverInfo(const QString& smiDriverVersion)
     }
 
     if (!procContent.isEmpty()) {
-        // Extract version + build date from the NVRM line. Accept any text
-        // between "NVRM version:" and the version number to stay robust
-        // across driver variants (proprietary / open / arch suffixes).
+        // Extract the version from the NVRM line. Accept any text between
+        // "NVRM version:" and the version number to stay robust across driver
+        // variants (proprietary / open / arch suffixes).
         QRegularExpression nvrmRe(
-            "NVRM version:.*?(\\d+(?:\\.\\d+)+)\\s+(.+)$",
+            "NVRM version:.*?(\\d+(?:\\.\\d+)+)",
             QRegularExpression::MultilineOption);
         const QRegularExpressionMatch m = nvrmRe.match(procContent);
-        if (m.hasMatch()) {
+        if (m.hasMatch())
             info.version = m.captured(1);
-            const QString rawDate = m.captured(2).trimmed();
 
-            // Try to parse the build date (e.g. "Tue Oct  8 16:30:26 UTC 2024").
+        // The build date sits at the end of that same line, but not always
+        // straight after the version — newer drivers insert build metadata, e.g.
+        //   … 610.43.02  Release Build  (dvs-builder@…)  Tue May 19 11:24:27 UTC 2026
+        // Anchoring on the timestamp instead of "everything after the version"
+        // stops that metadata from being reported as the release date.
+        static const QRegularExpression dateRe(
+            "([A-Z][a-z]{2}\\s+[A-Z][a-z]{2}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}\\s+\\S+\\s+\\d{4})");
+        const QRegularExpressionMatch dm = dateRe.match(procContent);
+        if (dm.hasMatch()) {
+            const QString rawDate = dm.captured(1).trimmed();
+
             // The double-space padding before single-digit days trips
             // QDateTime::fromString, so normalize whitespace first.
             QString normalizedDate = rawDate;
             normalizedDate.replace(QRegularExpression("\\s+"), " ");
             QLocale cLocale(QLocale::C);
-            QDateTime dt = cLocale.toDateTime(normalizedDate, "ddd MMM d HH:mm:ss 'UTC' yyyy");
+            QDateTime dt = cLocale.toDateTime(normalizedDate, "ddd MMM d HH:mm:ss t yyyy");
             if (dt.isValid()) {
                 info.releaseDate = dt.toString("yyyy-MM-dd");
             } else {
@@ -217,8 +186,11 @@ DriverInfo NvidiaGPUDetector::detectDriverInfo(const QString& smiDriverVersion)
         }
     }
 
-    // Fallback: if /proc was unreadable (sandboxed environments, flatpak
-    // without --filesystem=host), at least report the version from nvidia-smi.
+    // Fallbacks when /proc was unreadable (sandboxed environments, flatpak
+    // without --filesystem=host): the module's own sysfs entry, then whatever
+    // the caller already learned from the driver.
+    if (info.version.isEmpty())
+        info.version = readTrimmedFile("/sys/module/nvidia/version");
     if (info.version.isEmpty() && !smiDriverVersion.isEmpty()) {
         info.version = smiDriverVersion;
     }
@@ -229,330 +201,17 @@ DriverInfo NvidiaGPUDetector::detectDriverInfo(const QString& smiDriverVersion)
         info.branch = info.version.section('.', 0, 0);
     }
 
-    // Cross-check module type via modinfo if /proc didn't tell us. The open
-    // module is dual-licensed MIT/GPL, the proprietary one reports "NVIDIA".
+    // Cross-check the module type if /proc didn't tell us, via the kernel's own
+    // taint record for the module rather than by shelling out to modinfo. The
+    // open module is dual-licensed MIT/GPL and only taints 'O' (out-of-tree);
+    // the proprietary one is not GPL-compatible and additionally taints 'P'.
     if (info.moduleType.isEmpty()) {
-        QProcess modinfo;
-        modinfo.start("modinfo", QStringList() << "-F" << "license" << "nvidia");
-        if (modinfo.waitForFinished(1000)) {
-            const QString license = QString::fromUtf8(modinfo.readAllStandardOutput()).trimmed();
-            if (license.contains("MIT/GPL", Qt::CaseInsensitive)) {
-                info.moduleType = "Open Kernel Module";
-            } else if (license.contains("NVIDIA", Qt::CaseInsensitive)) {
-                info.moduleType = "Proprietary";
-            }
-        }
+        const QString taint = readTrimmedFile("/sys/module/nvidia/taint");
+        if (!taint.isEmpty())
+            info.moduleType = taint.contains('P') ? "Proprietary" : "Open Kernel Module";
     }
 
     return info;
-}
-
-GPUInfo NvidiaGPUDetector::parseNvidiaSmiOutput(const QString& output, int index)
-{
-    GPUInfo info;
-    info.vendor = GPUInfo::NVIDIA;
-    info.index = index;
-
-    // Product Name
-    info.name = extractValue(output, "Product Name");
-
-    // Architecture (not always available in nvidia-smi, try to extract from Product Name)
-    info.architecture = extractValue(output, "Product Architecture");
-    if (info.architecture.isEmpty()) {
-        // Try to infer from name (e.g., "RTX 4090" -> "Ada Lovelace")
-        info.architecture = inferArchitecture(info.name);
-    }
-
-    // Driver and Versions
-    info.driverVersion = extractValue(output, "Driver Version");
-    info.cudaVersion = extractValue(output, "CUDA Version");
-    info.vbiosVersion = extractValue(output, "VBIOS Version");
-
-    // GPU Part Number
-    info.gpuPartNumber = extractValue(output, "Product Brand");
-    if (info.gpuPartNumber.isEmpty()) {
-        info.gpuPartNumber = extractValue(output, "Board ID");
-    }
-
-    // Compute Capability
-    QString cudaMajor = extractValue(output, "CUDA Capability Major/Minor Version");
-    if (!cudaMajor.isEmpty()) {
-        info.computeCapability = cudaMajor;
-    }
-
-    // Memory
-    QString memStr = extractValue(output, "Total");
-    if (!memStr.isEmpty()) {
-        QRegularExpression memRegex("(\\d+)\\s*MiB");
-        QRegularExpressionMatch match = memRegex.match(memStr);
-        if (match.hasMatch()) {
-            info.memoryTotalMB = match.captured(1).toInt();
-        }
-    }
-
-    // PCI Info
-    info.pciId = extractValue(output, "Bus Id");
-
-    // Parse PCIe Generation and Link Width
-    QRegularExpression pcieGenRegex("PCIe Generation\\s*\\n\\s*Max\\s*:\\s*(\\d+)\\s*\\n\\s*Current\\s*:\\s*(\\d+)");
-    QRegularExpressionMatch pcieGenMatch = pcieGenRegex.match(output);
-    if (pcieGenMatch.hasMatch()) {
-        int maxGen = pcieGenMatch.captured(1).toInt();
-        int currentGen = pcieGenMatch.captured(2).toInt();
-        info.pcieMaxGen = QString("Gen %1").arg(maxGen);
-        info.pcieCurrentGen = QString("Gen %1").arg(currentGen);
-    }
-
-    QRegularExpression linkWidthRegex("Link Width\\s*\\n\\s*Max\\s*:\\s*(\\d+x)\\s*\\n\\s*Current\\s*:\\s*(\\d+x)");
-    QRegularExpressionMatch linkWidthMatch = linkWidthRegex.match(output);
-    if (linkWidthMatch.hasMatch()) {
-        QString currentWidth = linkWidthMatch.captured(2);
-        info.pcieLinkWidth = currentWidth;
-
-        // Calculate PCIe Link Speed (GT/s)
-        int currentGen = info.pcieCurrentGen.remove("Gen ").toInt();
-        double gtPerSecond = 0;
-        switch (currentGen) {
-            case 1: gtPerSecond = 2.5; break;
-            case 2: gtPerSecond = 5.0; break;
-            case 3: gtPerSecond = 8.0; break;
-            case 4: gtPerSecond = 16.0; break;
-            case 5: gtPerSecond = 32.0; break;
-            case 6: gtPerSecond = 64.0; break;
-            default: gtPerSecond = 0; break;
-        }
-
-        if (gtPerSecond > 0) {
-            info.pcieLinkSpeed = QString("%1 GT/s PCIe %2").arg(gtPerSecond).arg(currentWidth);
-        }
-    }
-
-    // BAR1 Memory (for Resizeable BAR detection)
-    QRegularExpression bar1Regex("BAR1 Memory Usage\\s*\\n\\s*Total\\s*:\\s*(\\d+)\\s*MiB");
-    QRegularExpressionMatch bar1Match = bar1Regex.match(output);
-    if (bar1Match.hasMatch()) {
-        info.bar1TotalMB = bar1Match.captured(1).toInt();
-        // Resizeable BAR is enabled if BAR1 >= 16 GB (16384 MiB)
-        // Standard BAR is only 256 MiB
-        info.resizeableBarEnabled = (info.bar1TotalMB >= 16384);
-    }
-
-    // Clocks - need to parse from specific sections
-    // Find "Clocks" section (not "Max Clocks" or other sections)
-    QRegularExpression clocksRegex("Clocks\\s*\\n\\s*Graphics\\s*:\\s*(\\d+)\\s*MHz\\s*\\n\\s*SM\\s*:\\s*\\d+\\s*MHz\\s*\\n\\s*Memory\\s*:\\s*(\\d+)\\s*MHz");
-    QRegularExpressionMatch clocksMatch = clocksRegex.match(output);
-    if (clocksMatch.hasMatch()) {
-        info.currentGraphicsClock = clocksMatch.captured(1).toInt();
-        info.currentMemoryClock = clocksMatch.captured(2).toInt();
-    }
-
-    // Find "Max Clocks" section
-    QRegularExpression maxClocksRegex("Max Clocks\\s*\\n\\s*Graphics\\s*:\\s*(\\d+)\\s*MHz\\s*\\n\\s*SM\\s*:\\s*\\d+\\s*MHz\\s*\\n\\s*Memory\\s*:\\s*(\\d+)\\s*MHz");
-    QRegularExpressionMatch maxClocksMatch = maxClocksRegex.match(output);
-    if (maxClocksMatch.hasMatch()) {
-        info.maxGraphicsClock = maxClocksMatch.captured(1).toInt();
-        info.maxMemoryClock = maxClocksMatch.captured(2).toInt();
-    }
-
-    // Power
-    QString powerDrawStr = extractValue(output, "Power Draw");
-    if (!powerDrawStr.isEmpty()) {
-        QRegularExpression powerRegex("([\\d.]+)\\s*W");
-        QRegularExpressionMatch match = powerRegex.match(powerDrawStr);
-        if (match.hasMatch()) {
-            info.currentPowerDraw = match.captured(1).toDouble();
-        }
-    }
-
-    QString powerLimitStr = extractValue(output, "Power Limit");
-    if (!powerLimitStr.isEmpty()) {
-        QRegularExpression powerRegex("([\\d.]+)\\s*W");
-        QRegularExpressionMatch match = powerRegex.match(powerLimitStr);
-        if (match.hasMatch()) {
-            info.powerLimit = match.captured(1).toDouble();
-        }
-    }
-
-    // Temperature
-    QString tempStr = extractValue(output, "GPU Current Temp");
-    if (!tempStr.isEmpty()) {
-        QRegularExpression tempRegex("(\\d+)\\s*C");
-        QRegularExpressionMatch match = tempRegex.match(tempStr);
-        if (match.hasMatch()) {
-            info.temperature = match.captured(1).toInt();
-        }
-    }
-
-    // Fan Speed
-    QString fanStr = extractValue(output, "Fan Speed");
-    if (!fanStr.isEmpty()) {
-        QRegularExpression fanRegex("(\\d+)\\s*%");
-        QRegularExpressionMatch match = fanRegex.match(fanStr);
-        if (match.hasMatch()) {
-            info.fanSpeed = match.captured(1).toInt();
-        }
-    }
-
-    // Performance State
-    info.performanceState = extractValue(output, "Performance State");
-
-    // Utilization - parse from "Utilization" section
-    QRegularExpression utilizationRegex(
-        "Utilization\\s*\\n"
-        "\\s*GPU\\s*:\\s*(\\d+)\\s*%\\s*\\n"
-        "\\s*Memory\\s*:\\s*(\\d+)\\s*%\\s*\\n"
-        "\\s*Encoder\\s*:\\s*(\\d+)\\s*%\\s*\\n"
-        "\\s*Decoder\\s*:\\s*(\\d+)\\s*%\\s*\\n"
-        "\\s*JPEG\\s*:\\s*(\\d+)\\s*%\\s*\\n"
-        "\\s*OFA\\s*:\\s*(\\d+)\\s*%"
-    );
-    QRegularExpressionMatch utilizationMatch = utilizationRegex.match(output);
-    if (utilizationMatch.hasMatch()) {
-        info.gpuUtilization = utilizationMatch.captured(1).toInt();
-        info.memoryUtilization = utilizationMatch.captured(2).toInt();
-        info.encoderUtilization = utilizationMatch.captured(3).toInt();
-        info.decoderUtilization = utilizationMatch.captured(4).toInt();
-        info.jpegUtilization = utilizationMatch.captured(5).toInt();
-        info.ofaUtilization = utilizationMatch.captured(6).toInt();
-    }
-
-    // UUID
-    info.uuid = extractValue(output, "UUID");
-
-    // Display Connected
-    QString displayActive = extractValue(output, "Display Active");
-    info.displayConnected = (displayActive.toLower() == "enabled" ||
-                             displayActive.toLower() == "yes");
-
-    // Overlay exact, live values straight from the driver (NVML for NVIDIA) over
-    // the text-parsed fallbacks above — including CUDA cores, compute capability,
-    // and the new fields (VRAM used/free, power range, throttle reasons, …).
-    // Skip the section-split artifact that carries no product name (the
-    // nvidia-smi -q header block): detect() discards it, and a device lookup for
-    // it would waste work and could mis-resolve to GPU 0 by index.
-    if (!info.name.isEmpty()) {
-        GPUDetector::enrichTelemetry(info);
-
-        // Fallback when the driver reported no core count (NVML missing/too old):
-        // SM-count heuristic, then the per-model name table.
-        if (info.cudaCores == 0)
-            info.cudaCores = getCudaCoreCount(info.name, info.computeCapability, output);
-    }
-
-    return info;
-}
-
-QString NvidiaGPUDetector::extractValue(const QString& output, const QString& key)
-{
-    // Try different patterns to extract values
-    QRegularExpression regex(key + "\\s*:\\s*([^\\n]+)");
-    QRegularExpressionMatch match = regex.match(output);
-
-    if (match.hasMatch()) {
-        QString value = match.captured(1).trimmed();
-        // Remove "N/A" values
-        if (value == "N/A" || value.isEmpty()) {
-            return QString();
-        }
-        return value;
-    }
-
-    return QString();
-}
-
-int NvidiaGPUDetector::extractIntValue(const QString& output, const QString& key)
-{
-    QString value = extractValue(output, key);
-    if (value.isEmpty()) {
-        return 0;
-    }
-
-    QRegularExpression intRegex("(\\d+)");
-    QRegularExpressionMatch match = intRegex.match(value);
-
-    if (match.hasMatch()) {
-        return match.captured(1).toInt();
-    }
-
-    return 0;
-}
-
-// Returns CUDA cores per SM for a given compute capability string ("major.minor").
-// Source: CUDA Programming Guide, Compute Capabilities appendix.
-int NvidiaGPUDetector::coresPerSMFromComputeCapability(const QString& computeCapability)
-{
-    const QStringList parts = computeCapability.split('.');
-    if (parts.size() < 2)
-        return 0;
-
-    const int cc = parts[0].toInt() * 10 + parts[1].toInt();
-
-    switch (cc) {
-        // Kepler
-        case 30: case 32: case 35: case 37: return 192;
-        // Maxwell
-        case 50: case 52: case 53:          return 128;
-        // Pascal – P100 (SM 6.0) has 64, GTX 10 (SM 6.1/6.2) has 128
-        case 60:                            return  64;
-        case 61: case 62:                   return 128;
-        // Volta
-        case 70: case 72:                   return  64;
-        // Turing
-        case 75:                            return  64;
-        // Ampere datacenter (A100) – SM 8.0 has 64; desktop/laptop SM 8.6/8.7 has 128
-        case 80:                            return  64;
-        case 86: case 87:                   return 128;
-        // Ada Lovelace
-        case 89:                            return 128;
-        // Hopper
-        case 90:                            return 128;
-        // Blackwell (GB20x)
-        case 100:                           return 128;
-        default:                            return   0;
-    }
-}
-
-// Heuristic CUDA core count, used only when the driver (NVML, via
-// GPUDetector::enrichTelemetry) did not report one. Two tiers:
-//   Tier 2: SM count parsed from nvidia-smi -q × cores/SM (compute capability).
-//   Tier 3: per-model name lookup table.
-int NvidiaGPUDetector::getCudaCoreCount(const QString& gpuName,
-                                        const QString& computeCapability,
-                                        const QString& smiOutput)
-{
-    // --- Tier 2, Step 1: extract SM count from nvidia-smi -q output ---
-    // Different driver versions use slightly different field names.
-    int smCount = 0;
-    static const QStringList smFields = {
-        "SM Count",
-        "Multiprocessor Count",
-        "Number of SMs",
-    };
-    for (const QString& field : smFields) {
-        const QString val = extractValue(smiOutput, field);
-        if (!val.isEmpty()) {
-            const int n = val.trimmed().toInt();
-            if (n > 0) { smCount = n; break; }
-        }
-    }
-
-    // --- Tier 2, Step 2: derive cores/SM from compute capability ---
-    const int coresPerSM = coresPerSMFromComputeCapability(computeCapability);
-
-    // --- Tier 2, Step 3: calculate if both values are valid ---
-    if (smCount > 0 && coresPerSM > 0) {
-        qDebug() << "CUDA cores:" << smCount << "SMs x" << coresPerSM
-                 << "cores/SM =" << smCount * coresPerSM
-                 << "(CC" << computeCapability << ")";
-        return smCount * coresPerSM;
-    }
-
-    // --- Tier 3: static name-based lookup ---
-    if (smCount == 0) {
-        qDebug() << "NVML/nvidia-smi did not report core or SM count for" << gpuName
-                 << "– using name lookup table";
-    }
-    return getCudaCoreCountFallback(gpuName);
 }
 
 int NvidiaGPUDetector::getCudaCoreCountFallback(const QString& gpuName)
