@@ -68,6 +68,7 @@ private:
     QGroupBox*  createCPUCacheGroup();
 
     // GPU tabs
+    QWidget*    createNoGpuTab();
     QWidget*    createGPUTab(const GPUInfo& gpu, int gpuIndex);
     QGroupBox*  createGraphicsCardGroup(const GPUInfo& gpu);
     QGroupBox*  createMemoryGroup(const GPUInfo& gpu, int gpuIndex);

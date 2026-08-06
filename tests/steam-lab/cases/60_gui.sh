@@ -293,6 +293,30 @@ if gui_app_start; then
     ok "the app starts with every external tool failing"
     sleep 2
     assert_true "and stays up" gui_app_running
+
+    # Help -> System Information used to be gated on an lspci probe with a 1 s
+    # timeout, so it vanished from the menu whenever that probe was slow or the
+    # tool was missing — exactly the situation staged here. The dialog reports
+    # CPU and monitor details too, so it has to be reachable regardless.
+    if WIN="$(gui_win '^ProtonForge')"; then
+        gui_activate "$WIN"
+        gui_key alt+h     # Help menu
+        gui_key s         # mnemonic of "&System Information"
+        if DIALOG="$(gui_wait_window '^System Information' 8)"; then
+            ok "Help -> System Information is reachable without any external tool"
+            gui_activate "$DIALOG"
+            gui_key Escape
+        else
+            gui_screenshot no-system-info >/dev/null
+            fail "Help -> System Information did not open" \
+"the menu entry is missing or does nothing.
+windows on screen:
+$(gui_list_windows)
+Screenshot: $CASE_OUT_DIR/no-system-info.xwd"
+        fi
+    else
+        fail "no main window to drive the Help menu from" "$(gui_list_windows)"
+    fi
 else
     fail "the app did not start when its external tools fail" \
         "$(tail -n 20 "$CASE_OUT_DIR/gui-stdout.log")"

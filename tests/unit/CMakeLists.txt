@@ -13,6 +13,7 @@ set(UNIT_TESTS
     tst_protondbid
     tst_launchoptionextractor
     tst_steampaths
+    tst_gpudetector
 )
 
 foreach(test IN LISTS UNIT_TESTS)

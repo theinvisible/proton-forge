@@ -380,6 +380,40 @@ one.
 The `40_launchopts e` and `60_gui f` sections cover all four shapes a real
 `localconfig.vdf` comes in, both platforms, and the failure path.
 
+### 4. "System Information" disappeared from the Help menu — fixed
+
+`60_gui g` — *"Help -> System Information is reachable without any external tool"*
+
+Reported by a user, not by the suite: the menu entry was there on some starts and
+gone on others, for the whole session. `MainWindow::setupMenuBar` added it only
+`if (GPUDetector::hasNvidiaGPU())`, and that probe ran `lspci` with
+`waitForFinished(1000)` **without checking the return value** — on timeout it read
+an empty buffer and answered "no GPU". `lspci` parses ~1.5 MB of `pci.ids`; measured
+on the reporter's machine it takes 2.54 s cold and 0.01 s warm, so the entry
+survived a warm relaunch and vanished on the first start after a boot. The menu is
+built once in the constructor and never rebuilt, so a lost race stayed lost.
+
+The predicate was wrong quite apart from the timeout: it matched
+`NVIDIA || "VGA compatible controller"`, which is true on any machine with a
+display adapter. The timeout was the only branch that ever returned false — the
+guard gated nothing and cost up to a second of GUI-thread stall before `show()`.
+
+The entry is unconditional now, and `showSystemInfo()` opens the dialog even with
+an empty GPU list: it reports CPU and monitor details too, and explains the missing
+GPU in its own tab instead of refusing to open. `GPUDetector::hasNvidiaGPU()` is
+gone.
+
+`detectHybridGpu()` had the same defect with a 2000 ms budget — still under the
+2.54 s — so the PRIME-offload warning was silently absent on a genuinely hybrid
+laptop. It now reads `/sys/bus/pci/devices/*/{class,vendor}` directly: no
+subprocess, no timeout, no `pci.ids`, and unit-testable against a fixture tree
+(`tst_gpudetector`). Class `0x03xxxx` covers VGA, 3D controller — how Optimus dGPUs
+announce themselves — and other display controllers.
+
+The gap that let this through: `60_gui g` already started the app with `lspci`,
+`nvidia-smi`, `lscpu` and `kscreen-doctor` stubbed missing, but only asserted the
+app stayed up. It now drives Alt+H, S and waits for the dialog.
+
 ### Also found, and fixed
 
 * **`build-deb.sh` packaged a binary from the wrong environment.** It reused
@@ -431,8 +465,11 @@ Honest list of what these tests do **not** cover.
 * **A game actually starting.** `45_launch` verifies the exact command and
   environment down to the last variable, against a Proton that records instead of
   running. Whether that command then renders a frame is untested.
-* **A real NVIDIA GPU.** `FeatureGate` is unit-tested against synthetic contexts
-  and the `nvidia-smi` parsers against captured output; no driver is involved.
+* **A real NVIDIA GPU.** `FeatureGate` is unit-tested against synthetic contexts,
+  the `nvidia-smi` parsers against captured output and the PCI scan against a
+  fixture `sysfs` tree; no driver is involved. Note that stubbing `nvidia-smi`
+  missing does **not** produce a GPU-less app: `/proc/driver/nvidia` and NVML via
+  `dlopen` are both independent of `$PATH`, so `60_gui g` still sees the real card.
 * **Widget-level GUI assertions.** `60_gui` checks window geometry, X properties
   and side effects on disk. It cannot read a `QListWidget`, so "the list shows the
   right rows" is verified through the CLI reporting the same data, not by reading

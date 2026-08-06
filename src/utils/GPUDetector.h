@@ -95,7 +95,15 @@ public:
     enum class HybridGpu { Unknown, No, Yes };
 
     static QList<GPUInfo> detectAllGPUs();
-    static bool hasNvidiaGPU();
+
+    // Vendors of every PCI display-class device the kernel reports, read straight
+    // out of sysfs (`class` + `vendor` per device). Pure file reads: no subprocess,
+    // so unlike the lspci call this replaced it cannot time out and silently report
+    // an empty machine. An empty list means sysfs was unreadable or holds no
+    // display device — callers must treat that as "unknown", not "none".
+    // `pciRoot` exists so tests can point at a fixture tree.
+    static QList<GPUInfo::Vendor> displayDeviceVendors(
+        const QString& pciRoot = QStringLiteral("/sys/bus/pci/devices"));
 
     // Overlays driver-direct telemetry onto `info` by routing to the vendor's
     // IGpuTelemetrySource (NVIDIA → NvmlSession today). Central vendor dispatch:
@@ -103,9 +111,11 @@ public:
     // No-op for vendors without a source yet. Safe to call from worker threads.
     static void enrichTelemetry(GPUInfo& info);
 
-    // True (Yes) when lspci shows an NVIDIA display device alongside an
+    // True (Yes) when sysfs shows an NVIDIA display device alongside an
     // Intel/AMD one — the setups where PRIME render offload applies.
-    static HybridGpu detectHybridGpu();
+    // `pciRoot` is forwarded to displayDeviceVendors() for tests.
+    static HybridGpu detectHybridGpu(
+        const QString& pciRoot = QStringLiteral("/sys/bus/pci/devices"));
 };
 
 #endif // GPUDETECTOR_H

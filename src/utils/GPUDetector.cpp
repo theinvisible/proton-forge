@@ -2,7 +2,8 @@
 #include "NvidiaGPUDetector.h"
 #include "utils/NvmlSession.h"
 #include "utils/IGpuTelemetrySource.h"
-#include <QProcess>
+#include <QDir>
+#include <QFile>
 
 namespace {
 // Vendor → telemetry source. Add AMD/Intel by implementing IGpuTelemetrySource
@@ -15,6 +16,31 @@ IGpuTelemetrySource* telemetrySourceFor(GPUInfo::Vendor vendor)
         // case GPUInfo::Intel: return &IntelGpuTelemetry::instance();
         default: return nullptr;
     }
+}
+
+// PCI vendor ID → GPUInfo::Vendor. The other half of the vendor dispatch above:
+// a new vendor gets its ID here and its telemetry source there.
+GPUInfo::Vendor vendorFromPciId(quint16 id)
+{
+    switch (id) {
+        case 0x10de: return GPUInfo::NVIDIA;
+        case 0x1002: return GPUInfo::AMD;    // ATI / AMD graphics
+        case 0x8086: return GPUInfo::Intel;
+        default:     return GPUInfo::Unknown;
+    }
+}
+
+// Reads a sysfs attribute holding a single "0x…" hex word. -1 when the file is
+// missing or does not parse.
+qint64 readSysfsHex(const QString& path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return -1;
+
+    bool ok = false;
+    const qint64 value = file.readLine().trimmed().toLongLong(&ok, 0);  // base 0 → honours 0x
+    return ok ? value : -1;
 }
 } // namespace
 
@@ -39,55 +65,47 @@ QList<GPUInfo> GPUDetector::detectAllGPUs()
     return allGPUs;
 }
 
-bool GPUDetector::hasNvidiaGPU()
+QList<GPUInfo::Vendor> GPUDetector::displayDeviceVendors(const QString& pciRoot)
 {
-    // Quick check using lspci
-    QProcess process;
-    process.start("lspci", QStringList());
-    process.waitForFinished(1000);
+    QList<GPUInfo::Vendor> vendors;
 
-    QString output = process.readAllStandardOutput();
-    return output.contains("NVIDIA", Qt::CaseInsensitive) ||
-           output.contains("VGA compatible controller", Qt::CaseInsensitive);
+    const QDir root(pciRoot);
+    const QStringList devices = root.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& device : devices) {
+        // PCI class register. Base class 0x03 is "display controller" and covers
+        // VGA compatible (0x0300), 3D controller (0x0302 — how Optimus dGPUs
+        // announce themselves) and other display controllers (0x0380).
+        const qint64 classCode = readSysfsHex(root.filePath(device + "/class"));
+        if (classCode < 0 || (classCode >> 16) != 0x03)
+            continue;
+
+        const qint64 vendorId = readSysfsHex(root.filePath(device + "/vendor"));
+        if (vendorId < 0)
+            continue;
+
+        vendors.append(vendorFromPciId(static_cast<quint16>(vendorId)));
+    }
+
+    return vendors;
 }
 
-GPUDetector::HybridGpu GPUDetector::detectHybridGpu()
+GPUDetector::HybridGpu GPUDetector::detectHybridGpu(const QString& pciRoot)
 {
-    QProcess process;
-    process.start("lspci", QStringList());
-    if (!process.waitForFinished(2000)) {
+    const QList<GPUInfo::Vendor> vendors = displayDeviceVendors(pciRoot);
+    if (vendors.isEmpty()) {
+        // Nothing readable — say so rather than claiming a non-hybrid system.
         return HybridGpu::Unknown;
     }
 
-    const QString output = process.readAllStandardOutput();
     bool hasNvidia = false;
     bool hasOtherVendor = false;
-    bool anyDisplayDevice = false;
-
-    const QStringList lines = output.split('\n', Qt::SkipEmptyParts);
-    for (const QString& line : lines) {
-        // Display-class devices only; dGPUs on Optimus laptops typically show
-        // up as "3D controller" rather than "VGA compatible controller".
-        const bool isDisplay =
-            line.contains("VGA compatible controller", Qt::CaseInsensitive) ||
-            line.contains("3D controller", Qt::CaseInsensitive) ||
-            line.contains("Display controller", Qt::CaseInsensitive);
-        if (!isDisplay) {
-            continue;
-        }
-        anyDisplayDevice = true;
-        if (line.contains("NVIDIA", Qt::CaseInsensitive)) {
+    for (GPUInfo::Vendor vendor : vendors) {
+        if (vendor == GPUInfo::NVIDIA) {
             hasNvidia = true;
-        } else if (line.contains("Intel", Qt::CaseInsensitive) ||
-                   line.contains("AMD", Qt::CaseInsensitive) ||
-                   line.contains("ATI", Qt::CaseInsensitive) ||
-                   line.contains("Advanced Micro Devices", Qt::CaseInsensitive)) {
+        } else if (vendor != GPUInfo::Unknown) {
             hasOtherVendor = true;
         }
     }
 
-    if (!anyDisplayDevice) {
-        return HybridGpu::Unknown;
-    }
     return (hasNvidia && hasOtherVendor) ? HybridGpu::Yes : HybridGpu::No;
 }

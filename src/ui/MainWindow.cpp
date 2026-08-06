@@ -272,12 +272,12 @@ void MainWindow::setupMenuBar()
 
     QMenu* helpMenu = menuBar()->addMenu("&Help");
 
-    // GPU Information menu item (only shown if NVIDIA GPU detected)
-    if (GPUDetector::hasNvidiaGPU()) {
-        QAction* gpuInfoAction = helpMenu->addAction(QIcon(":/icons/computer.svg"), "&System Information");
-        connect(gpuInfoAction, &QAction::triggered, this, &MainWindow::showSystemInfo);
-        helpMenu->addSeparator();
-    }
+    // Unconditional: the dialog reports CPU and monitor details too, so it stays
+    // useful without a GPU. Gating it on a probe once made the entry disappear
+    // whenever that probe timed out.
+    QAction* sysInfoAction = helpMenu->addAction(QIcon(":/icons/computer.svg"), "&System Information");
+    connect(sysInfoAction, &QAction::triggered, this, &MainWindow::showSystemInfo);
+    helpMenu->addSeparator();
 
     QAction* aboutAction = helpMenu->addAction(QIcon(":/icons/info.svg"), "&About");
     connect(aboutAction, &QAction::triggered, this, [this]() {
@@ -758,18 +758,9 @@ void MainWindow::onProtonInstallComplete(bool success, const QString& message)
 
 void MainWindow::showSystemInfo()
 {
-    QList<GPUInfo> gpus = GPUDetector::detectAllGPUs();
-
-    if (gpus.isEmpty()) {
-        QMessageBox::information(this, "No GPUs Detected",
-            "Could not detect a compatible GPU.\n\n"
-            "ProtonForge reads GPU details from the NVIDIA driver "
-            "(nvidia-smi and /proc/driver/nvidia). Make sure the proprietary "
-            "NVIDIA driver is installed and loaded.");
-        return;
-    }
-
-    SystemInfoDialog dialog(gpus, this);
+    // An empty list is not an error: the dialog still shows CPU and monitor
+    // details, and explains in its GPU tab why no GPU was found.
+    SystemInfoDialog dialog(GPUDetector::detectAllGPUs(), this);
     dialog.exec();
 }
 

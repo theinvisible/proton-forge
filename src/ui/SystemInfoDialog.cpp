@@ -51,6 +51,11 @@ void SystemInfoDialog::setupUI()
     // Always use tabs: CPU first, then one tab per GPU
     m_tabWidget = new QTabWidget(this);
     m_tabWidget->addTab(createCPUTab(), "CPU");
+    if (m_gpus.isEmpty()) {
+        // No GPU is not a reason to withhold the dialog — CPU and monitor details
+        // are still there. Explain the gap where the GPU data would have been.
+        m_tabWidget->addTab(createNoGpuTab(), "GPU");
+    }
     for (int i = 0; i < m_gpus.size(); ++i) {
         const QString label = m_gpus.size() > 1 ? QString("GPU %1").arg(i) : "GPU";
         m_tabWidget->addTab(createGPUTab(m_gpus[i], i), label);
@@ -392,6 +397,28 @@ QGroupBox* SystemInfoDialog::createCPUCacheGroup()
         addInfoRow(layout, "L3 Cache:", formatCacheSize(m_cpuInfo.l3CacheKiB));
 
     return group;
+}
+
+QWidget* SystemInfoDialog::createNoGpuTab()
+{
+    QWidget* widget = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(widget);
+    layout->setSpacing(10);
+
+    QLabel* note = new QLabel(
+        "⚠  Could not detect a compatible GPU.\n\n"
+        "ProtonForge reads GPU details from the NVIDIA driver (nvidia-smi and "
+        "/proc/driver/nvidia). Make sure the proprietary NVIDIA driver is installed "
+        "and loaded.\n\n"
+        "CPU and monitor details are unaffected and shown in the other tabs.");
+    note->setWordWrap(true);
+    note->setStyleSheet(QString("color: %1; background-color: %2; "
+                                "border: 1px solid %1; border-radius: 4px; padding: 8px;")
+                            .arg(AppStyle::ColorWarning, AppStyle::ColorBgElevated));
+    layout->addWidget(note);
+    layout->addStretch();
+
+    return widget;
 }
 
 QWidget* SystemInfoDialog::createGPUTab(const GPUInfo& gpu, int gpuIndex)
