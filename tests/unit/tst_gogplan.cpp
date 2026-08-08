@@ -41,6 +41,10 @@ private slots:
     void buildsAPlanFromAManifest();
     void refusesItemsThatEscapeTheInstallDirectory();
     void laterDepotsWinOnTheSamePath();
+    void putsDepotsThatDisagreeOnCaseInOneDirectory();
+    void keepsTheFirstSpellingEvenDeepInTheTree();
+    void doesNotMergeFilesThatDifferOnlyInCase();
+    void pointsLinksAtTheSpellingItKept();
     void warnsAboutRedistributablesItWillNotRun();
 
     void diffOnlyReturnsWhatChanged();
@@ -88,6 +92,14 @@ private:
         item.path = path;
         item.type = QStringLiteral("DepotFile");
         item.chunks = {chunk(chunkId, size)};
+        return item;
+    }
+
+    static DepotItem directory(const QString& path)
+    {
+        DepotItem item;
+        item.path = path;
+        item.type = QStringLiteral("DepotDirectory");
         return item;
     }
 };
@@ -253,6 +265,113 @@ void TstGogPlan::laterDepotsWinOnTheSamePath()
     QCOMPARE(plan.files.size(), 1);
     QCOMPARE(plan.files.first().chunks.first().compressedMd5, QStringLiteral("bbbb2222"));
     QCOMPARE(plan.totalSize, 200LL);
+}
+
+void TstGogPlan::putsDepotsThatDisagreeOnCaseInOneDirectory()
+{
+    // Anno 1602, exactly: the shared depot puts three .GAD files in GADDATA and
+    // the German depot puts its menu definitions in Gaddata. On the filesystem
+    // GOG builds for that is one folder. Left as two, the game starts and then
+    // draws a black screen where its main menu should be, because whichever
+    // spelling it opens holds only part of its data.
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+    meta.installDirectory = "Anno 1602";
+
+    const DepotManifest shared = manifestWith({
+        directory("GADDATA"),
+        file("GADDATA/BASE.GAD", "aaaa1111", 100),
+    });
+    const DepotManifest german = manifestWith({
+        directory("Gaddata"),
+        file("Gaddata/ANNO.GAD", "bbbb2222", 200),
+    });
+
+    const GogInstallPlan::Plan plan = GogInstallPlan::build(meta, {shared, german});
+
+    QStringList paths;
+    for (const GogInstallPlan::FileTask& file : plan.files) {
+        paths << file.relPath;
+    }
+    paths.sort();
+
+    // Both files, one directory — and the spelling is the one that was created
+    // first, which is the one the original install would have ended up with.
+    QCOMPARE(paths, QStringList({"GADDATA/ANNO.GAD", "GADDATA/BASE.GAD"}));
+    QCOMPARE(plan.directories, QStringList({"GADDATA"}));
+}
+
+void TstGogPlan::keepsTheFirstSpellingEvenDeepInTheTree()
+{
+    // Component by component, not a prefix match: only the segment that was
+    // seen before is replaced, and a directory named the same as one further up
+    // does not borrow its spelling.
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+
+    const GogInstallPlan::Plan plan = GogInstallPlan::build(meta, {
+        manifestWith({file("Data/Sound/Speech/en.pak", "aaaa1111", 10)}),
+        manifestWith({file("DATA/SOUND/speech/de.pak", "bbbb2222", 10)}),
+        manifestWith({file("data/other/DATA/x.pak", "cccc3333", 10)}),
+    });
+
+    QStringList paths;
+    for (const GogInstallPlan::FileTask& file : plan.files) {
+        paths << file.relPath;
+    }
+    paths.sort();
+
+    QCOMPARE(paths, QStringList({"Data/Sound/Speech/de.pak",
+                                 "Data/Sound/Speech/en.pak",
+                                 "Data/other/DATA/x.pak"}));
+}
+
+void TstGogPlan::doesNotMergeFilesThatDifferOnlyInCase()
+{
+    // The directory is unified; the file name is not. Two files are two files —
+    // quietly collapsing them would drop one, and whether they can coexist is a
+    // question about the drive, which wouldCollideCaseInsensitively answers.
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+
+    const GogInstallPlan::Plan plan = GogInstallPlan::build(meta, {
+        manifestWith({file("GFX/menu.bsh", "aaaa1111", 10)}),
+        manifestWith({file("Gfx/MENU.BSH", "bbbb2222", 10)}),
+    });
+
+    QCOMPARE(plan.files.size(), 2);
+    QString which;
+    QVERIFY(GogInstallPlan::wouldCollideCaseInsensitively(plan, &which));
+}
+
+void TstGogPlan::pointsLinksAtTheSpellingItKept()
+{
+    // A link written against the other spelling would dangle: the directory it
+    // names is not the one that exists.
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+
+    DepotItem link;
+    link.path = QStringLiteral("bin/run.sh");
+    link.type = QStringLiteral("DepotLink");
+    link.linkTarget = QStringLiteral("Support/start.sh");
+
+    const GogInstallPlan::Plan plan = GogInstallPlan::build(meta, {
+        manifestWith({file("SUPPORT/start.sh", "aaaa1111", 10)}),
+        manifestWith({link}),
+    });
+
+    for (const GogInstallPlan::FileTask& file : plan.files) {
+        if (!file.linkTarget.isEmpty()) {
+            QCOMPARE(file.linkTarget, QStringLiteral("SUPPORT/start.sh"));
+            return;
+        }
+    }
+    QFAIL("the link never made it into the plan");
 }
 
 void TstGogPlan::warnsAboutRedistributablesItWillNotRun()

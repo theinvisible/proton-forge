@@ -43,6 +43,34 @@ bool wantsBitness(const GogContentClient::DepotRef& depot, int bitness)
     return depot.osBitness.contains(QString::number(bitness));
 }
 
+// Depots disagree about the case of the directories they share, because on the
+// filesystem GOG builds for it makes no difference: whichever depot is unpacked
+// first creates `GADDATA`, and a later one writing `Gaddata\ANNO.GAD` lands in
+// that same folder. On a case-sensitive filesystem it makes two, and the game —
+// which asks for one spelling — then sees only half of its own data.
+//
+// Anno 1602 is the case that showed it: its shared depot puts three .GAD files
+// in `GADDATA`, its German depot puts forty-nine in `Gaddata`, and the main
+// menu needs both. It starts, and then draws nothing. English never showed it
+// because that depot happens to agree with the shared one; Polish splits eight
+// directories.
+//
+// So the spelling is decided once, by whoever names a directory first — which
+// is the rule the original filesystem applied, arrived at the same way.
+QString canonicalDirPath(const QString& relPath, QHash<QString, QString>& spellings)
+{
+    const QStringList parts = relPath.split('/');
+    QStringList fixed;
+    fixed.reserve(parts.size());
+
+    for (const QString& part : parts) {
+        const QString key = (fixed.isEmpty() ? part : fixed.join('/') + '/' + part).toLower();
+        const auto known = spellings.constFind(key);
+        fixed << (known == spellings.constEnd() ? *spellings.insert(key, part) : *known);
+    }
+    return fixed.join('/');
+}
+
 } // namespace
 
 QStringList availableLanguages(const GogContentClient::BuildMeta& meta)
@@ -100,18 +128,43 @@ Plan build(const GogContentClient::BuildMeta& meta,
     QSet<QString> directories;
     int rejectedPaths = 0;
 
+    // See canonicalDirPath: one spelling per directory, whoever names it first.
+    QHash<QString, QString> dirSpellings;
+    QSet<QString> respelled;
+
+    // Only the directory part. A *file* whose name differs only in case is a
+    // different question — two of them cannot coexist on the drive the user may
+    // have chosen, which is what wouldCollideCaseInsensitively reports rather
+    // than silently merging.
+    const auto canonicalFilePath = [&dirSpellings](const QString& relPath) {
+        const int slash = relPath.lastIndexOf('/');
+        if (slash < 0) {
+            return relPath;
+        }
+        return canonicalDirPath(relPath.left(slash), dirSpellings) + relPath.mid(slash);
+    };
+
     for (const GogContentClient::DepotManifest& manifest : manifestsInDepotOrder) {
         for (const GogContentClient::DepotItem& item : manifest.items) {
-            const QString relPath = GogContentClient::sanitizeDepotPath(item.path);
-            if (relPath.isEmpty()) {
+            const QString rawPath = GogContentClient::sanitizeDepotPath(item.path);
+            if (rawPath.isEmpty()) {
                 // Refused rather than repaired — see sanitizeDepotPath.
                 ++rejectedPaths;
                 continue;
             }
 
             if (item.type == QLatin1String("DepotDirectory")) {
+                const QString relPath = canonicalDirPath(rawPath, dirSpellings);
+                if (relPath != rawPath) {
+                    respelled.insert(relPath);
+                }
                 directories.insert(relPath);
                 continue;
+            }
+
+            const QString relPath = canonicalFilePath(rawPath);
+            if (relPath != rawPath) {
+                respelled.insert(relPath.left(relPath.lastIndexOf('/')));
             }
 
             FileTask task;
@@ -123,11 +176,14 @@ Plan build(const GogContentClient::BuildMeta& meta,
                 manifest.productId.isEmpty() ? meta.baseProductId : manifest.productId;
 
             if (item.type == QLatin1String("DepotLink")) {
-                task.linkTarget = GogContentClient::sanitizeDepotPath(item.linkTarget);
-                if (task.linkTarget.isEmpty()) {
+                const QString target = GogContentClient::sanitizeDepotPath(item.linkTarget);
+                if (target.isEmpty()) {
                     ++rejectedPaths;   // a link pointing out of the tree
                     continue;
                 }
+                // Through the same map, or the link points at a directory
+                // spelling that no longer exists.
+                task.linkTarget = canonicalFilePath(target);
             } else {
                 for (const GogContentClient::Chunk& chunk : item.chunks) {
                     task.size += chunk.size;
@@ -136,6 +192,17 @@ Plan build(const GogContentClient::BuildMeta& meta,
 
             byPath.insert(relPath, task);
         }
+    }
+
+    if (!respelled.isEmpty()) {
+        // Not a plan warning: the layout is now the one the game expects, and
+        // there is nothing for the user to do about it. Logged because it is
+        // the first thing worth knowing if a game cannot find its own data.
+        QStringList sorted(respelled.constBegin(), respelled.constEnd());
+        sorted.sort();
+        qInfo("GogInstallPlan: depots disagreed on the case of %lld directory name(s); "
+              "kept the first spelling (%s)",
+              static_cast<long long>(sorted.size()), qPrintable(sorted.join(", ")));
     }
 
     if (rejectedPaths > 0) {

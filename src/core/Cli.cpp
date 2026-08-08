@@ -29,6 +29,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcessEnvironment>
+#include <QSettings>
 #include <QTextStream>
 #include <QTimer>
 
@@ -821,10 +822,15 @@ int cmdGogPlan(const QString& productId)
     QMap<QString, GogContentClient::DepotManifest> manifestsByHash;
     int pending = 0;
 
-    // Default to English plus whatever the build marks as shared. A picker
-    // belongs in the GUI; a CLI that has to be told a language before it can
-    // answer "is this installable" would be the wrong shape.
-    const QStringList languages{QStringLiteral("en-US"), QStringLiteral("en")};
+    // The same language --gog-install would use, falling back to English. A
+    // picker belongs in the GUI; a CLI that has to be told a language before it
+    // can answer "is this installable" would be the wrong shape. But answering
+    // for a *different* language than the install would fetch makes the dry run
+    // worth less than nothing — the depots differ, and so does the layout.
+    const QString configured = QSettings().value("gog/language").toString();
+    const QStringList languages = configured.isEmpty()
+        ? QStringList{QStringLiteral("en-US"), QStringLiteral("en")}
+        : QStringList{configured};
 
     const auto finishWithPlan = [&]() {
         QList<GogContentClient::DepotManifest> ordered;

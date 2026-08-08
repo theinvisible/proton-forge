@@ -565,6 +565,49 @@ Three more of the same shape, found while fixing it:
   an empty install path names the filesystem root. Harmless as a normal user,
   which is why nothing had noticed.
 
+### 7. Anno 1602 in German installed into two directories and drew a black menu — fixed
+
+`tst_gogplan`
+
+Reported from use. The English build started and showed its main menu; the
+German build started and showed nothing where the menu should be.
+
+The two builds are the same game and the same engine. What differs is that GOG's
+depots disagree with each other about the case of three directory names:
+
+| Directory | Shared depot (`*`) | German depot |
+|---|---|---|
+| `GADDATA` | 3 files | `Gaddata`, 49 files |
+| `SAMPLES` | 83 files | `Samples`, 23 files |
+| `TOOLGFX` | 9 files | `ToolGfx`, 21 files |
+
+On the filesystem GOG builds for, that distinction does not exist: whichever
+depot is unpacked first creates `GADDATA`, and everything the others write goes
+into the same folder. ProtonForge wrote the depot paths out verbatim onto a
+case-sensitive filesystem and got **two** directories. The game asks for one
+spelling — Wine resolves an exact match first, so it gets whichever it named and
+sees only that part of its own data. `GADDATA/BASE.GAD` and `Gaddata/ANNO.GAD`
+are the base GUI definition and the main menu; the menu needs both, and they had
+landed in different directories.
+
+English never showed it because that depot happens to agree with the shared one.
+Polish splits eight directories, so it would have been worse.
+
+`GogInstallPlan::build` now decides each directory's spelling once, when it is
+first named — which is the rule the original filesystem applied, arrived at the
+same way, so the layout is the one the game was built against. File *names* are
+deliberately not merged: two files are two files, and whether they can coexist
+is a question about the drive, which `wouldCollideCaseInsensitively` already
+answers.
+
+Verified against the live build: before, 3 files in `GADDATA` and 49 in
+`Gaddata`; after, all 52 in `GADDATA` with `ANNO.GAD` and `BASE.GAD` together.
+
+Found alongside it: **`--gog-plan` always planned in English** while
+`--gog-install` used the configured language, so the dry run could report a
+different file set — and, for exactly this build, a different layout — than the
+install it was meant to predict. Both read `gog/language` now.
+
 ### Also found, and fixed
 
 * **`build-deb.sh` packaged a binary from the wrong environment.** It reused
