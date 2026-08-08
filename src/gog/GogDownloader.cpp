@@ -251,21 +251,29 @@ void GogDownloader::resume(const QString& productId)
 void GogDownloader::cancel(const QString& productId)
 {
     if (!isActive(productId)) {
-        // Not started yet — dropping it from the queue is the whole job.
+        // Not started yet — dropping it from the queue is the whole job. It is
+        // still announced like any other cancellation: queueChanged says the
+        // queue moved, not which game left it, and a listener that painted this
+        // one as installing has nothing else to tell it otherwise.
         for (int i = 0; i < m_pending.size(); ++i) {
             if (m_pending.at(i).productId == productId) {
+                const QString id = m_pending.at(i).productId;
                 m_pending.removeAt(i);
                 emit queueChanged();
+                emit installFailed(id, QStringLiteral("Installation cancelled."));
                 return;
             }
         }
         return;
     }
 
+    // Copied first: endJob() deletes the job, and productId may well be a
+    // reference into it.
+    const QString id = productId;
     abortTransfers();
     saveStateJournal(true);
-    emit installFailed(productId, QStringLiteral("Installation cancelled."));
     endJob();
+    emit installFailed(id, QStringLiteral("Installation cancelled."));
 }
 
 void GogDownloader::cancelAndDiscard(const QString& productId)
@@ -802,8 +810,10 @@ void GogDownloader::unpackOfflineInstaller(const QString& path)
     registry.put(entry);
     removeJournal();
 
-    emit installFinished(m_job->request.productId, m_job->installPath);
+    const QString finishedId = m_job->request.productId;
+    const QString finishedPath = m_job->installPath;
     endJob();
+    emit installFinished(finishedId, finishedPath);
 }
 
 void GogDownloader::fallBackToWindows()
@@ -1263,8 +1273,13 @@ void GogDownloader::finalizeInstall()
     removeJournal();
 
     const QString installPath = m_job->installPath;
-    emit installFinished(productId, installPath);
+
+    // endJob() before the announcement, not after. Everything listening reacts
+    // by asking what is installing now — and until the job is gone it is still
+    // this one, so the row keeps its "installing" badge and the button keeps
+    // saying "Cancel" for a game that has finished.
     endJob();
+    emit installFinished(productId, installPath);
 }
 
 void GogDownloader::failJob(const QString& reason)
@@ -1279,8 +1294,8 @@ void GogDownloader::failJob(const QString& reason)
     // the next attempt resumes rather than starting over.
     saveStateJournal(true);
 
-    emit installFailed(productId, reason);
     endJob();
+    emit installFailed(productId, reason);
 }
 
 void GogDownloader::endJob()
@@ -1300,7 +1315,12 @@ void GogDownloader::endJob()
     m_job = nullptr;
 
     emit queueChanged();
-    startNext();
+
+    // Not inline: the caller emits its outcome signal right after this returns,
+    // and starting the next job here would put that job's queueChanged and
+    // progress — and, if it fails while resolving, its own installFailed —
+    // ahead of the news about the one that just ended.
+    QTimer::singleShot(0, this, [this]() { startNext(); });
 }
 
 void GogDownloader::abortTransfers()
@@ -1386,7 +1406,9 @@ void GogDownloader::loadStateJournal()
 
 void GogDownloader::saveStateJournal(bool force)
 {
-    if (!m_job) {
+    if (!m_job || m_job->installPath.isEmpty()) {
+        // Nothing resolved yet, so there is no install directory to journal
+        // into — and journalPath() would name "/.protonforge-gog".
         return;
     }
     const QDateTime now = QDateTime::currentDateTime();

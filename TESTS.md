@@ -506,6 +506,65 @@ Verified with `strace -f -e trace=execve` across a full pass of the UI: the only
 `execve` left is ProtonForge itself, plus one `kscreen-doctor` on a KDE session
 where there used to be two.
 
+### 6. A finished GOG install kept its "installing" badge — fixed
+
+`tst_gogqueue`
+
+Reported from use, not by the suite. Installing a GOG game from the store dialog
+left the row reading *"↓ installing"* after the download had completed, and the
+button next to it still saying *"Cancel"*, with nothing that would later correct
+either.
+
+`GogDownloader` announced the outcome and *then* tore the job down:
+
+```cpp
+emit installFinished(productId, installPath);
+endJob();                                  // clears m_job
+```
+
+Everything listening reacts to that signal by asking what is installing now —
+`StoreLibraryDialog` rebuilds its rows from `IStoreService::isInstalling()`,
+which reads the downloader's queue. During the emit the job was still on it, so
+the answer was "this one", and the badge it painted was the one it already had.
+The dialog's refresh was not missing; it ran against a queue that had not been
+updated yet. Both orderings are now the other way round, in all four places that
+end a job.
+
+The same reversal decides when a *queued* job starts. `endJob()` called
+`startNext()` inline, so with two games queued the second one's `queueChanged`,
+its progress — and, when it could resolve its build from cache and fail there,
+its own `installFailed` — all reached the listener **before** the news about the
+job that had just ended. `startNext()` is now scheduled on the event loop, which
+makes "a job's outcome is announced before the next job's first signal"
+unconditional rather than true-if-it-happens-to-block.
+
+`tst_gogqueue` pins both halves without a network or an account: two
+content-system lookups pre-seeded into the disk cache with a generation-1-only
+answer make an install fail for a real reason and entirely offline (the native
+installer detour between them needs a token, and there is no session). It reads
+`isInstalling()` from inside the failure handler — the moment that was wrong —
+and, for the ordering, races a job that must go round the event loop against one
+that reaches its answer without yielding.
+
+Three more of the same shape, found while fixing it:
+
+* **Cancelling a queued install announced nothing.** `cancel()` on a job that had
+  not started yet dropped it from the queue and emitted only `queueChanged`,
+  which says the queue moved but not which game left it — and the store dialog
+  does not listen to it. So the row kept the badge that had just stopped being
+  true, by the same mechanism and with no way back. Both cancellation paths now
+  report the same way.
+* **The progress bar could outlive its download.** `StoreLibraryDialog` hid the
+  progress frame only when the finishing store was also the selected one, so
+  switching to another store mid-install left the bar on screen afterwards,
+  still showing an install that had ended. It belongs to whatever is
+  downloading, not to whatever is on screen, and is now cleared before that
+  check.
+* **`saveStateJournal()` aimed at `/`** when a job failed before an install path
+  had been resolved — `journalPath()` is `installPath + "/.protonforge-gog"`, and
+  an empty install path names the filesystem root. Harmless as a normal user,
+  which is why nothing had noticed.
+
 ### Also found, and fixed
 
 * **`build-deb.sh` packaged a binary from the wrong environment.** It reused

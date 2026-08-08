@@ -57,6 +57,7 @@ private:
     void clearDetails();
     void refreshDetails();
     void showProgress(const QString& id, const StoreInstallProgress& progress);
+    void clearProgressFor(const QString& id);
 
     IStoreService* currentService() const;
     StoreEntry entryById(const QString& id) const;

@@ -262,14 +262,16 @@ void StoreLibraryDialog::populateStores()
                     showProgress(id, progress);
                 }
             });
+            // The progress frame tracks whatever is downloading, not whatever
+            // store happens to be on screen — so it is cleared before the
+            // is-this-store-selected guard. Behind it, switching to another
+            // store mid-install left the bar sitting there afterwards, still
+            // showing an install that had finished.
             connect(service, &IStoreService::installFinished, this,
                     [this, service](const QString& id) {
+                clearProgressFor(id);
                 if (currentService() != service) {
-                    return;
-                }
-                if (m_installingId == id) {
-                    m_installingId.clear();
-                    m_progressFrame->hide();
+                    return;   // its rows are rebuilt when it is selected again
                 }
                 // What is on disk just changed, so the badges and the buttons
                 // are both stale.
@@ -279,12 +281,9 @@ void StoreLibraryDialog::populateStores()
             });
             connect(service, &IStoreService::installFailed, this,
                     [this, service](const QString& id, const QString& reason) {
+                clearProgressFor(id);
                 if (currentService() != service) {
                     return;
-                }
-                if (m_installingId == id) {
-                    m_installingId.clear();
-                    m_progressFrame->hide();
                 }
                 refreshInstalledState();
                 rebuildEntryList();
@@ -587,6 +586,15 @@ void StoreLibraryDialog::refreshDetails()
         return;
     }
     showDetails(entry);
+}
+
+void StoreLibraryDialog::clearProgressFor(const QString& id)
+{
+    if (m_installingId != id) {
+        return;
+    }
+    m_installingId.clear();
+    m_progressFrame->hide();
 }
 
 void StoreLibraryDialog::showProgress(const QString& id, const StoreInstallProgress& progress)
