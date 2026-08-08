@@ -95,7 +95,7 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
     // badge and (for the current game) open a dialog; on success it lists mined
     // suggestions, otherwise it explains why and still shows the tier + link.
     auto restoreBadge = [this]() {
-        m_protonDbBadge->setEnabled(m_currentGame.launcher() == "Steam" && !m_currentGame.id().isEmpty());
+        m_protonDbBadge->setEnabled(m_currentGame.traits().idIsSteamAppId && !m_currentGame.id().isEmpty());
         updateProtonDbBadge(m_protonDbSummary);
     };
     connect(&ProtonDBClient::instance(), &ProtonDBClient::reportsReady, this,
@@ -259,7 +259,7 @@ void DLSSSettingsWidget::setupUI()
     mainLayout->addWidget(tabWidget, 1);
 
     // Launch command preview
-    QGroupBox* previewGroup = new QGroupBox("Steam Launch Options Preview", this);
+    QGroupBox* previewGroup = new QGroupBox("Launch Options Preview", this);
     QVBoxLayout* previewLayout = new QVBoxLayout(previewGroup);
     m_launchCommandPreview = new QTextEdit(this);
     m_launchCommandPreview->setReadOnly(true);
@@ -933,24 +933,25 @@ QWidget* DLSSSettingsWidget::createActionsSection()
     m_copyButton->setToolTip("Copy launch options to clipboard for manual paste into Steam");
     layout->addWidget(m_copyButton);
 
-    m_importButton = new QPushButton("Import from Steam", this);
+    m_importButton = new QPushButton("Import from Launcher", this);
     m_importButton->setStyleSheet(AppStyle::secondaryButtonStyle());
     m_importButton->setToolTip(
-        "Read this game's existing Steam launch options and map them onto the "
-        "controls above. Unknown options go into Custom Launch Parameters.");
+        "Read this game's existing launch options from its launcher and map "
+        "them onto the controls above. Unknown options go into Custom Launch "
+        "Parameters.");
     layout->addWidget(m_importButton);
 
-    m_writeToSteamButton = new QPushButton("Write to Steam", this);
+    m_writeToSteamButton = new QPushButton("Write to Launcher", this);
     m_writeToSteamButton->setStyleSheet(AppStyle::secondaryButtonStyle());
-    m_writeToSteamButton->setToolTip("Write launch options directly to Steam's config (requires Steam restart)");
+    m_writeToSteamButton->setToolTip("Write launch options directly into the launcher's own config");
     layout->addWidget(m_writeToSteamButton);
 
     layout->addStretch();
 
     connect(m_playButton, &QPushButton::clicked, this, &DLSSSettingsWidget::playClicked);
     connect(m_copyButton, &QPushButton::clicked, this, &DLSSSettingsWidget::copyClicked);
-    connect(m_importButton, &QPushButton::clicked, this, &DLSSSettingsWidget::importFromSteamClicked);
-    connect(m_writeToSteamButton, &QPushButton::clicked, this, &DLSSSettingsWidget::writeToSteamClicked);
+    connect(m_importButton, &QPushButton::clicked, this, &DLSSSettingsWidget::importFromLauncherClicked);
+    connect(m_writeToSteamButton, &QPushButton::clicked, this, &DLSSSettingsWidget::writeToLauncherClicked);
 
     return widget;
 }
@@ -972,6 +973,17 @@ void DLSSSettingsWidget::setGame(const Game& game)
     }
 
     m_updateAvailableLabel->setVisible(game.needsUpdate());
+
+    // Only offer reading and writing launch options to launchers that actually
+    // store them. Hiding beats showing a button and then explaining it does
+    // nothing for this game.
+    const LauncherTraits traits = game.traits();
+    m_importButton->setVisible(traits.supportsLaunchOptionsIO);
+    m_writeToSteamButton->setVisible(traits.supportsLaunchOptionsIO);
+
+    // The overlay is Steam's own, and GameRunner will not inject it elsewhere —
+    // so a checkbox for it would be a control with no effect.
+    m_enableSteamOverlay->setVisible(traits.usesSteamEnv);
 
     // Show/hide Proton version selector based on game type
     if (game.isNativeLinux()) {
@@ -998,13 +1010,16 @@ void DLSSSettingsWidget::setGame(const Game& game)
         }
     });
 
-    // Fetch the ProtonDB tier for the badge. Only Steam games have a usable appId.
+    // Fetch the ProtonDB tier for the badge. ProtonDB is keyed by Steam appid,
+    // so this is the one thing standing between another store's numeric
+    // product id and a request to protondb.com for a different game entirely
+    // (fetchSummary has no id check of its own).
     m_protonDbSummary = ProtonDBClient::Summary();
     m_protonDbSummaryAppId.clear();
-    const bool isSteamGame = (game.launcher() == "Steam") && !game.id().isEmpty();
-    m_protonDbBadge->setEnabled(isSteamGame);
+    const bool hasSteamAppId = game.traits().idIsSteamAppId && !game.id().isEmpty();
+    m_protonDbBadge->setEnabled(hasSteamAppId);
     m_protonDbBadge->setStyleSheet(protonDbBadgeMutedStyle());
-    if (isSteamGame) {
+    if (hasSteamAppId) {
         m_protonDbBadge->setText("ProtonDB: checking…");
         ProtonDBClient::instance().fetchSummary(game.id());
     } else {
@@ -1019,6 +1034,7 @@ void DLSSSettingsWidget::updateGameStatus(const Game& game)
     }
     m_currentGame.setStateFlags(game.stateFlags());
     m_currentGame.setBuildId(game.buildId());
+    m_currentGame.setNeedsUpdate(game.needsUpdate());
     m_updateAvailableLabel->setVisible(m_currentGame.needsUpdate());
 }
 
@@ -1294,7 +1310,7 @@ void DLSSSettingsWidget::onSettingChanged()
 
 void DLSSSettingsWidget::onRecommendClicked()
 {
-    if (m_currentGame.id().isEmpty() || m_currentGame.launcher() != "Steam") {
+    if (m_currentGame.id().isEmpty() || !m_currentGame.traits().idIsSteamAppId) {
         return;
     }
     m_protonDbBadge->setEnabled(false);

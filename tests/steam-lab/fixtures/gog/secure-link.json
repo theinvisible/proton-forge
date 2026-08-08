@@ -1,0 +1,43 @@
+{
+  "product_id": 1207664663,
+  "urls": [
+    {
+      "endpoint_name": "fastly",
+      "url_format": "{base_url}/{path}?{token}",
+      "parameters": {
+        "base_url": "https://gog-cdn-fastly.gog.com",
+        "path": "token=nva=1700003600~dir=%2Fcontent-system%2Fv2%2Fstore/1207664663/windows",
+        "token": "exp=1700003600~acl=/*~hmac=FAKEHMACVALUEFORTESTSONLY0000000"
+      },
+      "priority": 1,
+      "max_fails": 3,
+      "supports_generation": [2],
+      "fallback_only": false
+    },
+    {
+      "endpoint_name": "edgecast",
+      "url_format": "{base_url}/{path}?{token}",
+      "parameters": {
+        "base_url": "https://gog-cdn-edgecast.gog.com",
+        "path": "content-system/v2/store/1207664663/windows",
+        "token": "exp=1700007200~acl=/*~hmac=ANOTHERFAKEHMACFORTESTS000000000"
+      },
+      "priority": 2,
+      "max_fails": 3,
+      "supports_generation": [2],
+      "fallback_only": false
+    },
+    {
+      "endpoint_name": "gog_cdn",
+      "url_format": "{base_url}/{path}",
+      "parameters": {
+        "base_url": "https://cdn.gog.com",
+        "path": "content-system/v2/store/1207664663/windows"
+      },
+      "priority": 9,
+      "max_fails": 1,
+      "supports_generation": [2],
+      "fallback_only": true
+    }
+  ]
+}

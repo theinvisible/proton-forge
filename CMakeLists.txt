@@ -9,6 +9,21 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Concurrent DBus)
 
+# zlib: GOG's content system serves every manifest and every chunk zlib-encoded
+# with no Content-Encoding header, so Qt will not inflate them and qUncompress()
+# cannot (it expects Qt's own 4-byte length prefix).
+find_package(ZLIB REQUIRED)
+
+# QtKeychain is optional. Where it is missing — or where no secret service is
+# running, which is the normal state on a bare gaming session — SecretStore
+# falls back to a 0600 file. One code path is always compiled; see SecretStore.h.
+find_package(Qt6Keychain QUIET)
+if(Qt6Keychain_FOUND)
+    message(STATUS "QtKeychain found — credentials will use the system keyring")
+else()
+    message(STATUS "QtKeychain not found — credentials fall back to a 0600 file")
+endif()
+
 # Off by default: the Flatpak build and packaging never need it, and enabling it
 # pulls in Qt6::Test. CI turns it on for the debug build.
 option(PROTONFORGE_BUILD_TESTS "Build the unit tests (tests/unit)" OFF)
@@ -26,12 +41,14 @@ configure_file(
 set(CORE_SOURCES
     src/core/Cli.cpp
     src/core/Game.cpp
+    src/core/SecretStore.cpp
     src/core/DLSSSettings.cpp
     src/core/FeatureGate.cpp
     src/core/SettingsManager.cpp
     src/parsers/VDFParser.cpp
     src/launchers/LauncherManager.cpp
     src/launchers/SteamLauncher.cpp
+    src/launchers/GogLauncher.cpp
     src/utils/EnvBuilder.cpp
     src/utils/ProcessRunner.cpp
     src/utils/ProtonManager.cpp
@@ -47,6 +64,17 @@ set(CORE_SOURCES
     src/utils/DisplayDetector.cpp
     src/utils/KScreenDoctor.cpp
     src/utils/KdeDisplayProbe.cpp
+    src/gog/GogAuth.cpp
+    src/gog/GogRequest.cpp
+    src/gog/GogApiClient.cpp
+    src/gog/GogStoreService.cpp
+    src/gog/GogContentClient.cpp
+    src/gog/GogInstallPlan.cpp
+    src/gog/GogInstallRegistry.cpp
+    src/gog/GogPlayTasks.cpp
+    src/gog/GogDownloader.cpp
+    src/launchers/SteamStoreService.cpp
+    src/network/JsonDiskCache.cpp
     src/network/ImageCache.cpp
     src/network/ProtonDBClient.cpp
     src/runner/GameRunner.cpp
@@ -62,11 +90,15 @@ set(UI_SOURCES
     src/ui/AboutDialog.cpp
     src/ui/MangoHudDialog.cpp
     src/ui/RecommendationsDialog.cpp
+    src/ui/GogLoginDialog.cpp
+    src/ui/StoreLibraryDialog.cpp
 )
 
 set(CORE_HEADERS
     src/core/Cli.h
     src/core/Game.h
+    src/core/LauncherTraits.h
+    src/core/SecretStore.h
     src/core/DLSSSettings.h
     src/core/FeatureGate.h
     src/core/SettingsManager.h
@@ -74,6 +106,7 @@ set(CORE_HEADERS
     src/launchers/ILauncher.h
     src/launchers/LauncherManager.h
     src/launchers/SteamLauncher.h
+    src/launchers/GogLauncher.h
     src/utils/EnvBuilder.h
     src/utils/ProcessRunner.h
     src/utils/ProtonManager.h
@@ -92,6 +125,18 @@ set(CORE_HEADERS
     src/utils/KScreenDoctor.h
     src/utils/KdeDisplayProbe.h
     src/utils/DisplayDetector.h
+    src/gog/GogAuth.h
+    src/gog/GogRequest.h
+    src/gog/GogApiClient.h
+    src/gog/GogStoreService.h
+    src/gog/GogContentClient.h
+    src/gog/GogInstallPlan.h
+    src/gog/GogInstallRegistry.h
+    src/gog/GogPlayTasks.h
+    src/gog/GogDownloader.h
+    src/launchers/IStoreService.h
+    src/launchers/SteamStoreService.h
+    src/network/JsonDiskCache.h
     src/network/ImageCache.h
     src/network/ProtonDBClient.h
     src/runner/GameRunner.h
@@ -108,6 +153,9 @@ set(UI_HEADERS
     src/ui/AppStyle.h
     src/ui/MangoHudDialog.h
     src/ui/RecommendationsDialog.h
+    src/ui/GogLoginDialog.h
+    src/ui/StoreLibraryDialog.h
+    src/ui/BadgeRow.h
 )
 
 set(RESOURCES
@@ -130,8 +178,14 @@ target_link_libraries(protonforge_core PUBLIC
     Qt6::Network
     Qt6::Concurrent
     Qt6::DBus
+    ZLIB::ZLIB
     ${CMAKE_DL_LIBS}   # dlopen() for NVML (libnvidia-ml) — loaded at runtime, not linked
 )
+
+if(Qt6Keychain_FOUND)
+    target_link_libraries(protonforge_core PUBLIC Qt6Keychain::Qt6Keychain)
+    target_compile_definitions(protonforge_core PUBLIC PROTONFORGE_HAVE_QTKEYCHAIN)
+endif()
 
 add_executable(${PROJECT_NAME} src/main.cpp ${UI_SOURCES} ${UI_HEADERS} ${RESOURCES})
 

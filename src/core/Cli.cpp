@@ -4,6 +4,13 @@
 #include "core/Game.h"
 #include "core/SettingsManager.h"
 #include "launchers/LauncherManager.h"
+#include "gog/GogAuth.h"
+#include "launchers/IStoreService.h"
+#include "gog/GogContentClient.h"
+#include "gog/GogInstallPlan.h"
+#include "gog/GogDownloader.h"
+#include "gog/GogInstallRegistry.h"
+#include "core/SecretStore.h"
 #include "launchers/SteamLauncher.h"
 #include "runner/GameRunner.h"
 #include "utils/EnvBuilder.h"
@@ -35,6 +42,8 @@ const char* const kOptions[] = {
     "--steam-info", "--list-games", "--steam-client",
     "--print-launch-options", "--parse-launch-options",
     "--apply", "--launch", "--dry-run", "--set", "--timeout",
+    "--gog-login-url", "--gog-status", "--store-list", "--gog-plan",
+    "--gog-install", "--gog-uninstall",
 };
 
 QTextStream& out()
@@ -200,7 +209,25 @@ QJsonObject gameToJson(const Game& game)
     o["stateFlags"]     = game.stateFlags();
     o["needsUpdate"]    = game.needsUpdate();
     o["buildId"]        = game.buildId();
+    o["version"]        = game.version();
     o["settingsKey"]    = game.settingsKey();
+    o["compatDataPath"]   = game.compatDataPath();
+    o["shaderCachePath"]  = game.shaderCachePath();
+    o["workingDirectory"] = game.workingDirectory();
+    o["launchArgs"]       = QJsonArray::fromStringList(game.launchArgs());
+    o["installWarnings"]  = QJsonArray::fromStringList(game.installWarnings());
+
+    // The traits decide most of what the app does with a game, so the lab needs
+    // to be able to see them rather than infer them from behaviour.
+    const LauncherTraits traits = game.traits();
+    QJsonObject t;
+    t["usesSteamEnv"]            = traits.usesSteamEnv;
+    t["requiresClientRunning"]   = traits.requiresClientRunning;
+    t["supportsLaunchOptionsIO"] = traits.supportsLaunchOptionsIO;
+    t["providesUpdateState"]     = traits.providesUpdateState;
+    t["idIsSteamAppId"]          = traits.idIsSteamAppId;
+    o["traits"] = t;
+
     return o;
 }
 
@@ -289,13 +316,16 @@ int cmdListGames()
     const QList<Game> games = discoverGames();
     SettingsManager& sm = SettingsManager::instance();
 
+    LauncherManager& lm = LauncherManager::instance();
+
     QJsonArray arr;
     for (const Game& game : games) {
         QJsonObject o = gameToJson(game);
-        o["hasSettings"]   = sm.hasSettings(game.settingsKey());
-        o["launchOptions"] = game.launcher() == QLatin1String("Steam")
-                                 ? SteamLauncher::readLaunchOptions(game.id())
-                                 : QString();
+        o["hasSettings"] = sm.hasSettings(game.settingsKey());
+        // Whatever this game's launcher already has stored, if it stores
+        // anything. Launchers that do not simply return nothing.
+        const auto launcher = lm.launcher(game.launcher());
+        o["launchOptions"] = launcher ? launcher->readLaunchOptions(game) : QString();
         arr.append(o);
     }
     printJson(arr);
@@ -387,9 +417,7 @@ int cmdApply(const QString& appId, const QStringList& overrides)
     const bool applied = launcher->applySettings(game, settings);
     // Read it back rather than trusting the return value: applySettings reports
     // success on paths where it did not actually change anything.
-    const QString readBack = game.launcher() == QLatin1String("Steam")
-                                 ? SteamLauncher::readLaunchOptions(game.id())
-                                 : QString();
+    const QString readBack = launcher->readLaunchOptions(game);
 
     QJsonObject o;
     o["appId"]         = appId;
@@ -556,6 +584,355 @@ void configureMetadata(QCoreApplication& app)
     app.setOrganizationDomain("protonforge");
 }
 
+// The credential store loads asynchronously. A CLI command runs and exits, so
+// there is no event loop to wait in unless we make one — short-lived, and with
+// a ceiling so a wedged keyring cannot hang a terminal.
+bool waitForSecrets()
+{
+    SecretStore& store = SecretStore::instance();
+    store.load();
+    if (store.isReady()) {
+        return true;
+    }
+
+    QEventLoop loop;
+    QObject::connect(&store, &SecretStore::ready, &loop, &QEventLoop::quit);
+    QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+    loop.exec();
+    return store.isReady();
+}
+
+int cmdGogLoginUrl()
+{
+    printLine(GogAuth::authorizationUrl());
+    return Ok;
+}
+
+int cmdGogStatus()
+{
+    if (!waitForSecrets()) {
+        return fail("the credential store did not come up", Error);
+    }
+
+    GogAuth& auth = GogAuth::instance();
+    auth.restoreSession();
+
+    QJsonObject o;
+    o["loggedIn"] = auth.isLoggedIn();
+    o["userId"]   = auth.userId();
+    // Which backend actually holds the credential, because "it forgot my login"
+    // is almost always this. Asked of the store rather than inferred from the
+    // file existing: with nothing stored yet, both backends look the same.
+    o["credentialStore"] = SecretStore::instance().backendName();
+    printJson(o);
+    return auth.isLoggedIn() ? Ok : Error;
+}
+
+// Drive one store's fetchLibrary() to a conclusion. The services are async by
+// design (a dialog must not freeze while ten pages come in), so the CLI makes
+// its own event loop rather than the services growing a blocking mode.
+int cmdStoreList(const QString& launcherName)
+{
+    if (!waitForSecrets()) {
+        return fail("the credential store did not come up", Error);
+    }
+    GogAuth::instance().restoreSession();
+
+    const auto launcher = LauncherManager::instance().launcher(launcherName);
+    if (!launcher) {
+        return fail(QString("no launcher named '%1'").arg(launcherName), UsageError);
+    }
+    IStoreService* store = launcher->storeService();
+    if (!store) {
+        return fail(QString("'%1' has no store account").arg(launcherName), UsageError);
+    }
+    if (!store->isAuthenticated()) {
+        // Non-zero rather than an empty array: "not configured" and "you own
+        // nothing" are different answers and a script has to tell them apart.
+        return fail(store->canSignIn()
+                        ? QString("not signed in to %1").arg(store->displayName())
+                        : store->authenticationHint(),
+                    Error);
+    }
+
+    QEventLoop loop;
+    int code = Error;
+    QJsonArray arr;
+
+    QObject::connect(store, &IStoreService::libraryReady, &loop,
+                     [&](const QList<StoreEntry>& entries) {
+        for (const StoreEntry& entry : entries) {
+            QJsonObject o;
+            o["id"]              = entry.id;
+            o["title"]           = entry.title;
+            o["storeUrl"]        = entry.storeUrl;
+            o["installUrl"]      = entry.installUrl;
+            o["supportsWindows"] = entry.supportsWindows;
+            o["supportsLinux"]   = entry.supportsLinux;
+            o["installable"]     = entry.installable;
+            arr.append(o);
+        }
+        code = Ok;
+        loop.quit();
+    });
+    QObject::connect(store, &IStoreService::libraryFailed, &loop, [&](const QString& reason) {
+        errs() << "protonforge: " << reason << Qt::endl;
+        loop.quit();
+    });
+
+    QTimer::singleShot(60000, &loop, &QEventLoop::quit);
+    store->fetchLibrary();
+    loop.exec();
+
+    if (code == Ok) {
+        printJson(arr);
+    }
+    return code;
+}
+
+// Download and install a GOG game, reporting progress on stderr so stdout stays
+// a single JSON object a script can parse.
+int cmdGogInstall(const QString& productId)
+{
+    if (productId.isEmpty()) {
+        return fail("--gog-install needs a GOG product id", UsageError);
+    }
+    if (!GogAuth::instance().isLoggedIn()) {
+        // Unlike --gog-plan, this one genuinely needs an account: the chunk URLs
+        // are signed per user.
+        return fail("not signed in to GOG (try --gog-login-url)", Error);
+    }
+
+    GogDownloader& downloader = GogDownloader::instance();
+    GogInstallRegistry::instance().load();
+
+    QEventLoop loop;
+    int code = Error;
+    QString installPath;
+    int lastPercent = -1;
+
+    QObject::connect(&downloader, &GogDownloader::installProgress, &loop,
+                     [&](const QString& id, const GogDownloader::Progress& progress) {
+        if (id != productId) {
+            return;
+        }
+        if (progress.bytesTotal <= 0) {
+            return;
+        }
+        // One line per whole percent: enough to see it moving, few enough to
+        // survive being redirected to a file.
+        const int percent = static_cast<int>(progress.bytesDone * 100 / progress.bytesTotal);
+        if (percent != lastPercent) {
+            lastPercent = percent;
+            errs() << "protonforge: " << percent << "% (" << progress.filesDone << "/"
+                   << progress.filesTotal << " files)" << Qt::endl;
+        }
+    });
+    QObject::connect(&downloader, &GogDownloader::installFinished, &loop,
+                     [&](const QString& id, const QString& path) {
+        if (id != productId) {
+            return;
+        }
+        installPath = path;
+        code = Ok;
+        loop.quit();
+    });
+    QObject::connect(&downloader, &GogDownloader::installFailed, &loop,
+                     [&](const QString& id, const QString& reason) {
+        if (id != productId) {
+            return;
+        }
+        errs() << "protonforge: " << reason << Qt::endl;
+        loop.quit();
+    });
+
+    GogDownloader::Request request;
+    request.productId = productId;
+    downloader.enqueue(request);
+    loop.exec();
+
+    if (code == Ok) {
+        const GogInstallRegistry::Entry entry = GogInstallRegistry::instance().entry(productId);
+        QJsonObject object;
+        object["productId"]      = productId;
+        object["title"]          = entry.title;
+        object["installPath"]    = installPath;
+        object["buildId"]        = entry.buildId;
+        object["platform"]       = entry.platform;
+        object["executablePath"] = entry.executablePath;
+        object["nativeLinux"]    = entry.nativeLinux;
+        object["size"]           = entry.size;
+        printJson(object);
+    }
+    return code;
+}
+
+int cmdGogUninstall(const QString& productId)
+{
+    if (productId.isEmpty()) {
+        return fail("--gog-uninstall needs a GOG product id", UsageError);
+    }
+
+    GogInstallRegistry::instance().load();
+
+    QString error;
+    if (!GogDownloader::instance().uninstall(productId, &error)) {
+        return fail(error, Error);
+    }
+
+    QJsonObject object;
+    object["productId"] = productId;
+    object["removed"]   = true;
+    printJson(object);
+    return Ok;
+}
+
+// Resolve what installing a game would fetch, and write nothing.
+//
+// The analogue of --launch --dry-run, and the same reason for existing: the
+// whole depot pipeline — build selection, the zlib bodies, depot filtering,
+// path sanitising — can be exercised end to end against the real API without
+// downloading gigabytes or touching the disk.
+//
+// Notably this needs no sign-in. The content system is public; only the signed
+// chunk URLs require a token. So it also answers "can ProtonForge install this
+// at all", which is a question worth being able to ask before signing in.
+int cmdGogPlan(const QString& productId)
+{
+    if (productId.isEmpty()) {
+        return fail("--gog-plan needs a GOG product id", UsageError);
+    }
+
+    GogContentClient& content = GogContentClient::instance();
+
+    QEventLoop loop;
+    int code = Error;
+    QString chosenOs = QStringLiteral("linux");
+    GogContentClient::BuildMeta meta;
+    QList<GogContentClient::DepotRef> depots;
+    QMap<QString, GogContentClient::DepotManifest> manifestsByHash;
+    int pending = 0;
+
+    // Default to English plus whatever the build marks as shared. A picker
+    // belongs in the GUI; a CLI that has to be told a language before it can
+    // answer "is this installable" would be the wrong shape.
+    const QStringList languages{QStringLiteral("en-US"), QStringLiteral("en")};
+
+    const auto finishWithPlan = [&]() {
+        QList<GogContentClient::DepotManifest> ordered;
+        for (const GogContentClient::DepotRef& depot : std::as_const(depots)) {
+            if (manifestsByHash.contains(depot.manifestHash)) {
+                ordered.append(manifestsByHash.value(depot.manifestHash));
+            }
+        }
+
+        const GogInstallPlan::Plan plan = GogInstallPlan::build(meta, ordered);
+
+        QJsonArray files;
+        for (const GogInstallPlan::FileTask& task : plan.files) {
+            QJsonObject f;
+            f["path"]   = task.relPath;
+            f["size"]   = task.size;
+            f["chunks"] = task.chunks.size();
+            if (!task.linkTarget.isEmpty()) {
+                f["linkTarget"] = task.linkTarget;
+            }
+            if (task.executable) {
+                f["executable"] = true;
+            }
+            files.append(f);
+        }
+
+        QString collision;
+        QJsonObject o;
+        o["productId"]        = productId;
+        o["os"]               = chosenOs;
+        o["buildId"]          = meta.buildId;
+        o["installDirectory"] = plan.installDirectory;
+        o["depots"]           = static_cast<int>(depots.size());
+        o["fileCount"]        = static_cast<int>(plan.files.size());
+        o["totalSize"]        = plan.totalSize;
+        o["totalDownload"]    = plan.totalCompressedSize;
+        o["languages"]        = QJsonArray::fromStringList(GogInstallPlan::availableLanguages(meta));
+        o["warnings"]         = QJsonArray::fromStringList(plan.warnings);
+        o["caseCollision"]    = GogInstallPlan::wouldCollideCaseInsensitively(plan, &collision)
+                                    ? collision : QString();
+        o["files"]            = files;
+        printJson(o);
+
+        code = plan.valid ? Ok : Error;
+        loop.quit();
+    };
+
+    QObject::connect(&content, &GogContentClient::depotManifestReady, &loop,
+                     [&](const QString&, const QString& hash,
+                         const GogContentClient::DepotManifest& manifest) {
+        manifestsByHash.insert(hash, manifest);
+        if (--pending == 0) {
+            finishWithPlan();
+        }
+    });
+    QObject::connect(&content, &GogContentClient::depotManifestFailed, &loop,
+                     [&](const QString&, const QString& hash, const QString& reason) {
+        errs() << "protonforge: depot " << hash << ": " << reason << Qt::endl;
+        if (--pending == 0) {
+            finishWithPlan();
+        }
+    });
+
+    QObject::connect(&content, &GogContentClient::buildMetaReady, &loop,
+                     [&](const QString&, const GogContentClient::BuildMeta& buildMeta) {
+        meta = buildMeta;
+        depots = GogInstallPlan::selectDepots(meta, languages, {}, 64);
+        if (depots.isEmpty()) {
+            errs() << "protonforge: this build has no depots for the chosen language" << Qt::endl;
+            loop.quit();
+            return;
+        }
+        pending = static_cast<int>(depots.size());
+        for (const GogContentClient::DepotRef& depot : std::as_const(depots)) {
+            content.fetchDepotManifest(productId, depot.manifestHash);
+        }
+    });
+    QObject::connect(&content, &GogContentClient::buildMetaFailed, &loop,
+                     [&](const QString&, const QString& reason) {
+        errs() << "protonforge: " << reason << Qt::endl;
+        loop.quit();
+    });
+
+    QObject::connect(&content, &GogContentClient::buildsReady, &loop,
+                     [&](const QString&, const QList<GogContentClient::Build>& builds) {
+        const GogContentClient::Build build = GogContentClient::newestPublicBuild(builds);
+        if (!build.link.isEmpty()) {
+            content.fetchBuildMeta(productId, build.link);
+            return;
+        }
+
+        // GOG serves Linux through the content system for only a minority of
+        // products; the rest ship it as a .sh installer. Falling back to the
+        // Windows build is the normal outcome, not an error.
+        if (chosenOs == QLatin1String("linux")) {
+            chosenOs = QStringLiteral("windows");
+            content.fetchBuilds(productId, chosenOs);
+            return;
+        }
+        errs() << "protonforge: no generation-2 build for this product — "
+                  "ProtonForge cannot install it" << Qt::endl;
+        loop.quit();
+    });
+    QObject::connect(&content, &GogContentClient::buildsFailed, &loop,
+                     [&](const QString&, const QString& reason) {
+        errs() << "protonforge: " << reason << Qt::endl;
+        loop.quit();
+    });
+
+    QTimer::singleShot(120000, &loop, &QEventLoop::quit);
+    content.fetchBuilds(productId, chosenOs);
+    loop.exec();
+
+    return code;
+}
+
 int run(QCoreApplication& app)
 {
     QCommandLineParser parser;
@@ -589,9 +966,23 @@ int run(QCoreApplication& app)
         "Keys are the field names from the settings file.", "key=value");
     const QCommandLineOption timeout("timeout",
         "With --launch: seconds to wait for the game (default 60).", "seconds", "60");
+    const QCommandLineOption gogLoginUrl("gog-login-url",
+        "Print the GOG sign-in URL to open in a browser.");
+    const QCommandLineOption gogStatus("gog-status",
+        "Print the GOG sign-in state as JSON.");
+    const QCommandLineOption storeList("store-list",
+        "Print the games owned on <launcher> as a JSON array.", "launcher");
+    const QCommandLineOption gogPlan("gog-plan",
+        "Resolve what installing GOG <productid> would fetch, and write nothing.", "productid");
+    const QCommandLineOption gogInstall("gog-install",
+        "Download and install GOG <productid>.", "productid");
+    const QCommandLineOption gogUninstall("gog-uninstall",
+        "Delete GOG <productid> and its Proton prefix.", "productid");
 
     parser.addOptions({steamInfo, listGames, steamClient, printLaunchOptions,
-                       parseLaunchOptions, apply, launch, dryRun, set, timeout});
+                       parseLaunchOptions, apply, launch, dryRun, set, timeout,
+                       gogLoginUrl, gogStatus, storeList, gogPlan,
+                       gogInstall, gogUninstall});
 
     if (!parser.parse(app.arguments())) {
         errs() << "protonforge: " << parser.errorText() << Qt::endl;
@@ -611,7 +1002,8 @@ int run(QCoreApplication& app)
     // Exactly one command, so a typo can never silently do something else.
     const QList<QCommandLineOption> commands = {
         steamInfo, listGames, steamClient, printLaunchOptions,
-        parseLaunchOptions, apply, launch,
+        parseLaunchOptions, apply, launch, gogLoginUrl, gogStatus, storeList, gogPlan,
+        gogInstall, gogUninstall,
     };
     int given = 0;
     for (const QCommandLineOption& option : commands) {
@@ -632,7 +1024,10 @@ int run(QCoreApplication& app)
     // ignoring it elsewhere would let a typo look like it had been applied.
     if (!overrides.isEmpty()) {
         if (parser.isSet(steamInfo) || parser.isSet(listGames)
-            || parser.isSet(steamClient) || parser.isSet(parseLaunchOptions)) {
+            || parser.isSet(steamClient) || parser.isSet(parseLaunchOptions)
+            || parser.isSet(gogLoginUrl) || parser.isSet(gogStatus)
+            || parser.isSet(storeList) || parser.isSet(gogPlan)
+            || parser.isSet(gogInstall) || parser.isSet(gogUninstall)) {
             return fail("--set has no effect on this command", UsageError);
         }
         // Check the assignments before doing any work, so a bad key is reported
@@ -644,6 +1039,12 @@ int run(QCoreApplication& app)
         }
     }
 
+    if (parser.isSet(gogLoginUrl)) return cmdGogLoginUrl();
+    if (parser.isSet(gogStatus))   return cmdGogStatus();
+    if (parser.isSet(storeList))   return cmdStoreList(parser.value(storeList));
+    if (parser.isSet(gogPlan))     return cmdGogPlan(parser.value(gogPlan));
+    if (parser.isSet(gogInstall))  return cmdGogInstall(parser.value(gogInstall));
+    if (parser.isSet(gogUninstall)) return cmdGogUninstall(parser.value(gogUninstall));
     if (parser.isSet(steamInfo))   return cmdSteamInfo();
     if (parser.isSet(listGames))   return cmdListGames();
     if (parser.isSet(steamClient)) return cmdSteamClient();

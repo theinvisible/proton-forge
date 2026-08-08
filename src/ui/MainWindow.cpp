@@ -1,17 +1,21 @@
 #include "MainWindow.h"
 #include "launchers/LauncherManager.h"
 #include "launchers/SteamLauncher.h"
+#include "launchers/IStoreService.h"
 #include "core/SettingsManager.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
 #include "utils/GpuInfoCache.h"
 #include "utils/SteamPaths.h"
 #include "utils/SteamClient.h"
+#include "gog/GogDownloader.h"
 #include "ui/ProtonVersionDialog.h"
 #include "ui/SettingsDialog.h"
+#include "ui/StoreLibraryDialog.h"
 #include "ui/AboutDialog.h"
 #include "ui/MangoHudDialog.h"
 #include "Version.h"
+#include <QCloseEvent>
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
@@ -34,6 +38,27 @@ MainWindow::MainWindow(QWidget* parent)
     setupUI();
     setupMenuBar();
     setupToolBar();
+
+    // A launcher can become usable after startup — a store finishing its token
+    // load, a Steam install appearing. Reload the list when that happens rather
+    // than making the user hit Refresh. Connected to loadGames, not
+    // refreshGameList: the latter triggers the check that emits this.
+    connect(&LauncherManager::instance(), &LauncherManager::availabilityChanged,
+            this, &MainWindow::loadGames);
+
+    // An install can finish long after the store dialog was closed — downloads
+    // are app-global, not dialog-owned. Connected here so the new game reaches
+    // the list on its own rather than waiting for a Refresh. Generic: every
+    // launcher with an account is wired the same way, and no store is named.
+    for (const auto& launcher : LauncherManager::instance().launchers()) {
+        if (IStoreService* store = launcher->storeService()) {
+            connect(store, &IStoreService::installFinished, this, [this](const QString&) {
+                LauncherManager::instance().refreshAvailability();
+                loadGames();
+            });
+        }
+    }
+
     loadGames();
 
     // Kick off a one-shot background driver detection so feature gating in the
@@ -128,8 +153,8 @@ void MainWindow::setupUI()
     connect(m_settingsWidget, &DLSSSettingsWidget::settingsChanged, this, &MainWindow::onSettingsChanged);
     connect(m_settingsWidget, &DLSSSettingsWidget::playClicked, this, &MainWindow::onPlayClicked);
     connect(m_settingsWidget, &DLSSSettingsWidget::copyClicked, this, &MainWindow::onCopyToClipboard);
-    connect(m_settingsWidget, &DLSSSettingsWidget::writeToSteamClicked, this, &MainWindow::onWriteToSteam);
-    connect(m_settingsWidget, &DLSSSettingsWidget::importFromSteamClicked, this, &MainWindow::onImportFromSteam);
+    connect(m_settingsWidget, &DLSSSettingsWidget::writeToLauncherClicked, this, &MainWindow::onWriteToSteam);
+    connect(m_settingsWidget, &DLSSSettingsWidget::importFromLauncherClicked, this, &MainWindow::onImportFromSteam);
 
     // Status bar
     statusBar()->showMessage("Ready");
@@ -239,6 +264,11 @@ void MainWindow::setupMenuBar()
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QMainWindow::close);
 
+    // The store picker lives inside the dialog, so the menu stays to one entry.
+    QMenu* libraryMenu = menuBar()->addMenu("&Library");
+    QAction* storesAction = libraryMenu->addAction(QIcon(":/icons/package.svg"), "Game &Stores...");
+    connect(storesAction, &QAction::triggered, this, &MainWindow::showStoreLibrary);
+
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
 
     QAction* checkProtonAction = toolsMenu->addAction(QIcon(":/icons/update.svg"), "Check for Proton-CachyOS Updates");
@@ -292,6 +322,7 @@ void MainWindow::setupToolBar()
 
 void MainWindow::loadGames()
 {
+    m_gamesLoadedThisRefresh = true;
     QList<Game> games = LauncherManager::instance().discoverAllGames();
     m_gameList->setGames(games);
     m_gameCountLabel->setText(QString::number(games.count()));
@@ -302,7 +333,17 @@ void MainWindow::refreshGameList()
 {
     statusBar()->showMessage("Refreshing game list...");
     SteamPaths::invalidateCache();
-    loadGames();
+
+    // refreshAvailability() emits availabilityChanged when the set of usable
+    // launchers moves, and that is wired to loadGames(). Track whether it fired
+    // so a Refresh that did change availability doesn't rediscover everything
+    // twice — discovery walks every game's install directory looking for
+    // executables, which is not free on a large library.
+    m_gamesLoadedThisRefresh = false;
+    LauncherManager::instance().refreshAvailability();
+    if (!m_gamesLoadedThisRefresh) {
+        loadGames();
+    }
 }
 
 void MainWindow::onGameSelected(const Game& game)
@@ -314,10 +355,13 @@ void MainWindow::onGameSelected(const Game& game)
     DLSSSettings settings = SettingsManager::instance().getSettings(game.settingsKey());
     m_settingsWidget->setGame(game);
 
-    // First time we see this Steam game: import any existing Steam launch options
-    // so the app reflects (and preserves) what the user already configured.
-    if (!SettingsManager::instance().hasSettings(game.settingsKey()) && game.launcher() == "Steam") {
-        const QString raw = SteamLauncher::readLaunchOptions(game.id());
+    // First time we see this game: import whatever launch options its launcher
+    // already has, so the app reflects (and preserves) what the user configured
+    // there. Launchers that store none simply return nothing.
+    if (!SettingsManager::instance().hasSettings(game.settingsKey())
+        && game.traits().supportsLaunchOptionsIO) {
+        const auto launcher = LauncherManager::instance().launcher(game.launcher());
+        const QString raw = launcher ? launcher->readLaunchOptions(game) : QString();
         if (!raw.trimmed().isEmpty()) {
             EnvBuilder::ParsedLaunchOptions parsed = EnvBuilder::parseLaunchOptions(raw, settings);
             settings = parsed.settings;
@@ -440,13 +484,14 @@ void MainWindow::onImportFromSteam()
     if (m_currentGame.id().isEmpty()) {
         return;
     }
-    if (m_currentGame.launcher() != "Steam") {
-        QMessageBox::information(this, "Import from Steam",
-            "Importing launch options is only supported for Steam games.");
+    // The button is hidden for launchers that store nothing, so reaching this
+    // with an unsupported game means something is out of step.
+    const auto launcher = LauncherManager::instance().launcher(m_currentGame.launcher());
+    if (!m_currentGame.traits().supportsLaunchOptionsIO || !launcher) {
         return;
     }
 
-    const QString raw = SteamLauncher::readLaunchOptions(m_currentGame.id());
+    const QString raw = launcher->readLaunchOptions(m_currentGame);
     if (raw.trimmed().isEmpty()) {
         QMessageBox::information(this, "Import from Steam",
             "No existing launch options were found for this game in Steam.\n\n"
@@ -762,6 +807,33 @@ void MainWindow::showSystemInfo()
     // details, and explains in its GPU tab why no GPU was found.
     SystemInfoDialog dialog(GPUDetector::detectAllGPUs(), this);
     dialog.exec();
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    if (GogDownloader::instance().isBusy()) {
+        const auto answer = QMessageBox::question(
+            this, "Downloads in progress",
+            "A game is still downloading.\n\nQuitting stops it, but nothing is lost — "
+            "installing it again resumes where it left off.\n\nQuit anyway?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            event->ignore();
+            return;
+        }
+    }
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::showStoreLibrary()
+{
+    StoreLibraryDialog dialog(this);
+    dialog.exec();
+
+    // Signing in or installing changes what is on disk and which launchers can
+    // answer, and neither reaches the game list on its own.
+    LauncherManager::instance().refreshAvailability();
+    loadGames();
 }
 
 void MainWindow::showSettings()

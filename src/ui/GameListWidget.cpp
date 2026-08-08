@@ -1,8 +1,10 @@
 #include "GameListWidget.h"
 #include "AppStyle.h"
 #include "network/ImageCache.h"
+#include "BadgeRow.h"
+#include "launchers/ILauncher.h"
+#include "launchers/LauncherManager.h"
 #include "launchers/SteamLauncher.h"
-#include "parsers/VDFParser.h"
 #include <QLabel>
 #include <QMenu>
 #include <QDesktopServices>
@@ -18,6 +20,7 @@
 #include <QAction>
 #include <QHBoxLayout>
 #include <QEvent>
+#include <QSettings>
 #include <QtConcurrent>
 
 // ---------------------------------------------------------------------------
@@ -30,6 +33,27 @@ static constexpr int RoleGameName    = Qt::UserRole + 3;
 static constexpr int RoleImageUrl    = Qt::UserRole + 4;
 static constexpr int RoleNeedsUpdate = Qt::UserRole + 5;
 static constexpr int RoleImageFailed = Qt::UserRole + 6;
+static constexpr int RoleLauncher    = Qt::UserRole + 7;
+
+// Presentation only. A launcher without an entry here just gets the neutral
+// colour — nothing behavioural hangs off this, unlike the traits.
+static QColor launcherBadgeColor(const QString& launcher)
+{
+    if (launcher == QLatin1String("Steam")) return QColor("#2a475e");
+    if (launcher == QLatin1String("GOG"))   return QColor("#7c2bbb");
+    return QColor("#555555");
+}
+
+// Built in two places — when an item is created and when an update check
+// changes it — so it lives here rather than being written out twice and
+// drifting.
+static QString gameTooltip(const Game& game)
+{
+    return QString("%1\nApp ID: %2\nBuild ID: %3\nPath: %4%5")
+        .arg(game.name(), game.id(), QString::number(game.buildId()),
+             game.installPath(),
+             game.needsUpdate() ? "\n\nUpdate available" : "");
+}
 
 // ---------------------------------------------------------------------------
 // GameItemDelegate – paints each game as a modern card with artwork
@@ -124,43 +148,28 @@ public:
                     Qt::AlignLeft | Qt::AlignVCenter,
                     nfm.elidedText(gameName, Qt::ElideRight, textW));
 
-        // --- Platform badge ---
+        // --- Badges: [SOURCE] [LINUX|WINDOWS] [UPDATE] ---
         QFont badgeFont = option.font;
         badgeFont.setPixelSize(9);
         badgeFont.setBold(true);
-        QFontMetrics bfm(badgeFont);
+        const QFontMetrics bfm(badgeFont);
 
-        const QString badgeText = isNative ? "LINUX" : "WINDOWS";
-        const QColor badgeColor = isNative ? QColor("#e8710a") : QColor("#1565c0");
-        const int badgeH = 16;
-        const int badgePad = 6;
-        const int badgeW = bfm.horizontalAdvance(badgeText) + badgePad * 2;
-        const int badgeY = nameY + nfm.height() + 6;
-        const QRect badgeRect(textLeft, badgeY, badgeW, badgeH);
-
-        p->setPen(Qt::NoPen);
-        p->setBrush(badgeColor);
-        p->drawRoundedRect(badgeRect, 3, 3);
-
-        p->setFont(badgeFont);
-        p->setPen(Qt::white);
-        p->drawText(badgeRect, Qt::AlignCenter, badgeText);
-
-        // --- Update badge ---
-        const bool needsUpdate = index.data(RoleNeedsUpdate).toBool();
-        if (needsUpdate) {
-            const QString updateText = "UPDATE";
-            const int updateBadgeW = bfm.horizontalAdvance(updateText) + badgePad * 2;
-            const QRect updateBadgeRect(textLeft + badgeW + 6, badgeY, updateBadgeW, badgeH);
-
-            p->setPen(Qt::NoPen);
-            p->setBrush(QColor(AppStyle::ColorBadgeUpdate));
-            p->drawRoundedRect(updateBadgeRect, 3, 3);
-
-            p->setFont(badgeFont);
-            p->setPen(Qt::white);
-            p->drawText(updateBadgeRect, Qt::AlignCenter, updateText);
+        QList<BadgeRow::Badge> badges;
+        // Only worth the space once there is more than one source to tell apart;
+        // a Steam-only user sees exactly what they saw before.
+        const QString source = index.data(RoleLauncher).toString();
+        if (m_owner->showsSourceBadge() && !source.isEmpty()) {
+            badges += {source.toUpper(), launcherBadgeColor(source)};
         }
+        badges += isNative ? BadgeRow::Badge{"LINUX", QColor("#e8710a")}
+                           : BadgeRow::Badge{"WINDOWS", QColor("#1565c0")};
+        if (index.data(RoleNeedsUpdate).toBool()) {
+            badges += {"UPDATE", QColor(AppStyle::ColorBadgeUpdate)};
+        }
+
+        const int badgeY = nameY + nfm.height() + 6;
+        BadgeRow::draw(p, badges, BadgeRow::layoutFromLeft(badges, bfm, textLeft, badgeY),
+                       badgeFont);
 
         p->restore();
     }
@@ -271,7 +280,24 @@ GameListWidget::GameListWidget(QWidget* parent)
     );
     connect(refreshButton, &QPushButton::clicked, this, &GameListWidget::refreshRequested);
 
+    // Source filter. Hidden while there is only one source to choose from, so a
+    // Steam-only install sees no new control at all.
+    m_sourceFilter = new QComboBox(this);
+    m_sourceFilter->setStyleSheet(
+        "QComboBox {"
+        "  background-color: #1e1e1e;"
+        "  border: 1px solid #3a3a3a;"
+        "  border-radius: 6px;"
+        "  padding: 7px 8px;"
+        "  color: #e0e0e0;"
+        "  font-size: 12px;"
+        "}"
+        "QComboBox:hover { border: 1px solid #76B900; }"
+        + AppStyle::comboPopupStyle());
+    m_sourceFilter->hide();
+
     searchRow->addWidget(m_searchBox, 1);
+    searchRow->addWidget(m_sourceFilter);
     searchRow->addWidget(refreshButton);
 
     layout->addLayout(searchRow);
@@ -328,6 +354,8 @@ GameListWidget::GameListWidget(QWidget* parent)
 
     // Connections
     connect(m_searchBox, &QLineEdit::textChanged, this, &GameListWidget::onSearchTextChanged);
+    connect(m_sourceFilter, &QComboBox::currentIndexChanged, this,
+            &GameListWidget::onSourceFilterChanged);
     connect(m_listWidget, &QListWidget::itemClicked, this, &GameListWidget::onItemClicked);
     connect(m_listWidget, &QListWidget::currentItemChanged, this, &GameListWidget::onCurrentItemChanged);
     connect(&ImageCache::instance(), &ImageCache::imageReady, this, &GameListWidget::onImageReady);
@@ -369,6 +397,7 @@ void GameListWidget::setGames(const QList<Game>& games)
 {
     m_games = games;
     m_shimmerPhase = 0.0;
+    refreshSourceFilter();
     updateFilter();
     ensureShimmerRunning();
 
@@ -382,7 +411,7 @@ void GameListWidget::setGames(const QList<Game>& games)
 void GameListWidget::addGame(const Game& game)
 {
     m_games.append(game);
-    if (m_filterText.isEmpty() || game.name().contains(m_filterText, Qt::CaseInsensitive)) {
+    if (matchesFilter(game)) {
         m_listWidget->addItem(createGameItem(game));
         ensureShimmerRunning();
     }
@@ -402,12 +431,66 @@ void GameListWidget::onSearchTextChanged(const QString& text)
     updateFilter();
 }
 
+void GameListWidget::onSourceFilterChanged()
+{
+    m_sourceFilterName = m_sourceFilter->currentData().toString();
+    QSettings().setValue("ui/sourceFilter", m_sourceFilterName);
+    updateFilter();
+}
+
+// The one place that decides whether a game is shown, so the list and addGame()
+// can never disagree about it.
+bool GameListWidget::matchesFilter(const Game& game) const
+{
+    if (!m_sourceFilterName.isEmpty() && game.launcher() != m_sourceFilterName) {
+        return false;
+    }
+    if (m_filterText.isEmpty()) {
+        return true;
+    }
+    // Typing "gog" finds the GOG games, not just games with "gog" in the title.
+    return game.name().contains(m_filterText, Qt::CaseInsensitive)
+        || game.launcher().contains(m_filterText, Qt::CaseInsensitive);
+}
+
+// Rebuild the source dropdown from the sources actually present, preserving the
+// user's choice when it survives the new list.
+void GameListWidget::refreshSourceFilter()
+{
+    QStringList sources;
+    for (const Game& game : m_games) {
+        if (!game.launcher().isEmpty() && !sources.contains(game.launcher())) {
+            sources << game.launcher();
+        }
+    }
+    sources.sort();
+
+    m_showSourceBadge = sources.size() > 1;
+
+    if (m_sourceFilterName.isEmpty()) {
+        m_sourceFilterName = QSettings().value("ui/sourceFilter").toString();
+    }
+    if (!m_sourceFilterName.isEmpty() && !sources.contains(m_sourceFilterName)) {
+        m_sourceFilterName.clear();   // that source is gone; stop hiding everything
+    }
+
+    QSignalBlocker blocker(m_sourceFilter);
+    m_sourceFilter->clear();
+    m_sourceFilter->addItem("All sources", QString());
+    for (const QString& source : sources) {
+        m_sourceFilter->addItem(source, source);
+    }
+    const int index = m_sourceFilter->findData(m_sourceFilterName);
+    m_sourceFilter->setCurrentIndex(index < 0 ? 0 : index);
+    m_sourceFilter->setVisible(sources.size() > 1);
+}
+
 void GameListWidget::updateFilter()
 {
     m_listWidget->clear();
 
     for (const Game& game : m_games) {
-        if (m_filterText.isEmpty() || game.name().contains(m_filterText, Qt::CaseInsensitive)) {
+        if (matchesFilter(game)) {
             m_listWidget->addItem(createGameItem(game));
         }
     }
@@ -422,6 +505,7 @@ QListWidgetItem* GameListWidget::createGameItem(const Game& game)
     item->setData(RoleIsNative, game.isNativeLinux());
     item->setData(RoleImageUrl, game.imageUrl());
     item->setData(RoleNeedsUpdate, game.needsUpdate());
+    item->setData(RoleLauncher, game.launcher());
 
     // Check if image is already cached (or already failed this session, so
     // recreated items don't fall back into the shimmering state)
@@ -434,12 +518,7 @@ QListWidgetItem* GameListWidget::createGameItem(const Game& game)
         ImageCache::instance().getImage(game.imageUrl(), QSize(120, 68));
     }
 
-    // Set tooltip with game info
-    QString tooltip = QString("%1\nApp ID: %2\nBuild ID: %3\nPath: %4%5")
-        .arg(game.name(), game.id(), QString::number(game.buildId()),
-             game.installPath(),
-             game.needsUpdate() ? "\n\nUpdate available" : "");
-    item->setToolTip(tooltip);
+    item->setToolTip(gameTooltip(game));
 
     return item;
 }
@@ -525,10 +604,11 @@ void GameListWidget::showContextMenu(const QPoint& pos)
     QAction* openLocationAction = menu.addAction(QIcon(":/icons/folder-open.svg"), "Open Install Location");
     openLocationAction->setEnabled(QDir(game.installPath()).exists());
 
-    // Open compatdata location action (for Steam games)
+    // Open the Proton prefix. Offered for any game that has one, wherever the
+    // launcher put it — a prefix is a prefix regardless of who owns the game.
+    const QString compatDataPath = game.compatDataPath();
     QAction* openCompatDataAction = nullptr;
-    if (game.launcher() == "Steam") {
-        QString compatDataPath = game.libraryPath() + "/compatdata/" + game.id();
+    if (!compatDataPath.isEmpty()) {
         openCompatDataAction = menu.addAction(QIcon(":/icons/wine.svg"), "Open Proton Prefix");
         openCompatDataAction->setEnabled(QDir(compatDataPath).exists());
     }
@@ -538,7 +618,6 @@ void GameListWidget::showContextMenu(const QPoint& pos)
     if (selectedAction == openLocationAction) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(game.installPath()));
     } else if (selectedAction == openCompatDataAction && openCompatDataAction) {
-        QString compatDataPath = game.libraryPath() + "/compatdata/" + game.id();
         QDesktopServices::openUrl(QUrl::fromLocalFile(compatDataPath));
     }
 }
@@ -554,72 +633,66 @@ void GameListWidget::checkForUpdates()
     // Copy game list for the worker thread
     QList<Game> gamesCopy = m_games;
 
-    auto* watcher = new QFutureWatcher<QMap<QString, int>>(this);
-    connect(watcher, &QFutureWatcher<QMap<QString, int>>::finished, this, [this, watcher]() {
+    // Snapshot the launchers here, on the GUI thread. The worker must not reach
+    // into the singleton, and each launcher decides for itself whether it has
+    // any on-disk state worth re-reading — which is why this no longer parses
+    // Steam's appmanifest by hand.
+    QHash<QString, std::shared_ptr<ILauncher>> launchers;
+    for (const auto& launcher : LauncherManager::instance().launchers()) {
+        launchers.insert(launcher->name(), launcher);
+    }
+
+    auto* watcher = new QFutureWatcher<QHash<QString, Game>>(this);
+    connect(watcher, &QFutureWatcher<QHash<QString, Game>>::finished, this, [this, watcher]() {
         applyUpdateResults(watcher->result());
         watcher->deleteLater();
         m_updateCheckRunning = false;
     });
 
-    watcher->setFuture(QtConcurrent::run([gamesCopy]() -> QMap<QString, int> {
-        QMap<QString, int> results;
+    watcher->setFuture(QtConcurrent::run([gamesCopy, launchers]() -> QHash<QString, Game> {
+        QHash<QString, Game> changed;
         for (const Game& game : gamesCopy) {
-            if (game.launcher() != "Steam" || game.libraryPath().isEmpty()) {
+            const auto launcher = launchers.value(game.launcher());
+            if (!launcher) {
                 continue;
             }
-            QString manifestPath = game.libraryPath() + "/appmanifest_" + game.id() + ".acf";
-            VDFParser parser;
-            if (parser.parseFile(manifestPath)) {
-                VDFNode root = parser.root();
-                if (root.hasChild("AppState")) {
-                    VDFNode appState = root.child("AppState");
-                    results[game.id()] = static_cast<int>(appState.getInt("StateFlags", 4));
-                }
+            Game updated = game;
+            if (launcher->refreshGameState(updated)) {
+                changed.insert(updated.settingsKey(), updated);
             }
         }
-        return results;
+        return changed;
     }));
 }
 
-void GameListWidget::applyUpdateResults(const QMap<QString, int>& results)
+void GameListWidget::applyUpdateResults(const QHash<QString, Game>& changed)
 {
-    bool anyChanged = false;
-
-    for (int i = 0; i < m_games.size(); ++i) {
-        auto it = results.find(m_games[i].id());
-        if (it == results.end()) {
-            continue;
-        }
-
-        int newFlags = it.value();
-        if (newFlags != m_games[i].stateFlags()) {
-            m_games[i].setStateFlags(newFlags);
-            anyChanged = true;
-            emit gameUpdateStatusChanged(m_games[i]);
-        }
+    if (changed.isEmpty()) {
+        return;
     }
 
-    if (!anyChanged) {
-        return;
+    for (int i = 0; i < m_games.size(); ++i) {
+        const auto it = changed.constFind(m_games[i].settingsKey());
+        if (it == changed.constEnd()) {
+            continue;
+        }
+        m_games[i] = it.value();
+        emit gameUpdateStatusChanged(m_games[i]);
     }
 
     // Update the visible list items
     for (int i = 0; i < m_listWidget->count(); ++i) {
         QListWidgetItem* item = m_listWidget->item(i);
-        Game game = item->data(RoleGame).value<Game>();
-        auto it = results.find(game.id());
-        if (it != results.end() && game.stateFlags() != it.value()) {
-            game.setStateFlags(it.value());
-            item->setData(RoleGame, QVariant::fromValue(game));
-            item->setData(RoleNeedsUpdate, game.needsUpdate());
-
-            // Update tooltip
-            QString tooltip = QString("%1\nApp ID: %2\nBuild ID: %3\nPath: %4%5")
-                .arg(game.name(), game.id(), QString::number(game.buildId()),
-                     game.installPath(),
-                     game.needsUpdate() ? "\n\nUpdate available" : "");
-            item->setToolTip(tooltip);
+        const Game game = item->data(RoleGame).value<Game>();
+        const auto it = changed.constFind(game.settingsKey());
+        if (it == changed.constEnd()) {
+            continue;
         }
+
+        const Game& updated = it.value();
+        item->setData(RoleGame, QVariant::fromValue(updated));
+        item->setData(RoleNeedsUpdate, updated.needsUpdate());
+        item->setToolTip(gameTooltip(updated));
     }
 
     m_listWidget->viewport()->update();

@@ -38,8 +38,8 @@ signals:
     void settingsChanged(const DLSSSettings& settings);
     void playClicked();
     void copyClicked();
-    void writeToSteamClicked();
-    void importFromSteamClicked();
+    void writeToLauncherClicked();
+    void importFromLauncherClicked();
 
 private slots:
     void onSettingChanged();

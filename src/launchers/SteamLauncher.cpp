@@ -1,4 +1,5 @@
 #include "SteamLauncher.h"
+#include "SteamStoreService.h"
 #include "parsers/VDFParser.h"
 #include "utils/EnvBuilder.h"
 #include "utils/SteamPaths.h"
@@ -10,13 +11,58 @@
 #include <QTextStream>
 #include <QDirIterator>
 
+namespace {
+
+// Steam's AppState::StateFlags is a bitmask; bit 2 is "update required". This
+// is the only place that bit is interpreted — Game::needsUpdate() is a plain
+// stored bool, because the encoding means nothing to any other launcher.
+constexpr int kStateUpdateRequired = 2;
+
+bool updatePending(int stateFlags)
+{
+    return (stateFlags & kStateUpdateRequired) != 0;
+}
+
+} // namespace
+
 SteamLauncher::SteamLauncher()
 {
+}
+
+SteamLauncher::~SteamLauncher() = default;
+
+IStoreService* SteamLauncher::storeService()
+{
+    if (!m_storeService) {
+        m_storeService = std::make_unique<SteamStoreService>();
+    }
+    return m_storeService.get();
+}
+
+LauncherTraits SteamLauncher::traits() const
+{
+    LauncherTraits traits;
+    traits.usesSteamEnv            = true;
+    traits.requiresClientRunning   = true;
+    traits.supportsLaunchOptionsIO = true;
+    traits.providesUpdateState     = true;
+    traits.idIsSteamAppId          = true;
+    return traits;
 }
 
 bool SteamLauncher::isAvailable() const
 {
     return !SteamPaths::steamRoot().isEmpty();
+}
+
+QString SteamLauncher::readLaunchOptions(const Game& game) const
+{
+    return readLaunchOptions(game.id());
+}
+
+bool SteamLauncher::refreshGameState(Game& game) const
+{
+    return checkUpdateStatus(game);
 }
 
 QString SteamLauncher::steamPath()
@@ -136,22 +182,25 @@ Game SteamLauncher::parseAppManifest(const QString& manifestPath, const QString&
     VDFNode appState = root.child("AppState");
 
     QString appId = appState.getString("appid");
-    QString name = appState.getString("name");
+    QString gameName = appState.getString("name");
     QString installDir = appState.getString("installdir");
     qint64 sizeOnDisk = appState.getInt("SizeOnDisk");
     int stateFlags = static_cast<int>(appState.getInt("StateFlags", 4));
     qint64 buildId = appState.getInt("buildid", 0);
 
-    if (appId.isEmpty() || name.isEmpty()) {
+    if (appId.isEmpty() || gameName.isEmpty()) {
         return game;
     }
 
     game.setId(appId);
-    game.setName(name);
-    game.setLauncher("Steam");
+    game.setName(gameName);
+    // LauncherManager stamps this again centrally; using name() rather than a
+    // literal keeps the two from ever disagreeing.
+    game.setLauncher(name());
     game.setInstallPath(libraryPath + "/common/" + installDir);
     game.setSizeOnDisk(sizeOnDisk);
     game.setStateFlags(stateFlags);
+    game.setNeedsUpdate(updatePending(stateFlags));
     game.setBuildId(buildId);
     game.setLibraryPath(libraryPath);
 
@@ -565,11 +614,14 @@ bool SteamLauncher::checkUpdateStatus(Game& game)
     int newStateFlags = static_cast<int>(appState.getInt("StateFlags", 4));
     qint64 newBuildId = appState.getInt("buildid", 0);
 
-    bool changed = (newStateFlags != game.stateFlags()) || (newBuildId != game.buildId());
-    if (changed) {
-        game.setStateFlags(newStateFlags);
-        game.setBuildId(newBuildId);
-    }
+    const bool changed = (newStateFlags != game.stateFlags()) || (newBuildId != game.buildId());
+
+    // Always re-sync, even when nothing moved: needsUpdate is stored rather
+    // than derived, so leaving it behind on the "unchanged" path is how it goes
+    // stale. Callers act on the return value, not on whether we assigned.
+    game.setStateFlags(newStateFlags);
+    game.setBuildId(newBuildId);
+    game.setNeedsUpdate(updatePending(newStateFlags));
 
     return changed;
 }

@@ -1,0 +1,51 @@
+{
+  "buildId": "56452082907692588",
+  "clientId": "51010678777223840",
+  "gameId": "1207658930",
+  "language": "English",
+  "languages": [
+    "en-US"
+  ],
+  "name": "The Witcher 2: Assassins of Kings",
+  "osBitness": [
+    "64"
+  ],
+  "playTasks": [
+    {
+      "category": "launcher",
+      "isHidden": true,
+      "name": "Configuration",
+      "path": "bin\\config\\SystemSettings.exe",
+      "type": "FileTask"
+    },
+    {
+      "category": "game",
+      "name": "The Witcher 2 (DirectX 9)",
+      "path": "bin\\witcher2_dx9.exe",
+      "type": "FileTask"
+    },
+    {
+      "arguments": "-launcher --skipintro \"Save Games\"",
+      "category": "game",
+      "isPrimary": true,
+      "languages": [
+        "*"
+      ],
+      "name": "The Witcher 2",
+      "osBitness": [
+        "64"
+      ],
+      "path": "bin\\witcher2.exe",
+      "type": "FileTask",
+      "workingDir": "bin"
+    },
+    {
+      "category": "document",
+      "link": "https://www.gog.com/support",
+      "name": "Support",
+      "type": "URLTask"
+    }
+  ],
+  "rootGameId": "1207658930",
+  "version": 1
+}

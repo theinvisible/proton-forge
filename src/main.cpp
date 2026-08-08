@@ -9,6 +9,11 @@
 #include "ui/MainWindow.h"
 #include "ui/OpaqueTooltip.h"
 #include "core/Cli.h"
+#include "core/SecretStore.h"
+#include "gog/GogAuth.h"
+#include "launchers/LauncherManager.h"
+#include "launchers/IStoreService.h"
+#include "ui/GogLoginDialog.h"
 #include "core/Game.h"
 #include "utils/ProtonManager.h"
 #include "Version.h"
@@ -35,6 +40,31 @@ int main(int argc, char *argv[])
 
     // Set application icon
     app.setWindowIcon(QIcon(":/icon.svg"));
+
+    // Credentials load once, asynchronously, and are read from memory after.
+    // Must come after the organisation name is set: that is what decides where
+    // the config directory — and so the fallback file — lives.
+    //
+    // The GOG session can only be restored once that has landed, and restoring
+    // it is what makes GogLauncher available — which LauncherManager then
+    // reports through availabilityChanged, and the game list reloads. That
+    // chain is why Phase 2's dynamic availability had to come first.
+    QObject::connect(&SecretStore::instance(), &SecretStore::ready,
+                     &GogAuth::instance(), &GogAuth::restoreSession);
+    SecretStore::instance().load();
+
+    // The composition root: concrete dialogs meet concrete services here, which
+    // is what lets protonforge_core stay free of any dependency on src/ui. Every
+    // other place that deals with a store only ever sees IStoreService.
+    for (const auto& launcher : LauncherManager::instance().launchers()) {
+        IStoreService* store = launcher->storeService();
+        if (store && store->launcherName() == QLatin1String("GOG")) {
+            store->setSignInHandler([](QWidget* parent) {
+                GogLoginDialog dialog(parent);
+                dialog.exec();
+            });
+        }
+    }
 
     // Single instance check
     QString lockFilePath = QDir::temp().absoluteFilePath("protonforge.lock");

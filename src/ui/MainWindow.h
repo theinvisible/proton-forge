@@ -19,6 +19,11 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() = default;
 
+protected:
+    // Quitting mid-download is allowed, but not silently: the journal makes it
+    // resumable and the user should know that before deciding.
+    void closeEvent(QCloseEvent* event) override;
+
 private slots:
     void onGameSelected(const Game& game);
     void onSettingsChanged(const DLSSSettings& settings);
@@ -36,6 +41,7 @@ private slots:
     void onGitHubTokenRejected();
     void showSystemInfo();
     void showSettings();
+    void showStoreLibrary();
 
 private:
     void setupUI();
@@ -56,6 +62,7 @@ private:
     Game m_currentGame;
     bool m_dialogInstallActive = false;
     bool m_authWarningShown = false;  // show the expired-token warning at most once per session
+    bool m_gamesLoadedThisRefresh = false;  // see refreshGameList()
 };
 
 #endif // MAINWINDOW_H

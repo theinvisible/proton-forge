@@ -1,0 +1,23 @@
+{
+  "buildId": "51132312414318173",
+  "clientId": "49853315838486310",
+  "gameId": "1207666073",
+  "language": "English",
+  "languages": ["en-US"],
+  "name": "FTL: Faster Than Light",
+  "osBitness": ["64"],
+  "playTasks": [
+    {
+      "arguments": ["--fullscreen", "--no-intro"],
+      "category": "game",
+      "isPrimary": true,
+      "languages": ["*"],
+      "name": "FTL",
+      "osBitness": ["64"],
+      "path": "start.sh",
+      "type": "FileTask"
+    }
+  ],
+  "rootGameId": "1207666073",
+  "version": 1
+}

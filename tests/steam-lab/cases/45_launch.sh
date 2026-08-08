@@ -350,4 +350,30 @@ assert_false "no process was started" stub_proton_was_run
 assert_no_file "the compatdata directory was not created" \
     "$NATIVE/steamapps/compatdata/$APPID"
 
+# ---------------------------------------------------------------------------
+part "i) a prefix that cannot be created refuses the launch"
+
+fx_reset
+NATIVE="$(fx_steam_tree native compat_tool=)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" installdir="ELDEN RING" >/dev/null
+stub_proton "$NATIVE" "proton-cachyos-11.0-20260703-slr-x86_64" >/dev/null
+stub_records_reset
+
+# A regular file exactly where the prefix directory has to go, so mkpath fails.
+# The launch has to say so. Starting Proton anyway with a STEAM_COMPAT_DATA_PATH
+# that does not exist fails much later and much less legibly — the mkpath return
+# value used to be discarded, which is exactly how that happened.
+: >"$NATIVE/steamapps/compatdata/$APPID"
+
+stub_steam_pid "$LAB_APP_HOME/.steam/steam.pid"
+OUT="$(app_cli --launch "$APPID" --timeout "$TIMEOUT_LAUNCH")"
+RC="$(app_rc)"
+stub_steam_pid_stop
+
+assert_json_contains "the failure names the prefix directory" "$OUT" \
+    'd["error"]' "prefix directory"
+assert_json "the game was never started" "$OUT" 'd.get("started", False)' "false"
+assert_false "proton was not executed" stub_proton_was_run
+assert_eq "the exit code reports the failure" "1" "$RC"
+
 case_finish

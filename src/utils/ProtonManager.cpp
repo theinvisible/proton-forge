@@ -1,4 +1,5 @@
 #include "ProtonManager.h"
+#include "core/SecretStore.h"
 #include "SteamPaths.h"
 #include <QDir>
 #include <QFile>
@@ -382,8 +383,9 @@ void ProtonManager::applyGitHubHeaders(QNetworkRequest& request, bool acceptJson
     if (acceptJson)
         request.setRawHeader("Accept", "application/vnd.github.v3+json");
     request.setRawHeader("User-Agent", "ProtonForge");
-    QSettings s;
-    QString token = s.value("github/apiToken").toString().trimmed();
+    // Synchronous by necessity: this runs inline while a request is being
+    // built, from five call sites. SecretStore serves it from memory.
+    const QString token = SecretStore::instance().value(SecretStore::Key::GitHubToken).trimmed();
     if (!token.isEmpty())
         request.setRawHeader("Authorization", ("Bearer " + token).toUtf8());
 }

@@ -15,6 +15,14 @@ build-essential
 qt6-base-dev
 qt6-base-dev-tools
 
+# zlib: GOG's content system serves manifests and chunks zlib-encoded with no
+# Content-Encoding header, so nothing in Qt will inflate them for us.
+zlib1g-dev
+
+# Optional at build time — SecretStore falls back to a 0600 file without it —
+# but listed so release builds consistently get the keyring backend.
+qtkeychain-qt6-dev
+
 # dpkg-deb for the package, `file` for the architecture check
 dpkg-dev
 file

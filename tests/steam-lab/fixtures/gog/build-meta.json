@@ -1,0 +1,51 @@
+{
+  "baseProductId": "1207664663",
+  "buildId": "55151201432089565",
+  "clientId": "50557517663264773",
+  "dependencies": ["MSVC2019", "DirectX"],
+  "installDirectory": "The Witcher 3 Wild Hunt",
+  "platform": "windows",
+  "version": 2,
+  "depots": [
+    {
+      "manifest": "1111111111111111aaaaaaaaaaaaaaaa",
+      "productId": "1207664663",
+      "languages": ["*"],
+      "osBitness": ["64"],
+      "size": 30000,
+      "compressedSize": 12000
+    },
+    {
+      "manifest": "2222222222222222bbbbbbbbbbbbbbbb",
+      "productId": "1207664663",
+      "languages": ["en-US"],
+      "osBitness": ["64"],
+      "size": 5000,
+      "compressedSize": 2000
+    },
+    {
+      "manifest": "3333333333333333cccccccccccccccc",
+      "productId": "1207664663",
+      "languages": ["de-DE"],
+      "osBitness": ["64"],
+      "size": 5200,
+      "compressedSize": 2100
+    },
+    {
+      "manifest": "4444444444444444dddddddddddddddd",
+      "productId": "1207664703",
+      "languages": ["*"],
+      "osBitness": ["64"],
+      "size": 900,
+      "compressedSize": 400
+    },
+    {
+      "manifest": "5555555555555555eeeeeeeeeeeeeeee",
+      "productId": "1207664663",
+      "languages": ["*"],
+      "osBitness": ["32"],
+      "size": 100,
+      "compressedSize": 50
+    }
+  ]
+}

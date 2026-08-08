@@ -8,6 +8,8 @@
 #include <QPushButton>
 #include <QPainter>
 
+#include "core/SecretStore.h"
+
 class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
@@ -16,17 +18,24 @@ public:
 private slots:
     void onCategoryChanged();
     void saveSettings();
+    void onSecretWriteFailed(SecretStore::Key key, const QString& reason);
 
 private:
     void setupUI();
     void loadSettings();
     QWidget* buildGithubPage();
+    QWidget* buildSteamPage();
+    QWidget* buildGogPage();
     static QIcon makeCategoryIcon(const QColor& color, const QString& letter);
 
     QListWidget*    m_categoryList;
     QStackedWidget* m_stack;
     QLineEdit*      m_tokenEdit;
     QPushButton*    m_toggleTokenBtn;
+    QLineEdit*      m_steamApiKeyEdit = nullptr;
+    QLineEdit*      m_steamIdEdit = nullptr;
+    QLineEdit*      m_gogInstallRootEdit = nullptr;
+    QPushButton*    m_saveButton = nullptr;
 };
 
 #endif // SETTINGSDIALOG_H
