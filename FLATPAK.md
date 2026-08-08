@@ -2,6 +2,21 @@
 
 This guide explains how to build, test, and publish ProtonForge as a Flatpak package.
 
+## Sandbox permissions worth knowing about
+
+Two of the `finish-args` in `org.protonforge.ProtonForge.yml` exist for GOG and
+are easy to mistake for over-reach:
+
+- `--filesystem=/run/media`, `/mnt`, `/media` — a second game drive is **not**
+  covered by `--filesystem=home`, and the XDG file portal cannot stand in: it
+  hands out a one-shot handle, not a path a download can keep writing to for an
+  hour. Without these, installing to anywhere but `$HOME` fails partway through.
+- `--talk-name=org.freedesktop.secrets` and `--talk-name=org.kde.kwalletd6` —
+  the system keyring, for the GOG refresh token, the Steam Web API key and the
+  GitHub token. Where no secret service answers — the normal state on a bare
+  gaming session — `SecretStore` falls back to a 0600 file in the app's config
+  directory, so neither name is required for the app to work.
+
 ## Prerequisites
 
 Install Flatpak and flatpak-builder:

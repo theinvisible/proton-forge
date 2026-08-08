@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QTimer>
 #include <QProgressBar>
 #include <QPushButton>
 
@@ -30,11 +31,18 @@ private slots:
     void pasteFromClipboard();
     void submit();
     void onPastedTextChanged();
+    void checkClipboard();
 
 private:
     void setBusy(bool busy);
     void showError(const QString& message);
     void clearError();
+
+    // Polled rather than driven by QClipboard::dataChanged: that signal is
+    // unreliable across compositors — on Wayland it depends on the app holding
+    // focus, which this dialog does not while the user is in their browser.
+    QTimer* m_clipboardPoll = nullptr;
+    QString m_lastClipboard;
 
     QPushButton*  m_openButton;
     QLineEdit*    m_urlField;      // shown only if the browser could not be opened

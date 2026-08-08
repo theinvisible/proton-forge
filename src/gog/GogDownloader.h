@@ -14,6 +14,7 @@
 
 #include "gog/GogContentClient.h"
 #include "gog/GogInstallPlan.h"
+#include "gog/GogOfflineClient.h"
 
 class QNetworkReply;
 
@@ -184,10 +185,25 @@ private:
 
         GogContentClient::BuildMeta meta;
         QString versionName;        // from the build listing; the info file has none
+
+        // The native route: no generation-2 Linux build, but GOG publishes a
+        // self-extracting .sh installer. Taken in preference to the Windows
+        // build under Proton, which is what "prefer native" means.
+        bool offlineRoute = false;
+        GogOfflineClient::Installer offlineInstaller;
+        QString offlinePath;        // where the .sh is downloaded to
         QList<GogContentClient::DepotRef> depots;
         QHash<QString, GogContentClient::DepotManifest> manifests;
         int manifestsPending = 0;
         GogInstallPlan::Plan plan;
+
+        // What the previous install put on disk, keyed by path. Empty for a
+        // fresh install, which is what makes the delta logic a no-op there.
+        QHash<QString, QString> installedFingerprints;
+
+        // Noticed while reading the build meta, which happens before the plan
+        // exists — so they are held here and folded in once it does.
+        QStringList earlyWarnings;
 
         GogContentClient::SecureLink link;
         quint64 linkGeneration = 0;
@@ -225,6 +241,13 @@ private:
     void onBuildMeta(const GogContentClient::BuildMeta& meta);
     void onManifest(const QString& hash, const GogContentClient::DepotManifest& manifest);
     void buildPlan();
+
+    // --- the native .sh route ---
+    void tryOfflineInstaller();
+    void onOfflineInstallers(const QList<GogOfflineClient::Installer>& installers);
+    void onOfflineDownloaded(const QString& path);
+    void unpackOfflineInstaller(const QString& path);
+    void fallBackToWindows();
 
     // --- transfer ---
     bool preflight(QString* error);

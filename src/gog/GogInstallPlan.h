@@ -1,6 +1,7 @@
 #ifndef GOGINSTALLPLAN_H
 #define GOGINSTALLPLAN_H
 
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -54,9 +55,29 @@ QList<GogContentClient::DepotRef> selectDepots(const GogContentClient::BuildMeta
 Plan build(const GogContentClient::BuildMeta& meta,
            const QList<GogContentClient::DepotManifest>& manifestsInDepotOrder);
 
+// What identifies a file's content: the whole-file md5 when the manifest gave
+// one, otherwise its chunk list, which is content-addressed and so identifies
+// it just as well.
+QString fingerprint(const FileTask& file);
+
 // What an update actually has to fetch: files that are new or whose content
 // changed. Everything else is already on disk.
 QList<FileTask> diff(const Plan& target, const Plan& installed);
+
+// The same, against a stored fingerprint map rather than a whole plan. This is
+// what makes an update a delta across restarts: keeping every installed plan in
+// full would mean storing a manifest per game, where relPath -> fingerprint is
+// a few dozen bytes per file and says everything diff needs.
+QList<FileTask> diffAgainstFingerprints(const Plan& target,
+                                        const QHash<QString, QString>& installed);
+
+// Files the previous version had and this one does not. Left behind, they are
+// dead weight at best and a wrong DLL loaded in preference to the right one at
+// worst.
+QStringList removedPaths(const Plan& target, const QHash<QString, QString>& installed);
+
+QByteArray serializeFingerprints(const Plan& plan);
+QHash<QString, QString> parseFingerprints(const QByteArray& json);
 
 // Two paths differing only in case cannot both exist on NTFS or exFAT, which is
 // what a second game drive usually is. Worth saying before the download, not

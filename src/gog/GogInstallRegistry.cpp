@@ -44,6 +44,11 @@ QString GogInstallRegistry::filePath()
     return SettingsManager::configDir() + "/gog-installs.json";
 }
 
+QString GogInstallRegistry::manifestPath(const QString& productId)
+{
+    return SettingsManager::configDir() + "/gog-manifests/" + productId + ".json";
+}
+
 QString GogInstallRegistry::defaultInstallRoot()
 {
     // Visible user data, not a dotdir — these are tens of gigabytes the user
@@ -276,6 +281,8 @@ bool GogInstallRegistry::remove(const QString& productId)
     for (int i = 0; i < m_entries.size(); ++i) {
         if (m_entries.at(i).productId == productId) {
             m_entries.removeAt(i);
+            // The manifest describes files that are about to stop existing.
+            QFile::remove(manifestPath(productId));
             return save();
         }
     }

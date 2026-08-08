@@ -210,11 +210,14 @@ counts as `docker`, so nothing runs unguarded by accident.
 | `30_discovery` | `build` | Steam detection and game discovery across every layout permutation |
 | `40_launchopts` | `build` | settings → launch options → `localconfig.vdf`, and back |
 | `45_launch` | `build` | the whole launch chain, including the Steam Linux Runtime wrapping |
+| `46_gog_launch` | `build` | the same chain for a GOG game: no Steam identity, no overlay, ProtonForge's own prefix, and the native `start.sh` route |
 | `50_real_steam` | `docker` | real Steam-written files vs what `SteamPaths` looks for |
 | `55_steamclient` | `build` | the client state machine, and deferred launches |
 | `60_gui` | `gui build` | the real window on Xvfb |
 | `70_flatpak` | `flatpak build` | the Flatpak built from the working tree, and its sandbox |
 | `80_proton_mgr` | `build`, opt-in | installing Proton from GitHub for real |
+| `90_gog` | `build` | GOG discovery from the install registry, update state, and the CLI's session commands |
+| `91_stores` | `build` | the store layer: how a configured, unconfigured and unknown store each answer |
 
 The distribution matrix lives in `packaging/distros.txt` — the only place holding
 distribution knowledge, shared with `.github/workflows/release.yml` so a target
@@ -257,8 +260,20 @@ invocation and Qt's own flags reach the GUI exactly as they did before it existe
 | `--apply <appid>` | writes `localconfig.vdf`, reports what it wrote and what it reads back |
 | `--launch <appid> [--dry-run]` | launches, or prints the resolved plan without starting anything |
 | `--set key=value` | overrides one setting first; repeatable |
+| `--gog-login-url` | the GOG sign-in URL to open in a browser |
+| `--gog-status` | JSON: whether a GOG session is restored, and whose |
+| `--store-list <launcher>` | JSON array: what the account owns, installed or not |
+| `--gog-plan <productid>` | JSON: what installing would fetch — and writes nothing |
+| `--gog-install <productid>` | downloads and installs; progress on stderr, result on stdout |
+| `--gog-uninstall <productid>` | deletes the install and its Proton prefix |
 
 Exit codes: `0` ok, `1` error, `2` usage, `3` no Steam detected, `4` unknown game.
+
+`--gog-plan` is the analogue of `--launch --dry-run`: it resolves builds, depots
+and manifests against GOG's live content system and prints the file list and
+total size without writing a byte of game data. It needs no sign-in, because the
+content system is public and only the chunk URLs are signed — so it also answers
+"can ProtonForge install this at all" before an account exists.
 
 `--set` takes the field names from the settings file and validates them against
 `DLSSSettings` itself rather than a list, so a new setting becomes settable with no

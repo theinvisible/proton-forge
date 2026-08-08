@@ -31,6 +31,8 @@ set(UNIT_TESTS
     tst_gogplaytasks
     tst_gogregistry
     tst_gogchunks
+    tst_gogzip
+    tst_gogoffline
 )
 
 foreach(test IN LISTS UNIT_TESTS)

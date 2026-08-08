@@ -330,6 +330,14 @@ int cmdListGames()
     }
     printJson(arr);
 
+    // NoSteam only when there is genuinely nothing to report. Once a second
+    // source exists, "Steam is absent" and "this command failed" stop being the
+    // same statement: a GOG-only machine lists its games perfectly well, and
+    // returning 3 there would have every script treat a good answer as an
+    // error. --steam-info still reports on Steam itself and keeps its exit 3.
+    if (!games.isEmpty()) {
+        return Cli::Ok;
+    }
     return SteamPaths::steamRoot().isEmpty() ? Cli::NoSteam : Cli::Ok;
 }
 

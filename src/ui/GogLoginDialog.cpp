@@ -112,6 +112,16 @@ GogLoginDialog::GogLoginDialog(QWidget* parent)
     connect(m_pasteButton, &QPushButton::clicked, this, &GogLoginDialog::pasteFromClipboard);
     connect(m_pasteField, &QLineEdit::textChanged, this, &GogLoginDialog::onPastedTextChanged);
     connect(m_pasteField, &QLineEdit::returnPressed, this, &GogLoginDialog::submit);
+
+    // The user's next action after signing in is to copy the address bar.
+    // Noticing that saves them a paste, and noticing it *wrongly* costs
+    // nothing — the field is filled in, not submitted, so they still see what
+    // arrived and can clear it.
+    m_lastClipboard = QGuiApplication::clipboard()->text();
+    m_clipboardPoll = new QTimer(this);
+    m_clipboardPoll->setInterval(500);
+    connect(m_clipboardPoll, &QTimer::timeout, this, &GogLoginDialog::checkClipboard);
+    m_clipboardPoll->start();
     connect(m_signInButton, &QPushButton::clicked, this, &GogLoginDialog::submit);
     connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
 
@@ -135,6 +145,26 @@ void GogLoginDialog::openBrowser()
     m_copyUrlButton->show();
     showError("ProtonForge could not open your browser. Copy the link below and "
               "open it yourself.");
+}
+
+void GogLoginDialog::checkClipboard()
+{
+    const QString text = QGuiApplication::clipboard()->text();
+    if (text == m_lastClipboard) {
+        return;
+    }
+    m_lastClipboard = text;
+
+    // Only when the field is empty and the clipboard actually holds a GOG
+    // redirect: overwriting something the user typed, or filling the box with
+    // whatever they happened to copy, would both be worse than doing nothing.
+    if (!m_pasteField->text().trimmed().isEmpty()) {
+        return;
+    }
+    if (GogAuth::extractAuthCode(text).isEmpty() && GogAuth::extractAuthError(text).isEmpty()) {
+        return;
+    }
+    m_pasteField->setText(text.trimmed());
 }
 
 void GogLoginDialog::pasteFromClipboard()

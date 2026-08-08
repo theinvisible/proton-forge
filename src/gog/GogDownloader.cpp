@@ -1,6 +1,8 @@
 #include "GogDownloader.h"
 #include "gog/GogInstallRegistry.h"
+#include "gog/GogOfflineClient.h"
 #include "gog/GogPlayTasks.h"
+#include "gog/ZipReader.h"
 #include "gog/GogRequest.h"
 
 #include <QCryptographicHash>
@@ -13,6 +15,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QSaveFile>
+#include <QSet>
 #include <QSettings>
 #include <QStorageInfo>
 #include <QtConcurrent>
@@ -347,7 +350,13 @@ void GogDownloader::startNext()
     m_job = new Job;
     m_job->request = m_pending.takeFirst();
     if (m_job->request.languages.isEmpty()) {
-        m_job->request.languages = {QStringLiteral("en-US"), QStringLiteral("en")};
+        // Settings → GOG, falling back to English. A per-install picker would
+        // need the build resolved before the dialog could offer anything, so
+        // this is the setting that decides it for now.
+        const QString configured = QSettings().value("gog/language").toString();
+        m_job->request.languages = configured.isEmpty()
+            ? QStringList{QStringLiteral("en-US"), QStringLiteral("en")}
+            : QStringList{configured};
     }
     m_job->stage = Stage::Resolving;
     m_job->detail = QStringLiteral("Looking up the build…");
@@ -425,12 +434,11 @@ void GogDownloader::onBuilds(const QList<GogContentClient::Build>& builds)
 
     if (build.buildId.isEmpty()) {
         if (!m_job->triedWindows) {
-            m_job->triedWindows = true;
-            m_job->os = QStringLiteral("windows");
-            m_job->detail = QStringLiteral("No Linux build — installing the Windows version, "
-                                           "which will run through Proton.");
-            emitProgress();
-            resolveBuilds();
+            // No Linux build in the content system, which is the normal case
+            // even for games that ship a native Linux version — GOG publishes
+            // those as .sh offline installers instead. Try that before settling
+            // for the Windows build under Proton.
+            tryOfflineInstaller();
             return;
         }
         failJob(QStringLiteral("GOG has no generation-2 build for this product, so ProtonForge "
@@ -455,6 +463,26 @@ void GogDownloader::onBuildMeta(const GogContentClient::BuildMeta& meta)
     if (m_job->depots.isEmpty()) {
         failJob(QStringLiteral("This build has no depots for the selected language."));
         return;
+    }
+
+    // A build's DLC depots live inside the base game's meta, so "this game has
+    // DLC we are not installing" is knowable here — and worth saying, because
+    // the alternative is a user wondering where their expansion went.
+    if (m_job->request.dlcIds.isEmpty()) {
+        QSet<QString> dlcProducts;
+        for (const GogContentClient::DepotRef& depot : std::as_const(meta.depots)) {
+            if (!depot.productId.isEmpty() && depot.productId != meta.baseProductId) {
+                dlcProducts.insert(depot.productId);
+            }
+        }
+        if (!dlcProducts.isEmpty()) {
+            qWarning("GogDownloader: %s has %lld DLC depot(s) that are not being installed",
+                     qPrintable(m_job->request.productId),
+                     static_cast<long long>(dlcProducts.size()));
+            m_job->earlyWarnings << QStringLiteral(
+                "This game has downloadable content that ProtonForge did not install. "
+                "Installing DLC is not supported yet.");
+        }
     }
 
     m_job->manifestsPending = static_cast<int>(m_job->depots.size());
@@ -487,9 +515,26 @@ void GogDownloader::buildPlan()
     }
 
     m_job->plan = GogInstallPlan::build(m_job->meta, ordered);
+    // build() returns a fresh Plan, so anything noticed earlier has to be
+    // folded in here rather than written onto the old one.
+    m_job->plan.warnings += m_job->earlyWarnings;
     if (!m_job->plan.valid || m_job->plan.files.isEmpty()) {
         failJob(QStringLiteral("The build manifest described no files to install."));
         return;
+    }
+
+    // An update over a complete install fetches only what actually changed. The
+    // fingerprint map from the previous install is what makes that possible
+    // across restarts — without it a patch is a full re-download, which for a
+    // 24 GB game is the difference between minutes and an evening.
+    const GogInstallRegistry::Entry existing =
+        GogInstallRegistry::instance().entry(m_job->request.productId);
+    if (existing.complete && existing.buildId != m_job->meta.buildId) {
+        QFile manifest(GogInstallRegistry::manifestPath(m_job->request.productId));
+        if (manifest.open(QIODevice::ReadOnly)) {
+            m_job->installedFingerprints =
+                GogInstallPlan::parseFingerprints(manifest.readAll());
+        }
     }
 
     const QString root = m_job->request.installRoot.isEmpty()
@@ -526,6 +571,249 @@ void GogDownloader::buildPlan()
     writePlanJournal();
     loadStateJournal();
     requestSecureLink();
+}
+
+// ---------------------------------------------------------------- native .sh
+
+void GogDownloader::tryOfflineInstaller()
+{
+    m_job->detail = QStringLiteral("Looking for a native Linux installer…");
+    emitProgress();
+
+    GogOfflineClient& offline = GogOfflineClient::instance();
+    const QString productId = m_job->request.productId;
+
+    m_contentConnections << connect(&offline, &GogOfflineClient::installersReady, this,
+                                    [this, productId](
+                                        const QString& id,
+                                        const QList<GogOfflineClient::Installer>& list) {
+        if (m_job && id == productId) onOfflineInstallers(list);
+    });
+    m_contentConnections << connect(&offline, &GogOfflineClient::installersFailed, this,
+                                    [this, productId](const QString& id, const QString&) {
+        // Not an error: most products have no offline installer, and the
+        // Windows build under Proton is a perfectly good answer.
+        if (m_job && id == productId) fallBackToWindows();
+    });
+    m_contentConnections << connect(&offline, &GogOfflineClient::downloadProgress, this,
+                                    [this, productId](const QString& id, qint64 done, qint64 total) {
+        if (!m_job || id != productId) {
+            return;
+        }
+        m_job->bytesCompleted = done;
+        m_job->bytesTotal = total;
+        emitProgress();
+    });
+    m_contentConnections << connect(&offline, &GogOfflineClient::downloadFinished, this,
+                                    [this, productId](const QString& id, const QString& path) {
+        if (m_job && id == productId) onOfflineDownloaded(path);
+    });
+    m_contentConnections << connect(&offline, &GogOfflineClient::downloadFailed, this,
+                                    [this, productId](const QString& id, const QString& reason) {
+        if (m_job && id == productId) {
+            failJob(QStringLiteral("downloading the Linux installer failed: %1").arg(reason));
+        }
+    });
+
+    offline.fetchInstallers(productId);
+}
+
+void GogDownloader::onOfflineInstallers(const QList<GogOfflineClient::Installer>& installers)
+{
+    const GogOfflineClient::Installer chosen =
+        GogOfflineClient::selectInstaller(installers, QStringLiteral("linux"));
+    if (chosen.manualUrl.isEmpty()) {
+        fallBackToWindows();
+        return;
+    }
+
+    m_job->offlineRoute = true;
+    m_job->offlineInstaller = chosen;
+    m_job->os = QStringLiteral("linux");
+    m_job->versionName = chosen.version;
+
+    const QString root = m_job->request.installRoot.isEmpty()
+                             ? GogInstallRegistry::installRoot()
+                             : m_job->request.installRoot;
+    // The content-system route gets its directory name from the build meta;
+    // an offline installer has no equivalent, so the title is used and the
+    // product id stands in when there is none (the CLI does not pass one).
+    m_job->installPath = GogInstallRegistry::storeDirectory(root) + "/"
+                         + (m_job->request.title.isEmpty() ? m_job->request.productId
+                                                           : m_job->request.title);
+    m_job->offlinePath = journalPath() + "/installer.sh";
+
+    if (!QDir().mkpath(journalPath())) {
+        failJob(QStringLiteral("Could not create %1.").arg(journalPath()));
+        return;
+    }
+
+    // The .sh is kept inside the journal directory, so cancelling and
+    // discarding removes the part-downloaded installer along with everything
+    // else rather than leaving several gigabytes behind.
+    const QStorageInfo storage(m_job->installPath);
+    if (chosen.size > 0 && storage.isValid() && storage.bytesAvailable() > 0
+        && storage.bytesAvailable() < chosen.size * 2) {
+        // Twice: the archive and what it unpacks to both have to fit, since the
+        // installer is only deleted once extraction succeeds.
+        failJob(QStringLiteral("Not enough free space for the Linux installer: about %1 GB "
+                               "needed, %2 GB available.")
+                    .arg(chosen.size * 2 / 1073741824.0, 0, 'f', 1)
+                    .arg(storage.bytesAvailable() / 1073741824.0, 0, 'f', 1));
+        return;
+    }
+
+    GogInstallRegistry::Entry entry =
+        GogInstallRegistry::instance().entry(m_job->request.productId);
+    entry.productId   = m_job->request.productId;
+    entry.title       = m_job->request.title.isEmpty() ? m_job->request.productId
+                                                       : m_job->request.title;
+    entry.installPath = m_job->installPath;
+    entry.platform    = QStringLiteral("linux");
+    entry.nativeLinux = true;
+    entry.complete    = false;
+    GogInstallRegistry::instance().put(entry);
+
+    m_job->stage = Stage::Downloading;
+    m_job->detail = QStringLiteral("Downloading the native Linux installer…");
+    emitProgress();
+
+    GogOfflineClient::instance().download(m_job->request.productId, chosen, m_job->offlinePath);
+}
+
+void GogDownloader::onOfflineDownloaded(const QString& path)
+{
+    m_job->stage = Stage::Finalizing;
+    m_job->detail = QStringLiteral("Unpacking the installer…");
+    emitProgress();
+    unpackOfflineInstaller(path);
+}
+
+void GogDownloader::unpackOfflineInstaller(const QString& path)
+{
+    ZipReader reader;
+    if (!reader.open(path)) {
+        // MultiPart says so in its own words; anything else is a damaged
+        // download, and the partial file is dropped so the next attempt starts
+        // clean rather than resuming onto rubbish.
+        if (reader.status() != ZipReader::Status::MultiPart) {
+            QFile::remove(path);
+        }
+        failJob(reader.errorString());
+        return;
+    }
+
+    // GOG lays the game out under data/noarch/. Everything else in the archive
+    // is the installer's own scaffolding — scripts, metadata, an icon — and
+    // none of it belongs in the install directory.
+    const QString prefix = QStringLiteral("data/noarch/");
+
+    int total = 0;
+    for (const ZipReader::Entry& entry : reader.entries()) {
+        if (entry.name.startsWith(prefix) && !entry.isDirectory) {
+            ++total;
+        }
+    }
+    m_job->filesTotal = total;
+    m_job->filesDone = 0;
+
+    int extracted = 0;
+    qint64 written = 0;
+    for (const ZipReader::Entry& entry : reader.entries()) {
+        if (!entry.name.startsWith(prefix)) {
+            continue;
+        }
+
+        const QString relative = ZipReader::safeName(entry.name.mid(prefix.size()));
+        if (relative.isEmpty()) {
+            continue;   // refused by the path rules; see ZipReader::safeName
+        }
+
+        const QString dest = m_job->installPath + "/" + relative;
+        if (entry.isDirectory) {
+            QDir().mkpath(dest);
+            continue;
+        }
+
+        if (entry.isSymlink) {
+            const QByteArray target = reader.readEntry(entry);
+            QFile::remove(dest);
+            QDir().mkpath(QFileInfo(dest).absolutePath());
+            QFile::link(QString::fromUtf8(target), dest);
+            continue;
+        }
+
+        QString error;
+        if (!reader.extractEntry(entry, dest, &error)) {
+            failJob(error);
+            return;
+        }
+        ++extracted;
+        written += entry.uncompressedSize;
+
+        if (extracted % 32 == 0) {
+            m_job->filesDone = extracted;
+            emitProgress();
+        }
+    }
+
+    reader.close();
+
+    if (extracted == 0) {
+        failJob(QStringLiteral("The installer contained no game files under %1.").arg(prefix));
+        return;
+    }
+
+    // Only now: until extraction succeeded the archive was the only copy.
+    QFile::remove(path);
+
+    GogInstallRegistry& registry = GogInstallRegistry::instance();
+    GogInstallRegistry::Entry entry = registry.entry(m_job->request.productId);
+    entry.productId   = m_job->request.productId;
+    entry.installPath = m_job->installPath;
+    entry.platform    = QStringLiteral("linux");
+    entry.nativeLinux = true;
+    entry.versionName = m_job->versionName;
+    entry.languages   = {m_job->offlineInstaller.language};
+    entry.size        = written;
+    entry.complete    = true;
+    if (entry.title.isEmpty()) {
+        entry.title = m_job->request.title;
+    }
+
+    // start.sh is what GOG's own installer creates and what the user would run.
+    // GameRunner::resolveNativeLaunch honours executablePath directly, so the
+    // Windows-shaped executable heuristic never runs for these.
+    const QString startScript = m_job->installPath + "/start.sh";
+    if (QFile::exists(startScript)) {
+        entry.executablePath = startScript;
+        entry.workingDirectory = m_job->installPath;
+        QFile script(startScript);
+        script.setPermissions(script.permissions() | QFileDevice::ExeOwner
+                              | QFileDevice::ExeGroup | QFileDevice::ExeOther);
+    }
+
+    // A native build has no build id in the content system, so there is nothing
+    // to compare against and hasUpdate() correctly stays false rather than
+    // claiming an update on no evidence.
+    entry.buildId = QString();
+    entry.latestBuildId = QString();
+
+    registry.put(entry);
+    removeJournal();
+
+    emit installFinished(m_job->request.productId, m_job->installPath);
+    endJob();
+}
+
+void GogDownloader::fallBackToWindows()
+{
+    m_job->triedWindows = true;
+    m_job->os = QStringLiteral("windows");
+    m_job->detail = QStringLiteral("No native Linux version — installing the Windows one, "
+                                   "which will run through Proton.");
+    emitProgress();
+    resolveBuilds();
 }
 
 // ---------------------------------------------------------------- transfer
@@ -635,8 +923,31 @@ void GogDownloader::buildChunkQueue()
     m_job->bytesCompleted = 0;
     m_job->filesDone = 0;
 
+    // Files the delta says are unchanged are already correct on disk; their
+    // chunks are marked done so the bar starts where it should and nothing is
+    // fetched twice.
+    QSet<QString> unchanged;
+    if (!m_job->installedFingerprints.isEmpty()) {
+        QSet<QString> changed;
+        for (const GogInstallPlan::FileTask& file :
+             GogInstallPlan::diffAgainstFingerprints(m_job->plan, m_job->installedFingerprints)) {
+            changed.insert(file.relPath);
+        }
+        for (const GogInstallPlan::FileTask& file : std::as_const(m_job->plan.files)) {
+            if (!changed.contains(file.relPath)
+                && QFileInfo::exists(m_job->installPath + "/" + file.relPath)) {
+                unchanged.insert(file.relPath);
+            }
+        }
+    }
+
     for (int fileIndex = 0; fileIndex < m_job->plan.files.size(); ++fileIndex) {
         const GogInstallPlan::FileTask& file = m_job->plan.files.at(fileIndex);
+        if (unchanged.contains(file.relPath)) {
+            for (const ChunkPlacement& placement : chunkPlacements(file)) {
+                m_job->done.insert(placement.journalKey);
+            }
+        }
 
         const QList<ChunkPlacement> placements = chunkPlacements(file);
         int remaining = 0;
@@ -933,6 +1244,21 @@ void GogDownloader::finalizeInstall()
                                                      : m_job->request.title;
     }
     registry.put(entry);
+
+    // Whatever the previous version had and this one does not: left behind, an
+    // orphaned DLL can be loaded in preference to the right one.
+    for (const QString& stale :
+         GogInstallPlan::removedPaths(m_job->plan, m_job->installedFingerprints)) {
+        QFile::remove(m_job->installPath + "/" + stale);
+    }
+
+    // The manifest for the *next* update.
+    QDir().mkpath(QFileInfo(GogInstallRegistry::manifestPath(productId)).absolutePath());
+    QSaveFile manifest(GogInstallRegistry::manifestPath(productId));
+    if (manifest.open(QIODevice::WriteOnly)) {
+        manifest.write(GogInstallPlan::serializeFingerprints(m_job->plan));
+        manifest.commit();
+    }
 
     removeJournal();
 

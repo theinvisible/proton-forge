@@ -38,6 +38,12 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Delete Versions**: Remove unused Proton installations to save disk space
 - **GitHub API Token (optional)**: Add a Personal Access Token in Settings to raise the GitHub API rate limit (60 → 5,000 requests/hour); ProtonForge warns when the limit is hit and when the configured token is invalid or has expired
 
+### Game Sources
+- **Steam**: games are discovered from your local Steam libraries, and launch options can be written back into Steam
+- **GOG**: sign in with your GOG account, browse the games you own, and install them — there is no GOG client for Linux, so ProtonForge downloads and installs them itself, then launches them through Proton
+- **Native Linux builds preferred**: a GOG game that ships a Linux version gets it; everything else runs under Proton, without the Steam overlay or a Steamworks identity it never had
+- **Owned but not installed**: with a Steam Web API key configured, Steam games you own but have not installed are listed too, one click from installing via the Steam client
+
 ### Game Launch & Integration
 - **Direct Launch**: Start games directly from ProtonForge with custom settings
 - **Steam Integration**: Copy launch options to clipboard or write directly to Steam
@@ -51,7 +57,7 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Debug Logging**: Enable Proton log output for troubleshooting (PROTON_LOG)
 
 ### Overlay
-- **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues
+- **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues. Never injected into a non-Steam game, which could not talk to Steam anyway
 - **MangoHud**: Enable the MangoHud performance overlay for real-time FPS, CPU/GPU usage, temperatures, and frame time metrics
 - **MangoHud Configuration**: Built-in GUI editor for `~/.config/MangoHud/MangoHud.conf` — configure display metrics, appearance, position, logging, and more without editing config files manually (accessible per-game via Configure button or globally via Tools menu)
 - **Installation Detection**: Automatically detects whether MangoHud is installed and disables the option with a helpful message if not

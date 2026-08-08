@@ -15,6 +15,14 @@ there are no mocks here, in keeping with the rest of the suite.
 - The paths in `gog-installs.json` are under a fabricated `/home/user`, so a test
   that ever acted on one would fail loudly rather than touch a real install.
 
+## The ZIP fixtures
+
+Hand-built, not captured: a real Linux installer is several gigabytes and
+contains the game. `make-zip-fixtures.py` in this directory regenerates all
+three — run it from the repository root. The ZIP64 records are written by hand,
+because the only way to make a writer emit them naturally is an archive over
+4 GB.
+
 ## The `.zlib` files
 
 Every content-system v2 body is zlib-encoded on the wire, with no
@@ -44,4 +52,8 @@ PY
 | `secure-link.json` | URL templating, expiry extraction, endpoint ordering |
 | `goggame-windows.info` | play-task selection: a hidden config tool first, a non-primary game task *before* the primary one (so "first game task" and "the primary one" are different answers), a URLTask, and `arguments` as a string |
 | `goggame-linux.info` | the native shape: `start.sh` and `arguments` as an array |
+| `game-details.json` | the account page's `downloads`: a list of `[language, {os: […]}]` pairs (not an object), Deutsch listed *before* English so the English-fallback rule is distinguishable from "take the first", and a Polski entry with an empty `manualUrl` that must be dropped |
+| `sfx-installer.sh` | a shell header with a ZIP appended, as GOG ships Linux builds: a stored entry, a deflated one, a directory, a symlink, executable bits, and a `../` name that must be refused |
+| `zip64.zip` | the ZIP64 records, with the classic EOCD holding only sentinels |
+| `multipart.zip` | an EOCD claiming another disk — what a split `.sh` + `.bin` installer looks like |
 | `gog-installs.json` | the registry format: a complete Windows install, a complete Linux one with an update waiting, and an incomplete download that must not be offered as a game |

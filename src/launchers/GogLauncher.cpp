@@ -50,7 +50,13 @@ QList<Game> GogLauncher::discoverGames()
         // what STEAM_COMPAT_LIBRARY_PATHS and the prefix parent are derived from.
         game.setLibraryPath(GogInstallRegistry::installRoot());
         game.setCompatDataPath(GogInstallRegistry::prefixPathFor(entry.productId));
-        game.setShaderCachePath(QString());   // no shader cache outside Steam
+        // Deliberately *not* set, so Game derives it from libraryPath as
+        // <installRoot>/shadercache/<productId>/fozpipelinesv6. The layout is
+        // Steam's, but the mechanism is Proton's: without
+        // STEAM_COMPAT_SHADER_PATH it skips fossilize caching altogether, and a
+        // GOG game deserves the same shader pre-caching a Steam one gets. There
+        // is no Steam cache to seed it from — it simply fills up as the game
+        // runs.
 
         game.setExecutablePath(entry.executablePath);
         game.setWorkingDirectory(entry.workingDirectory);

@@ -345,12 +345,40 @@ QWidget* SettingsDialog::buildGogPage()
     rootHint->setWordWrap(true);
     rootHint->setStyleSheet("color: #777; font-size: 11px;");
 
+    auto* languageLabel = new QLabel("Preferred game language");
+    languageLabel->setStyleSheet("color: #ccc; font-size: 12px;");
+
+    // GOG's own language tags. A build that does not publish the chosen one
+    // still installs — GogInstallPlan always takes the shared depot, so the
+    // game arrives, just without that language's audio.
+    m_gogLanguageBox = new QComboBox;
+    m_gogLanguageBox->addItem("English", "en-US");
+    m_gogLanguageBox->addItem("Deutsch", "de-DE");
+    m_gogLanguageBox->addItem("Français", "fr-FR");
+    m_gogLanguageBox->addItem("Español", "es-ES");
+    m_gogLanguageBox->addItem("Italiano", "it-IT");
+    m_gogLanguageBox->addItem("Polski", "pl-PL");
+    m_gogLanguageBox->addItem("Português do Brasil", "pt-BR");
+    m_gogLanguageBox->addItem("Русский", "ru-RU");
+    m_gogLanguageBox->addItem("中文", "zh-Hans");
+    m_gogLanguageBox->addItem("日本語", "ja-JP");
+
+    auto* languageHint = new QLabel(
+        "Used for new installs. Games that do not offer this language install "
+        "anyway, without its audio.");
+    languageHint->setWordWrap(true);
+    languageHint->setStyleSheet("color: #777; font-size: 11px;");
+
     layout->addWidget(header);
     layout->addWidget(status);
     layout->addSpacing(12);
     layout->addWidget(rootLabel);
     layout->addWidget(m_gogInstallRootEdit);
     layout->addWidget(rootHint);
+    layout->addSpacing(12);
+    layout->addWidget(languageLabel);
+    layout->addWidget(m_gogLanguageBox);
+    layout->addWidget(languageHint);
     layout->addStretch();
     return page;
 }
@@ -364,6 +392,9 @@ void SettingsDialog::loadSettings()
     QSettings settings;
     m_steamIdEdit->setText(settings.value("steam/steamId64").toString());
     m_gogInstallRootEdit->setText(settings.value("gog/installRoot").toString());
+    const int languageIndex =
+        m_gogLanguageBox->findData(settings.value("gog/language", "en-US").toString());
+    m_gogLanguageBox->setCurrentIndex(languageIndex >= 0 ? languageIndex : 0);
 }
 
 void SettingsDialog::saveSettings()
@@ -389,6 +420,7 @@ void SettingsDialog::saveSettings()
                       : settings.setValue("steam/steamId64", steamId);
     installRoot.isEmpty() ? settings.remove("gog/installRoot")
                           : settings.setValue("gog/installRoot", installRoot);
+    settings.setValue("gog/language", m_gogLanguageBox->currentData().toString());
 
     // Nothing reports success, only failure — so give the write a moment to fail
     // and accept if it did not. A keychain round trip is milliseconds; this is

@@ -44,6 +44,10 @@ private slots:
     void warnsAboutRedistributablesItWillNotRun();
 
     void diffOnlyReturnsWhatChanged();
+    void fingerprintsSurviveARoundTrip();
+    void diffsAgainstAStoredManifest();
+    void namesFilesTheNewVersionDropped();
+    void treatsAMissingManifestAsAFullInstall();
     void detectsCaseCollisions();
 
 private:
@@ -291,6 +295,106 @@ void TstGogPlan::diffOnlyReturnsWhatChanged()
 
     // This is what makes an update a delta rather than a fresh download.
     QCOMPARE(paths, QStringList({"brand-new.dat", "changed.dat"}));
+}
+
+void TstGogPlan::fingerprintsSurviveARoundTrip()
+{
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+
+    const GogInstallPlan::Plan plan = GogInstallPlan::build(meta, {manifestWith({
+        file("bin/game.exe", "aaaa1111", 100),
+        file("data/big.pak", "bbbb2222", 200),
+    })});
+
+    const QHash<QString, QString> parsed =
+        GogInstallPlan::parseFingerprints(GogInstallPlan::serializeFingerprints(plan));
+
+    QCOMPARE(parsed.size(), 2);
+    // Diffing the plan against its own stored fingerprints must find nothing —
+    // otherwise every update would re-download everything.
+    QVERIFY(GogInstallPlan::diffAgainstFingerprints(plan, parsed).isEmpty());
+}
+
+void TstGogPlan::diffsAgainstAStoredManifest()
+{
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+
+    const GogInstallPlan::Plan installed = GogInstallPlan::build(meta, {manifestWith({
+        file("unchanged.dat", "aaaa1111", 100),
+        file("changed.dat", "bbbb2222", 100),
+    })});
+    const GogInstallPlan::Plan target = GogInstallPlan::build(meta, {manifestWith({
+        file("unchanged.dat", "aaaa1111", 100),
+        file("changed.dat", "cccc3333", 150),
+        file("brand-new.dat", "dddd4444", 50),
+    })});
+
+    // Through the serialised form, which is what a real update reads.
+    const QHash<QString, QString> stored =
+        GogInstallPlan::parseFingerprints(GogInstallPlan::serializeFingerprints(installed));
+
+    QStringList paths;
+    for (const GogInstallPlan::FileTask& task :
+         GogInstallPlan::diffAgainstFingerprints(target, stored)) {
+        paths << task.relPath;
+    }
+    paths.sort();
+
+    QCOMPARE(paths, QStringList({"brand-new.dat", "changed.dat"}));
+    // The two routes must agree, or a delta across restarts would differ from
+    // one within a single run.
+    QCOMPARE(paths.size(), GogInstallPlan::diff(target, installed).size());
+}
+
+void TstGogPlan::namesFilesTheNewVersionDropped()
+{
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+
+    const GogInstallPlan::Plan installed = GogInstallPlan::build(meta, {manifestWith({
+        file("keep.dat", "aaaa1111", 100),
+        file("bin/old.dll", "bbbb2222", 100),
+    })});
+    const GogInstallPlan::Plan target = GogInstallPlan::build(meta, {manifestWith({
+        file("keep.dat", "aaaa1111", 100),
+        file("bin/new.dll", "cccc3333", 100),
+    })});
+
+    const QHash<QString, QString> stored =
+        GogInstallPlan::parseFingerprints(GogInstallPlan::serializeFingerprints(installed));
+
+    // Left in place, an orphaned DLL can be loaded in preference to the one the
+    // new version shipped — a failure that looks nothing like a bad update.
+    QCOMPARE(GogInstallPlan::removedPaths(target, stored), QStringList({"bin/old.dll"}));
+}
+
+void TstGogPlan::treatsAMissingManifestAsAFullInstall()
+{
+    BuildMeta meta;
+    meta.valid = true;
+    meta.baseProductId = "1";
+
+    const GogInstallPlan::Plan target = GogInstallPlan::build(meta, {manifestWith({
+        file("a.dat", "aaaa1111", 100),
+        file("b.dat", "bbbb2222", 100),
+    })});
+
+    // No manifest — an install from before this existed, or a hand-deleted one.
+    // Everything is fetched, which is correct; nothing is deleted, which
+    // matters more, since an empty map must not read as "the new version has
+    // dropped every file".
+    QCOMPARE(GogInstallPlan::diffAgainstFingerprints(target, {}).size(), 2);
+    QVERIFY(GogInstallPlan::removedPaths(target, {}).isEmpty());
+
+    for (const QByteArray& garbage : {QByteArray(), QByteArray("not json"),
+                                      QByteArray("{}"), QByteArray("[]")}) {
+        QVERIFY(GogInstallPlan::parseFingerprints(garbage).isEmpty());
+    }
 }
 
 void TstGogPlan::detectsCaseCollisions()

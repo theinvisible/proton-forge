@@ -1,5 +1,9 @@
 #include "GogInstallPlan.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSet>
+
 #include <QHash>
 #include <QSet>
 #include <algorithm>
@@ -168,37 +172,85 @@ Plan build(const GogContentClient::BuildMeta& meta,
     return plan;
 }
 
-QList<FileTask> diff(const Plan& target, const Plan& installed)
+QString fingerprint(const FileTask& file)
 {
-    QHash<QString, QString> installedFingerprints;
-    for (const FileTask& file : installed.files) {
-        // The whole-file md5 when there is one, otherwise the chunk list — which
-        // is content-addressed and so identifies the file just as well.
-        QString fingerprint = file.md5;
-        if (fingerprint.isEmpty()) {
-            for (const GogContentClient::Chunk& chunk : file.chunks) {
-                fingerprint += chunk.compressedMd5;
-            }
-        }
-        installedFingerprints.insert(file.relPath, fingerprint);
+    if (!file.md5.isEmpty()) {
+        return file.md5;
     }
+    // Content-addressed either way: two files with the same chunk list are the
+    // same file.
+    QString joined;
+    for (const GogContentClient::Chunk& chunk : file.chunks) {
+        joined += chunk.compressedMd5;
+    }
+    return joined;
+}
 
+QList<FileTask> diffAgainstFingerprints(const Plan& target,
+                                        const QHash<QString, QString>& installed)
+{
     QList<FileTask> changed;
     for (const FileTask& file : target.files) {
-        QString fingerprint = file.md5;
-        if (fingerprint.isEmpty()) {
-            for (const GogContentClient::Chunk& chunk : file.chunks) {
-                fingerprint += chunk.compressedMd5;
-            }
-        }
-
-        const auto it = installedFingerprints.constFind(file.relPath);
-        if (it == installedFingerprints.constEnd() || it.value() != fingerprint) {
+        const auto it = installed.constFind(file.relPath);
+        if (it == installed.constEnd() || it.value() != fingerprint(file)) {
             changed.append(file);
         }
     }
-
     return changed;
+}
+
+QList<FileTask> diff(const Plan& target, const Plan& installed)
+{
+    QHash<QString, QString> fingerprints;
+    for (const FileTask& file : installed.files) {
+        fingerprints.insert(file.relPath, fingerprint(file));
+    }
+    return diffAgainstFingerprints(target, fingerprints);
+}
+
+QStringList removedPaths(const Plan& target, const QHash<QString, QString>& installed)
+{
+    QSet<QString> wanted;
+    for (const FileTask& file : target.files) {
+        wanted.insert(file.relPath);
+    }
+
+    QStringList gone;
+    for (auto it = installed.constBegin(); it != installed.constEnd(); ++it) {
+        if (!wanted.contains(it.key())) {
+            gone << it.key();
+        }
+    }
+    gone.sort();   // so two runs agree, and so a log of it is readable
+    return gone;
+}
+
+QByteArray serializeFingerprints(const Plan& plan)
+{
+    QJsonObject files;
+    for (const FileTask& file : plan.files) {
+        files.insert(file.relPath, fingerprint(file));
+    }
+
+    QJsonObject root;
+    root["version"] = 1;
+    root["files"] = files;
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+QHash<QString, QString> parseFingerprints(const QByteArray& json)
+{
+    QHash<QString, QString> out;
+
+    const QJsonDocument doc = QJsonDocument::fromJson(json);
+    if (!doc.isObject()) {
+        return out;
+    }
+    const QJsonObject files = doc.object().value("files").toObject();
+    for (auto it = files.constBegin(); it != files.constEnd(); ++it) {
+        out.insert(it.key(), it.value().toString());
+    }
+    return out;
 }
 
 bool wouldCollideCaseInsensitively(const Plan& plan, QString* which)

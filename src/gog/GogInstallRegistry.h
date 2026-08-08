@@ -78,6 +78,12 @@ public:
     // --- where things go ---
 
     static QString filePath();
+
+    // Where a completed install's file fingerprints are kept, so the next
+    // update can be a delta rather than a full re-download. Outside the game
+    // directory on purpose: deleting the game by hand should not leave
+    // ProtonForge believing a stale manifest describes what is there.
+    static QString manifestPath(const QString& productId);
     static QString defaultInstallRoot();          // ~/Games/ProtonForge
     static QString installRoot();                 // the configured one, or the default
     static void setInstallRoot(const QString& path);

@@ -457,3 +457,132 @@ else:
     print(value)
 PY
 }
+
+# --- GOG ---------------------------------------------------------------------
+#
+# GOG has no client and no Steam-shaped tree to fabricate: what ProtonForge
+# reads is its own install registry plus whatever the downloader left on disk.
+# So these write exactly those two things, and nothing else.
+#
+# The registry is the single source of truth (GogInstallRegistry) — there is no
+# filesystem scan to fool, which is why a case that wants a GOG game visible
+# must call fx_gog_game rather than just creating directories.
+
+# fx_gog_root -- where installs live, matching GogInstallRegistry::installRoot()
+fx_gog_root() { printf '%s' "$LAB_APP_HOME/Games/ProtonForge"; }
+
+# fx_gog_tree -- an empty but configured GOG install root
+#
+# Prints the root. Nothing is discoverable until fx_gog_game adds an entry.
+fx_gog_tree() {
+    local root; root="$(fx_gog_root)"
+    mkdir -p "$root/GOG" "$root/prefixes/GOG"
+    printf '%s' "$root"
+}
+
+# fx_gog_game <productid> [key=value ...] -> the install directory
+#
+#   title=       display name, default "GOG Game <productid>"
+#   platform=    windows|linux, default windows
+#   exe=         windows|native|none, default windows
+#   build=       installed build id, default 1000
+#   latest=      newest known build id, default same as build (so no update)
+#   complete=    yes|no, default yes
+#   args=        launch arguments, space separated
+#   info=        yes|no — also drop a goggame-<id>.info file, default no
+#
+# Writes the game tree and appends to gog-installs.json, which is what
+# GogLauncher::discoverGames actually reads.
+fx_gog_game() {
+    local productId="$1"; shift
+    [[ -n "$productId" ]] || die "fx_gog_game: needs a product id"
+
+    declare -A p=(
+        [title]="GOG Game $productId" [platform]=windows [exe]=windows
+        [build]=1000 [latest]= [complete]=yes [args]= [info]=no
+    )
+    local arg key value
+    for arg in "$@"; do
+        key="${arg%%=*}"; value="${arg#*=}"
+        [[ -v p["$key"] ]] || die "fx_gog_game: unknown key '$key'"
+        p["$key"]="$value"
+    done
+    [[ -n "${p[latest]}" ]] || p[latest]="${p[build]}"
+
+    local root; root="$(fx_gog_tree)"
+    local dir="$root/GOG/${p[title]}"
+    mkdir -p "$dir"
+
+    local exePath="" workDir=""
+    case "${p[exe]}" in
+        windows)
+            mkdir -p "$dir/bin"
+            printf 'stub\n' >"$dir/bin/game.exe"
+            exePath="$dir/bin/game.exe"; workDir="$dir/bin" ;;
+        native)
+            printf '#!/bin/sh\necho native game\n' >"$dir/start.sh"
+            chmod +x "$dir/start.sh"
+            exePath="$dir/start.sh"; workDir="$dir" ;;
+        none) ;;
+        *) die "fx_gog_game: exe must be windows|native|none, got '${p[exe]}'" ;;
+    esac
+
+    if [[ "${p[info]}" == yes ]]; then
+        cp "$LAB_SRC_DIR/fixtures/gog/goggame-windows.info" \
+           "$dir/goggame-${productId}.info" 2>/dev/null || true
+    fi
+
+    python3 - "$LAB_APP_HOME/.config/ProtonForge/gog-installs.json" \
+        "$productId" "${p[title]}" "$dir" "${p[platform]}" "${p[build]}" "${p[latest]}" \
+        "${p[complete]}" "$exePath" "$workDir" "${p[args]}" <<'PY'
+import json, os, sys
+(path, pid, title, install, platform, build, latest,
+ complete, exe, workdir, args) = sys.argv[1:12]
+
+os.makedirs(os.path.dirname(path), exist_ok=True)
+try:
+    doc = json.load(open(path))
+except Exception:
+    doc = {"version": 1, "installs": []}
+
+doc.setdefault("installs", [])
+doc["installs"] = [e for e in doc["installs"] if e.get("productId") != pid]
+doc["installs"].append({
+    "productId": pid,
+    "title": title,
+    "installPath": install,
+    "platform": platform,
+    "buildId": build,
+    "latestBuildId": latest,
+    "complete": complete == "yes",
+    "nativeLinux": platform == "linux",
+    "executablePath": exe,
+    "workingDirectory": workdir,
+    "launchArgs": args.split() if args else [],
+    "languages": ["en-US"],
+    "size": 1024,
+})
+json.dump(doc, open(path, "w"), indent=2)
+PY
+
+    printf '%s' "$dir"
+}
+
+# fx_gog_signin -- pretend a GOG session was restored
+#
+# Only the refresh token is persisted, and SecretStore's file backend is what
+# the lab uses (PROTONFORGE_SECRET_STORE=file). The token is deliberately
+# invalid: no case may reach GOG, and one that tries must fail visibly rather
+# than quietly succeed against somebody's real account.
+fx_gog_signin() {
+    local dir="$LAB_APP_HOME/.config/ProtonForge"
+    mkdir -p "$dir"
+    printf '{"gog-refresh-token": "lab-fixture-not-a-real-token"}\n' >"$dir/secrets.json"
+    chmod 600 "$dir/secrets.json"
+    printf '%s' "$dir/secrets.json"
+}
+
+# fx_gog_signout -- no stored credentials at all
+fx_gog_signout() {
+    rm -f "$LAB_APP_HOME/.config/ProtonForge/secrets.json"
+}

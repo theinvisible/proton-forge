@@ -73,6 +73,8 @@ set(CORE_SOURCES
     src/gog/GogInstallRegistry.cpp
     src/gog/GogPlayTasks.cpp
     src/gog/GogDownloader.cpp
+    src/gog/ZipReader.cpp
+    src/gog/GogOfflineClient.cpp
     src/launchers/SteamStoreService.cpp
     src/network/JsonDiskCache.cpp
     src/network/ImageCache.cpp
@@ -134,6 +136,8 @@ set(CORE_HEADERS
     src/gog/GogInstallRegistry.h
     src/gog/GogPlayTasks.h
     src/gog/GogDownloader.h
+    src/gog/ZipReader.h
+    src/gog/GogOfflineClient.h
     src/launchers/IStoreService.h
     src/launchers/SteamStoreService.h
     src/network/JsonDiskCache.h

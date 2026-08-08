@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <QListWidget>
 #include <QStackedWidget>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QPainter>
@@ -35,6 +36,7 @@ private:
     QLineEdit*      m_steamApiKeyEdit = nullptr;
     QLineEdit*      m_steamIdEdit = nullptr;
     QLineEdit*      m_gogInstallRootEdit = nullptr;
+    QComboBox*      m_gogLanguageBox = nullptr;
     QPushButton*    m_saveButton = nullptr;
 };
 
