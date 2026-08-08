@@ -12,10 +12,57 @@ permissions:
   packages: write  # Optional, for package publishing
 
 jobs:
-  build-and-release:
+  # Which distributions get a package. The list lives in packaging/distros.txt so
+  # the test lab's matrix and this workflow cannot drift apart; the fourth column
+  # is what marks a target as one we publish for.
+  prepare:
+    name: work out the targets
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read release targets
+        id: targets
+        run: |
+          matrix="$(grep -vE '^\s*(#|$)' packaging/distros.txt \
+            | awk -F'|' '$4=="yes" { printf "%s{\"image\":\"%s\"}", sep, $1; sep="," }')"
+          [ -n "$matrix" ] || { echo "no release targets in packaging/distros.txt" >&2; exit 1; }
+          echo "matrix=[$matrix]" >> "$GITHUB_OUTPUT"
+          echo "Building for: [$matrix]"
+
+      # Refuse rather than guess. Dispatched on a branch, the old stripping of
+      # "refs/tags/v" left the version as "refs/heads/master" and produced a
+      # release named after it. `gh workflow run release.yml --ref v1.2.3` is
+      # the way to re-run one by hand.
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "This workflow releases a tag, but it was started on ${GITHUB_REF}." >&2
+            echo "Re-run it with: gh workflow run release.yml --ref vX.Y.Z" >&2
+            exit 1
+          fi
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${VERSION}"
+
+  # One package per distribution. A .deb only runs on the distribution it was
+  # built against — the binary carries its Qt symbol versions — so each target
+  # compiles in its own container and nothing is shared between them.
+  build:
+    name: ${{ matrix.image }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     container:
-      image: ubuntu:25.10  # Build on latest Ubuntu release (Oracular Oriole)
+      image: ${{ matrix.image }}
 
     steps:
       - name: Install Git (required for checkout)
@@ -26,86 +73,126 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Qt6 and dependencies
+      # From packaging/build-depends.txt, like ci.yml. Naming the Qt packages
+      # here instead would not survive the matrix: the runtime libraries were
+      # renamed to libqt6core6t64 &c. in the 64-bit time_t transition, so a
+      # hardcoded list is wrong on half the targets. qt6-base-dev pulls whatever
+      # the distribution calls them.
+      - name: Install build dependencies
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            cmake \
-            build-essential \
-            qt6-base-dev \
-            qt6-base-dev-tools \
-            libqt6core6 \
-            libqt6widgets6 \
-            libqt6network6 \
-            libqt6concurrent6 \
-            file \
-            dpkg-dev
+          grep -vE '^\s*(#|$)' packaging/build-depends.txt \
+            | xargs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
 
-      - name: Extract version from tag
-        id: get_version
+      # Read from the container rather than carried in packaging/distros.txt, so
+      # it cannot be mistyped: 24.04 is noble, 26.04 is resolute.
+      - name: Identify the distribution
+        id: os
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building version: ${VERSION}"
+          . /etc/os-release
+          [ -n "$VERSION_CODENAME" ] || { echo "no VERSION_CODENAME in /etc/os-release" >&2; exit 1; }
+          echo "codename=${VERSION_CODENAME}" >> "$GITHUB_OUTPUT"
+          echo "Target: ${PRETTY_NAME} (${VERSION_CODENAME})"
 
       - name: Update CMakeLists.txt version
         run: |
-          sed -i "s/project(ProtonForge VERSION [0-9.]\+/project(ProtonForge VERSION ${{ steps.get_version.outputs.VERSION }}/" CMakeLists.txt
-          cat CMakeLists.txt | grep "project(ProtonForge"
+          sed -i "s/project(ProtonForge VERSION [0-9.]\+/project(ProtonForge VERSION ${{ needs.prepare.outputs.version }}/" CMakeLists.txt
+          grep "project(ProtonForge" CMakeLists.txt
 
       - name: Build release version
         run: |
-          mkdir -p cmake-build-release
-          cd cmake-build-release
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          cmake --build . -j$(nproc)
+          cmake -S . -B cmake-build-release -DCMAKE_BUILD_TYPE=Release
+          cmake --build cmake-build-release -j$(nproc)
 
       # The binary was just built in this container against this container's Qt,
       # so reusing it is correct here. Without the flag build-deb.sh rebuilds from
       # scratch, because a binary from a different environment carries that
       # environment's Qt symbol versions and would produce a package that installs
       # and then refuses to start.
+      #
+      # The version suffix is what keeps the two packages apart, as files and once
+      # installed. build-deb.sh prints the finished path as its last stdout line.
       - name: Build .deb package
+        id: package
         run: |
-          PROTONFORGE_REUSE_BINARY=1 bash build-deb.sh
+          deb="$(PROTONFORGE_VERSION_SUFFIX="~${{ steps.os.outputs.codename }}" \
+                 PROTONFORGE_REUSE_BINARY=1 bash build-deb.sh | tail -n1)"
+          [ -f "$deb" ] || { echo "build-deb.sh did not report a package: $deb" >&2; exit 1; }
+          echo "deb=${deb}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify .deb package was created
+      - name: Verify .deb package
         run: |
-          ls -lh protonforge_*.deb
-          dpkg-deb --info protonforge_*.deb
+          ls -lh "${{ steps.package.outputs.deb }}"
+          dpkg-deb --info "${{ steps.package.outputs.deb }}"
+          dpkg-deb --field "${{ steps.package.outputs.deb }}" Version
+
+      # Named per target: upload-artifact v4 fails outright on a duplicate name.
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: protonforge-deb-${{ steps.os.outputs.codename }}
+          path: ${{ steps.package.outputs.deb }}
+          retention-days: 30
+
+  # The release is created once, here, with every package attached. Doing it in
+  # the matrix would have the legs race to create it and each re-send the body.
+  publish:
+    name: publish the release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect the packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: protonforge-deb-*
+          merge-multiple: true
+          path: packages
+
+      - name: List what will be published
+        run: ls -lh packages/
 
       - name: Create Release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          files: protonforge_*.deb
+          files: packages/*.deb
           generate_release_notes: true
           draft: false
           prerelease: false
           body: |
-            ## ProtonForge v${{ steps.get_version.outputs.VERSION }}
+            ## ProtonForge v${{ needs.prepare.outputs.version }}
 
             ### Installation
 
             **Flatpak (Recommended - Universal Linux):**
             ```bash
-            wget https://github.com/theinvisible/proton-forge/releases/download/v${{ steps.get_version.outputs.VERSION }}/protonforge.flatpak
+            wget https://github.com/theinvisible/proton-forge/releases/download/v${{ needs.prepare.outputs.version }}/protonforge.flatpak
             flatpak install protonforge.flatpak
             flatpak run org.protonforge.ProtonForge
             ```
 
             **Debian/Ubuntu:**
+
+            Pick the package built for your distribution — a `.deb` is linked
+            against that distribution's Qt and will install but refuse to start
+            on an older one.
+
+            | Package | For |
+            |---|---|
+            | `protonforge_${{ needs.prepare.outputs.version }}~noble_amd64.deb` | Ubuntu 24.04 LTS and derivatives (Qt 6.4) |
+            | `protonforge_${{ needs.prepare.outputs.version }}~resolute_amd64.deb` | Ubuntu 26.04 LTS and newer (Qt 6.10) |
+
             ```bash
-            wget https://github.com/theinvisible/proton-forge/releases/download/v${{ steps.get_version.outputs.VERSION }}/protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
-            sudo dpkg -i protonforge_${{ steps.get_version.outputs.VERSION }}_amd64.deb
-            sudo apt-get install -f
+            wget https://github.com/theinvisible/proton-forge/releases/download/v${{ needs.prepare.outputs.version }}/protonforge_${{ needs.prepare.outputs.version }}~noble_amd64.deb
+            sudo apt-get install ./protonforge_${{ needs.prepare.outputs.version }}~noble_amd64.deb
             ```
+
+            On any other distribution, use the Flatpak or build from source.
 
             **From Source:**
             ```bash
             git clone https://github.com/theinvisible/proton-forge.git
             cd proton-forge
-            git checkout v${{ steps.get_version.outputs.VERSION }}
+            git checkout v${{ needs.prepare.outputs.version }}
             mkdir build && cd build
             cmake -DCMAKE_BUILD_TYPE=Release ..
             cmake --build . -j$(nproc)
@@ -116,17 +203,7 @@ jobs:
 
             ---
 
-            **Built on:** Ubuntu 25.10 (Oracular Oriole)
             **Qt Version:** 6.0+
             **GPU Focus:** NVIDIA (Proton management works on any GPU)
-
-            *Compatible with Ubuntu 25.10, 24.04 LTS, and other Debian-based distributions with Qt6.*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: protonforge-deb
-          path: protonforge_*.deb
-          retention-days: 30

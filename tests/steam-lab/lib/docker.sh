@@ -23,24 +23,18 @@
 
 : "${LAB_DOCKER_PREFIX:=protonforge-lab}"
 
-# The distributions the package is expected to work on. This is the only place
-# that holds distribution knowledge; 20_deb_install reads the same list.
-#
-#   image | expected Qt6 core package | steam tooling in the image
-#
-# Long-term releases only. Ubuntu's interim releases live nine months, so a
-# regression found on one is a regression on a target nobody will still be running
-# by the time it is fixed — and both LTS releases plus both Debian stables already
-# span Qt 6.4 to 6.10, which is the axis that actually matters here.
-#
-# Qt versions, for orientation: bookworm 6.4, trixie 6.8 (what the Flatpak runtime
-# targets), noble 6.4, resolute 6.10.
-LAB_DISTROS_DEFAULT=(
-    "debian:bookworm|libqt6core6|no"
-    "debian:trixie|libqt6core6t64|yes"
-    "ubuntu:24.04|libqt6core6t64|no"
-    "ubuntu:26.04|libqt6core6t64|yes"
-)
+# The distributions the package is expected to work on, read from
+# packaging/distros.txt — the single list, shared with the release workflow so a
+# target cannot be added to one and forgotten in the other. Its fourth column
+# says whether a release also *ships* that target; the lab tests all of them, so
+# it is dropped here.
+LAB_DISTROS_DEFAULT=()
+while IFS= read -r _line; do
+    LAB_DISTROS_DEFAULT+=("${_line%|*}")
+done < <(grep -vE '^\s*(#|$)' "$REPO_ROOT/packaging/distros.txt")
+unset _line
+[[ ${#LAB_DISTROS_DEFAULT[@]} -gt 0 ]] \
+    || die "no targets in $REPO_ROOT/packaging/distros.txt"
 
 # dock_distros -> the selected targets, one per line
 #

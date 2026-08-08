@@ -62,7 +62,11 @@ After the automatic release is created:
 
 The automation creates:
 - **Binary:** `ProtonForge` (Qt6 executable)
-- **Package:** `protonforge_X.Y.Z_amd64.deb`
+- **Packages:** one `.deb` per Ubuntu LTS, each built in that distribution's own
+  container and qualified with its codename —
+  `protonforge_X.Y.Z~noble_amd64.deb` (24.04) and
+  `protonforge_X.Y.Z~resolute_amd64.deb` (26.04). The targets come from
+  `packaging/distros.txt`, whose fourth column marks the ones a release ships.
 - **Release:** GitHub release with installation instructions
 
 ## 🔧 Manual Release (Fallback)
@@ -83,7 +87,7 @@ bash build-deb.sh
 # Go to: https://github.com/theinvisible/proton-forge/releases/new
 # - Tag: v1.0.3
 # - Title: ProtonForge v1.0.3
-# - Upload: protonforge_1.0.3_amd64.deb
+# - Upload: protonforge_1.0.3~noble_amd64.deb and protonforge_1.0.3~resolute_amd64.deb
 ```
 
 ## 🐛 Manual Workflow Trigger
@@ -97,7 +101,7 @@ You can also trigger the release workflow manually:
 
 ## 📊 CI/CD Workflows
 
-ProtonForge has two GitHub Actions workflows:
+ProtonForge has three GitHub Actions workflows:
 
 ### 1. CI Build (`ci.yml`)
 - **Triggers:** Push to master/main/develop, Pull Requests
@@ -105,9 +109,18 @@ ProtonForge has two GitHub Actions workflows:
 - **Outputs:** Build artifacts (7 day retention)
 
 ### 2. Release Build (`release.yml`)
-- **Triggers:** Version tags (v*.*.*)
+- **Triggers:** Version tags (v*.*.*), or `workflow_dispatch` **on a tag ref**
 - **Purpose:** Create official releases
-- **Outputs:** GitHub release with .deb package
+- **Outputs:** GitHub release with one .deb per Ubuntu LTS
+- **Shape:** `prepare` reads the targets from `packaging/distros.txt` → `build`
+  runs once per target in that distribution's container → `publish` creates the
+  release once with every package attached. Splitting `publish` out is what keeps
+  the matrix legs from racing to create the release.
+
+### 3. Build Flatpak (`flatpak-release.yml`)
+- **Triggers:** Version tags (v*.*.*)
+- **Purpose:** The distribution-independent bundle
+- **Outputs:** `protonforge.flatpak`, attached to the same release
 
 ## 🏷️ Version Numbering
 
@@ -156,7 +169,8 @@ Before creating a new release:
 - [ ] Tag created and pushed
 - [ ] GitHub Action completed successfully
 - [ ] Release notes reviewed
-- [ ] .deb package tested on Ubuntu 25.10 (or latest release)
+- [ ] Both .deb packages installed *and started* on their own LTS — a wrong-Qt
+      package installs cleanly and only fails at launch
 
 ## 🆘 Troubleshooting
 

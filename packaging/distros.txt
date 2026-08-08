@@ -1,0 +1,33 @@
+# The distributions ProtonForge is packaged for, one per line. The single list:
+# the test lab's distribution matrix (tests/steam-lab/lib/docker.sh) and the
+# release workflow (.github/workflows/release.yml) both read it. Add a target
+# here and both follow; add it in one of those places instead and the other
+# silently disagrees.
+#
+#   image | expected Qt6 core package | steam tooling in the image | release target
+#
+# Long-term releases only. Ubuntu's interim releases live nine months, so a
+# regression found on one is a regression on a target nobody will still be running
+# by the time it is fixed — and both LTS releases plus both Debian stables already
+# span Qt 6.4 to 6.10, which is the axis that actually matters here.
+#
+# Qt versions, for orientation: bookworm 6.4, trixie 6.8 (what the Flatpak runtime
+# targets), noble 6.4, resolute 6.10.
+#
+# The last column decides whether a tagged release ships a package for it. The
+# lab tests all four; only the two Ubuntu LTS get published, because a .deb only
+# runs on the distribution it was built against (a binary carries its Qt symbol
+# versions — see build-deb.sh) and every published package is one more that has
+# to be built, hosted and explained to users.
+#
+# Consume with:
+#     grep -vE '^\s*(#|$)' packaging/distros.txt
+#
+# Note there is deliberately no codename column: the release workflow reads
+# VERSION_CODENAME from /etc/os-release inside the target's own container, so it
+# cannot be mistyped here.
+
+debian:bookworm|libqt6core6|no|no
+debian:trixie|libqt6core6t64|yes|no
+ubuntu:24.04|libqt6core6t64|no|yes
+ubuntu:26.04|libqt6core6t64|yes|yes

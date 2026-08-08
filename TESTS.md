@@ -216,20 +216,27 @@ counts as `docker`, so nothing runs unguarded by accident.
 | `70_flatpak` | `flatpak build` | the Flatpak built from the working tree, and its sandbox |
 | `80_proton_mgr` | `build`, opt-in | installing Proton from GitHub for real |
 
-The distribution matrix lives in `LAB_DISTROS_DEFAULT` in `lib/docker.sh` and is
-the only place holding distribution knowledge. Adding a target is one line.
+The distribution matrix lives in `packaging/distros.txt` — the only place holding
+distribution knowledge, shared with `.github/workflows/release.yml` so a target
+cannot be added to the lab and forgotten in the release. `lib/docker.sh` fills
+`LAB_DISTROS_DEFAULT` from it. Adding a target is one line.
 
 Long-term releases only: Ubuntu's interim releases live nine months, so a
 regression found on one is a regression on a target nobody will still be running
 by the time it is fixed. The four below already span Qt 6.4 to 6.10, which is the
 axis that matters.
 
-| Target | Qt | Qt6 core package |
-|---|---|---|
-| `debian:bookworm` | 6.4 | `libqt6core6` |
-| `debian:trixie` | 6.8 | `libqt6core6t64` |
-| `ubuntu:24.04` (LTS) | 6.4 | `libqt6core6t64` |
-| `ubuntu:26.04` (LTS) | 6.10 | `libqt6core6t64` |
+| Target | Qt | Qt6 core package | Released |
+|---|---|---|---|
+| `debian:bookworm` | 6.4 | `libqt6core6` | no |
+| `debian:trixie` | 6.8 | `libqt6core6t64` | no |
+| `ubuntu:24.04` (LTS) | 6.4 | `libqt6core6t64` | yes, `~noble` |
+| `ubuntu:26.04` (LTS) | 6.10 | `libqt6core6t64` | yes, `~resolute` |
+
+The last column is the file's fourth field. All four are tested; the two Ubuntu
+LTS also get a published `.deb`, qualified with the distribution codename so the
+packages are distinguishable as files *and* once installed — `build-deb.sh` takes
+that suffix from `PROTONFORGE_VERSION_SUFFIX`.
 
 ---
 

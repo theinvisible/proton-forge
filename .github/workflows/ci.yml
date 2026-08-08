@@ -14,8 +14,9 @@ jobs:
       # Newest LTS. Note this decides which Qt the uploaded .deb is linked
       # against, and a package built against a newer Qt installs on an older
       # system and then refuses to start — so the artifact from this job is only
-      # usable on 26.04 or later. release.yml makes the same choice for the
-      # published package; see the note there.
+      # usable on 26.04 or later. It is a build check, not a release: release.yml
+      # builds one package per target in packaging/distros.txt, each in its own
+      # container, so published packages carry no such caveat.
       image: ubuntu:26.04
 
     steps:

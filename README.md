@@ -111,17 +111,25 @@ flatpak install flathub org.protonforge.ProtonForge
 
 ### From .deb Package (Debian/Ubuntu)
 
-> **Built on:** Ubuntu 25.10 (Oracular Oriole) - the latest Ubuntu release. Compatible with Ubuntu 24.04 LTS and other Debian-based distributions with Qt6 6.0+.
+Every release ships one package per supported Ubuntu LTS, named after the
+distribution it was built for:
+
+| Package | For |
+|---|---|
+| `protonforge_X.Y.Z~noble_amd64.deb` | Ubuntu 24.04 LTS and derivatives (Qt 6.4) |
+| `protonforge_X.Y.Z~resolute_amd64.deb` | Ubuntu 26.04 LTS and newer (Qt 6.10) |
+
+> Pick the one that matches your distribution. A `.deb` is linked against that
+> distribution's Qt and carries its symbol versions, so the newer package will
+> install on an older system and then refuse to start. On anything else, use the
+> Flatpak or build from source.
 
 ```bash
 # Download the latest release
 https://github.com/theinvisible/proton-forge/releases/
 
-# Install
-sudo dpkg -i protonforge_*_amd64.deb
-
-# Install dependencies if needed
-sudo apt-get install -f
+# Install (apt-get pulls the dependencies; dpkg -i does not)
+sudo apt-get install ./protonforge_*_amd64.deb
 ```
 
 ### From Source

@@ -20,6 +20,12 @@
 # finished package, so callers can do:
 #
 #     deb="$(bash build-deb.sh "$src" "$out" | tail -n1)"
+#
+# Two environment variables change what comes out:
+#
+#     PROTONFORGE_REUSE_BINARY=1      package cmake-build-release/ProtonForge
+#                                     instead of compiling (see the note below)
+#     PROTONFORGE_VERSION_SUFFIX=~x   qualify the package version, e.g. ~noble
 
 set -euo pipefail
 
@@ -39,7 +45,20 @@ OUT="$(cd "$OUT" && pwd)"
 # Version from CMakeLists.txt — the single source of truth.
 VERSION="$(grep -oP 'project\(ProtonForge VERSION \K[0-9]+\.[0-9]+\.[0-9]+' "$SRC/CMakeLists.txt")"
 [[ -n "$VERSION" ]] || die "could not extract the version from $SRC/CMakeLists.txt"
-log "ProtonForge $VERSION"
+
+# A package only runs on the distribution it was built against (see the note
+# above the compile step), so a release ships one per target and they have to be
+# told apart — as files *and* once installed. PROTONFORGE_VERSION_SUFFIX
+# qualifies the package version with the distribution, e.g. "~noble" turns 1.0.15
+# into 1.0.15~noble. A leading tilde sorts *before* the bare version, which is
+# the Debian convention for distribution-specific builds: a later unqualified
+# 1.0.15 then counts as an upgrade rather than a downgrade.
+#
+# This is packaging only. The version the application reports comes from
+# Version.h, which CMake generates from the same CMakeLists.txt line, and is
+# deliberately left unqualified.
+PKG_VERSION="${VERSION}${PROTONFORGE_VERSION_SUFFIX:-}"
+log "ProtonForge $PKG_VERSION"
 
 PACKAGE_NAME="protonforge"
 ARCH="amd64"
@@ -105,7 +124,7 @@ fi
 [[ -x "$BINARY" ]] || die "no ProtonForge binary at $BINARY"
 
 # ---------------------------------------------------------------- staging
-PACKAGE_DIR="$WORK/${PACKAGE_NAME}_${VERSION}_${ARCH}"
+PACKAGE_DIR="$WORK/${PACKAGE_NAME}_${PKG_VERSION}_${ARCH}"
 mkdir -p "$PACKAGE_DIR/DEBIAN" \
          "$PACKAGE_DIR/usr/bin" \
          "$PACKAGE_DIR/usr/share/applications" \
@@ -154,7 +173,7 @@ EOF
 chmod 644 "$PACKAGE_DIR/usr/share/doc/${PACKAGE_NAME}/copyright"
 
 cat >"$PACKAGE_DIR/usr/share/doc/${PACKAGE_NAME}/changelog" <<EOF
-protonforge (${VERSION}) stable; urgency=medium
+protonforge (${PKG_VERSION}) stable; urgency=medium
 
   * DLSS Super Resolution, Ray Reconstruction, and Frame Generation support
   * HDR support configuration (Wayland)
@@ -173,7 +192,7 @@ chmod 644 "$PACKAGE_DIR/usr/share/doc/${PACKAGE_NAME}/changelog.gz"
 # Installed-Size has to land inside the field block, not after Description —
 # a folded Description swallows anything appended below it.
 INSTALLED_SIZE="$(du -sk "$PACKAGE_DIR" | cut -f1)"
-sed -e "s/@VERSION@/${VERSION}/g" \
+sed -e "s/@VERSION@/${PKG_VERSION}/g" \
     -e "s|^Homepage:|Installed-Size: ${INSTALLED_SIZE}\nHomepage:|" \
     "$BUILD_SRC/debian/control" >"$PACKAGE_DIR/DEBIAN/control"
 chmod 644 "$PACKAGE_DIR/DEBIAN/control"
@@ -185,7 +204,7 @@ grep -q '^Installed-Size:' "$PACKAGE_DIR/DEBIAN/control" \
 log "building the package"
 dpkg-deb --build --root-owner-group "$PACKAGE_DIR" >/dev/null
 
-DEB="$OUT/${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
+DEB="$OUT/${PACKAGE_NAME}_${PKG_VERSION}_${ARCH}.deb"
 mv -f "${PACKAGE_DIR}.deb" "$DEB"
 
 log "$DEB"
