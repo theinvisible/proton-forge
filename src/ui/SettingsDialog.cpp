@@ -9,7 +9,10 @@
 #include <QSettings>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
 #include "gog/GogAuth.h"
+#include "gog/GogInstallRegistry.h"
 #include "launchers/SteamStoreService.h"
 #include <QTimer>
 #include <QMessageBox>
@@ -338,6 +341,51 @@ QWidget* SettingsDialog::buildGogPage()
     m_gogInstallRootEdit = new QLineEdit;
     m_gogInstallRootEdit->setPlaceholderText(QDir::homePath() + "/Games/ProtonForge");
 
+    auto* browseButton = new QPushButton("Browse…");
+    auto* rootRow = new QHBoxLayout;
+    rootRow->setContentsMargins(0, 0, 0, 0);
+    rootRow->addWidget(m_gogInstallRootEdit, 1);
+    rootRow->addWidget(browseButton);
+
+    // Shown only when the chosen directory would fail, and not as a modal: the
+    // user may well be about to plug the drive in or fix the permissions, and
+    // an install this would have broken is otherwise several gigabytes away
+    // from the message.
+    auto* rootWarning = new QLabel;
+    rootWarning->setWordWrap(true);
+    rootWarning->setStyleSheet("color: #f0a30a; font-size: 11px;");
+    rootWarning->hide();
+
+    connect(browseButton, &QPushButton::clicked, this, [this, rootWarning]() {
+        // Start where the setting points, or where it would default to. That
+        // directory need not exist yet — nothing has been installed on a fresh
+        // profile — so walk up to the nearest one that does, or the picker
+        // opens on nothing.
+        const QString configured = m_gogInstallRootEdit->text().trimmed();
+        QDir start(configured.isEmpty() ? GogInstallRegistry::installRoot() : configured);
+        while (!start.exists() && !start.isRoot() && start.cdUp()) {
+        }
+
+        const QString chosen = QFileDialog::getExistingDirectory(
+            this, "Choose where GOG games are installed",
+            start.exists() ? start.absolutePath() : QDir::homePath());
+        if (chosen.isEmpty()) {
+            return;   // cancelled — leave whatever was typed alone
+        }
+
+        m_gogInstallRootEdit->setText(QDir::toNativeSeparators(chosen));
+
+        const QFileInfo info(chosen);
+        if (!info.isWritable()) {
+            rootWarning->setText(QStringLiteral(
+                "ProtonForge cannot write to %1. Installing there will fail until "
+                "the permissions allow it.").arg(chosen));
+            rootWarning->show();
+        } else {
+            rootWarning->hide();
+        }
+    });
+
     auto* rootHint = new QLabel(
         "Games go under &lt;location&gt;/GOG, and their Proton prefixes under "
         "&lt;location&gt;/prefixes/GOG. A path on another drive works, but in the "
@@ -373,7 +421,8 @@ QWidget* SettingsDialog::buildGogPage()
     layout->addWidget(status);
     layout->addSpacing(12);
     layout->addWidget(rootLabel);
-    layout->addWidget(m_gogInstallRootEdit);
+    layout->addLayout(rootRow);
+    layout->addWidget(rootWarning);
     layout->addWidget(rootHint);
     layout->addSpacing(12);
     layout->addWidget(languageLabel);

@@ -67,6 +67,16 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
         updateExecutableSelectorWithResults(executables);
     });
 
+    // Artwork arrives after the panel is drawn, and only for whatever is
+    // selected *now* — hence one connection here, keyed on m_currentGame,
+    // rather than one per setGame().
+    connect(&ImageCache::instance(), &ImageCache::imageReady, this, [this](const QString& url) {
+        if (url.isEmpty() || url != m_currentGame.imageUrl()) {
+            return;
+        }
+        m_gameImageLabel->setPixmap(ImageCache::instance().getImage(url, QSize(230, 107)));
+    });
+
     // Re-evaluate feature warnings once the NVIDIA driver version is detected
     // (detection runs asynchronously after startup).
     connect(&GpuInfoCache::instance(), &GpuInfoCache::updated,
@@ -998,17 +1008,12 @@ void DLSSSettingsWidget::setGame(const Game& game)
     // Populate executable selector
     populateExecutableSelector(game);
 
-    // Load image
-    QPixmap pixmap = ImageCache::instance().getImage(game.imageUrl(), QSize(230, 107));
-    m_gameImageLabel->setPixmap(pixmap);
-
-    // Connect to image ready signal
-    connect(&ImageCache::instance(), &ImageCache::imageReady, this, [this, game](const QString& url) {
-        if (url == game.imageUrl()) {
-            QPixmap pixmap = ImageCache::instance().getImage(game.imageUrl(), QSize(230, 107));
-            m_gameImageLabel->setPixmap(pixmap);
-        }
-    });
+    // A placeholder now, the real one when it arrives — see the constructor for
+    // where that is picked up. (The connection used to be made here, capturing
+    // this game: selecting fifty games left fifty live lambdas, and a cover
+    // that arrived late would repaint the panel for a game the user had long
+    // since navigated away from.)
+    m_gameImageLabel->setPixmap(ImageCache::instance().getImage(game.imageUrl(), QSize(230, 107)));
 
     // Fetch the ProtonDB tier for the badge. ProtonDB is keyed by Steam appid,
     // so this is the one thing standing between another store's numeric

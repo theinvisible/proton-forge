@@ -42,6 +42,26 @@ StoreLibraryDialog::StoreLibraryDialog(QWidget* parent)
     setWindowTitle("Game Stores");
     resize(1000, 620);
     setupUI();
+
+    // getImage() answers with a placeholder and fetches in the background, so
+    // the first look at any game showed no cover — and the second one did,
+    // because by then it was cached. The panel has to be told when the picture
+    // arrives. Connected once, here, and keyed on what is on screen at that
+    // moment rather than on a captured entry: a connection made per selection
+    // accumulates, and each stale copy would then repaint the panel with the
+    // cover of a game the user has already navigated away from.
+    connect(&ImageCache::instance(), &ImageCache::imageReady, this,
+            [this](const QString& url) {
+        const QListWidgetItem* item = m_entryList->currentItem();
+        if (!item) {
+            return;
+        }
+        if (entryById(item->data(RoleEntryId).toString()).imageUrl != url) {
+            return;
+        }
+        m_detailImage->setPixmap(ImageCache::instance().getImage(url, QSize(230, 107)));
+    });
+
     populateStores();
 }
 
