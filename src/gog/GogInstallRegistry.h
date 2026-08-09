@@ -70,6 +70,14 @@ public:
         QString latestBuildId;
         QDateTime latestCheckedAt;
 
+        // The game's banner. Kept here for the same reason as latestBuildId:
+        // discovery runs on a worker thread and must not fetch. Steam needs no
+        // equivalent because its URL falls out of the appId — GOG's artwork is
+        // content-hashed, so there is nothing to derive and it has to be looked
+        // up once and remembered. Empty means "not looked up yet", which is
+        // what GogStoreService::refreshInstalledArtwork() acts on.
+        QString imageUrl;
+
         bool valid = false;
     };
 
@@ -121,6 +129,12 @@ public:
     // Record what the content system said the newest build is. A no-op for a
     // product that is not installed.
     bool setLatestBuild(const QString& productId, const QString& buildId);
+
+    // Record the banner. A no-op for a product that is not installed, and for
+    // an empty url — "we could not find out" must not overwrite "we know".
+    // Returns true only when something was actually written, so the caller can
+    // tell whether anything on screen needs redrawing.
+    bool setImageUrl(const QString& productId, const QString& imageUrl);
 
 private:
     GogInstallRegistry() = default;

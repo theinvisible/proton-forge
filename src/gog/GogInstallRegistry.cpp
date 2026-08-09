@@ -115,6 +115,10 @@ QList<GogInstallRegistry::Entry> GogInstallRegistry::parse(const QByteArray& jso
         entry.warnings         = stringArray(object.value("warnings"));
         entry.latestBuildId    = object.value("latestBuildId").toString();
         entry.latestCheckedAt  = dateOrNull(object.value("latestCheckedAt"));
+        // Absent in every file written before artwork was recorded, and that
+        // absence is exactly the "look it up" state — so it is not defaulted
+        // to anything.
+        entry.imageUrl         = object.value("imageUrl").toString();
 
         // Without these two there is nothing to launch and nothing to delete,
         // so such a row is dropped rather than half-honoured.
@@ -158,6 +162,9 @@ QByteArray GogInstallRegistry::serialize(const QList<Entry>& entries)
         }
         if (entry.latestCheckedAt.isValid()) {
             object["latestCheckedAt"] = entry.latestCheckedAt.toString(Qt::ISODate);
+        }
+        if (!entry.imageUrl.isEmpty()) {
+            object["imageUrl"] = entry.imageUrl;
         }
         array.append(object);
     }
@@ -285,6 +292,25 @@ bool GogInstallRegistry::remove(const QString& productId)
             QFile::remove(manifestPath(productId));
             return save();
         }
+    }
+    return false;
+}
+
+bool GogInstallRegistry::setImageUrl(const QString& productId, const QString& imageUrl)
+{
+    if (imageUrl.isEmpty()) {
+        return false;
+    }
+    QMutexLocker locker(&m_mutex);
+    for (int i = 0; i < m_entries.size(); ++i) {
+        if (m_entries.at(i).productId != productId) {
+            continue;
+        }
+        if (m_entries.at(i).imageUrl == imageUrl) {
+            return false;   // nothing changed, so nothing to write and nothing to repaint
+        }
+        m_entries[i].imageUrl = imageUrl;
+        return save();
     }
     return false;
 }

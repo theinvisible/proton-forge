@@ -56,6 +56,12 @@ public:
     // usable, and an empty or already-absolute one must survive untouched.
     static QString normalizeImageUrl(const QString& raw, const QString& variant);
 
+    // The wide banner, whatever size or shape GOG handed us. Every variant of
+    // an image is named after one content hash, so the right one is built from
+    // that hash rather than requested — see the .cpp for why appending is not
+    // an option for the shapes this receives.
+    static QString bannerImageUrl(const QString& raw);
+
     static QString storeUrl(const QString& slug);
 
     // --- async ---

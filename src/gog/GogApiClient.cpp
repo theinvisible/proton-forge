@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
+#include <QRegularExpression>
 #include <QUrl>
 
 namespace {
@@ -87,6 +88,34 @@ QString GogApiClient::normalizeImageUrl(const QString& raw, const QString& varia
     return variant.isEmpty() ? url : url + variant;
 }
 
+QString GogApiClient::bannerImageUrl(const QString& raw)
+{
+    if (raw.isEmpty()) {
+        return QString();
+    }
+
+    // GOG names every size of an image after the same content hash, so the
+    // variant is chosen by rebuilding the URL rather than by asking for it.
+    // Rebuilding is the only option here: `images.logo2x` arrives complete,
+    // suffix and all, and normalizeImageUrl leaves anything ending in .jpg
+    // alone — correctly, since appending a second suffix would 404.
+    //
+    // The variant is the one the library dialog already uses. It is also the
+    // one that fits: 256x117 is the shape of a Steam header (2.19 against
+    // 2.14), where logo2x is 200x120 — a different aspect and too small for
+    // the 230x107 detail panel.
+    static const QRegularExpression hashPattern(QStringLiteral("[0-9a-f]{64}"));
+    const QRegularExpressionMatch match = hashPattern.match(raw);
+    if (!match.hasMatch()) {
+        // An unfamiliar shape. Handing it back untouched shows whatever GOG
+        // meant; guessing a hash out of it would produce a confident 404.
+        return normalizeImageUrl(raw, QStringLiteral("_product_tile_256.jpg"));
+    }
+
+    return QStringLiteral("https://images.gog-statics.com/%1_product_tile_256.jpg")
+        .arg(match.captured(0));
+}
+
 QString GogApiClient::storeUrl(const QString& slug)
 {
     return slug.isEmpty() ? QStringLiteral("https://www.gog.com/games")
@@ -142,8 +171,7 @@ GogApiClient::ProductDetail GogApiClient::parseProduct(const QByteArray& json)
     detail.slug = root.value(QStringLiteral("slug")).toString();
 
     const QJsonObject images = root.value(QStringLiteral("images")).toObject();
-    detail.imageUrl = normalizeImageUrl(images.value(QStringLiteral("logo2x")).toString(),
-                                        QString());
+    detail.imageUrl = bannerImageUrl(images.value(QStringLiteral("logo2x")).toString());
 
     // This is the field that decides whether we can install at all, and it is
     // not the same as the store page's platform list.
@@ -241,10 +269,14 @@ void GogApiClient::fetchProduct(const QString& productId)
     const QUrl url(QStringLiteral(
         "https://api.gog.com/products/%1?expand=downloads,expanded_dlcs").arg(productId));
 
-    GogRequest::get(m_networkManager, url, this, [this, productId, path](QNetworkReply* reply) {
+    // Catalogue data, not account data: this endpoint answers without a token.
+    // Asking for one would make artwork — and installability — unknowable while
+    // signed out, which is precisely when a DRM-free library is still listed.
+    GogRequest::getPublic(m_networkManager, url, this,
+                          [this, productId, path](QNetworkReply* reply) {
         if (!reply || reply->error() != QNetworkReply::NoError) {
             emit productFailed(productId, reply ? reply->errorString()
-                                                : QStringLiteral("Not signed in to GOG."));
+                                                : QStringLiteral("request failed"));
             return;
         }
 

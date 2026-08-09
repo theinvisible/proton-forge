@@ -608,6 +608,48 @@ Found alongside it: **`--gog-plan` always planned in English** while
 different file set — and, for exactly this build, a different layout — than the
 install it was meant to predict. Both read `gog/language` now.
 
+### 8. GOG games had no cover art in the main list — fixed
+
+`tst_gogapi`, `tst_gogregistry`, `90_gog`
+
+Reported from use. GOG rows showed the placeholder while the Steam rows beside
+them showed their banner.
+
+`Game::setImageUrl()` was called in exactly **one** place in the codebase —
+`SteamLauncher.cpp:224` — and `GogLauncher::discoverGames()` never called it. So
+every GOG game reached the list with an empty URL and the delegate took its "no
+artwork" branch. The store dialog *did* show GOG covers, from a live library
+call, which is what made the gap easy to miss.
+
+Steam's URL is derivable from the appid. GOG's artwork is content-hashed, so
+there is nothing to derive — and discovery runs on `GameListWidget`'s worker
+thread, where it may not fetch. The URL therefore has to be **looked up once and
+persisted**, which is what `GogInstallRegistry::Entry::imageUrl` is for. It is
+filled from the library listing when the game is installed through the dialog,
+and otherwise backfilled by `GogStoreService::refreshInstalledArtwork()` — the
+same shape as the existing `refreshUpdateState()`, down to the connections being
+made once in the constructor rather than per batch.
+
+Two things that came out in the doing:
+
+* **`GogApiClient::fetchProduct()` had no callers at all** — built in Phase 6,
+  never wired. It asked with a bearer token; `api.gog.com/products/<id>` is
+  catalogue data and answers without one, so it now uses `getPublic`. Artwork
+  therefore works signed out, which matters for a DRM-free library that stays
+  listed when signed out.
+* **The field GOG calls `logo2x` is not the banner.** It is 200×120 (ratio 1.67)
+  where the list tile and the detail panel are both cut for a Steam header
+  (2.14). The same content hash serves `_product_tile_256.jpg` at 256×117 —
+  2.19, and the variant the store dialog already uses. `bannerImageUrl()`
+  rebuilds the URL from the hash rather than appending a suffix, because
+  `logo2x` arrives complete with its own and `normalizeImageUrl` correctly
+  refuses to bolt a second one on. No hash in the input means the input is
+  returned untouched: a guessed URL would leave the tile shimmering at a 404.
+
+Verified end to end against the real account: both installed GOG games resolved,
+persisted into `gog-installs.json`, and their banners fetched into `ImageCache`
+— `--list-games` reports the URLs on the next start with no network involved.
+
 ### Also found, and fixed
 
 * **`build-deb.sh` packaged a binary from the wrong environment.** It reused

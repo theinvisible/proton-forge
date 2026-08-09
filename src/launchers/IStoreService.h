@@ -109,6 +109,16 @@ public:
     virtual void pauseInstall(const QString& id) { Q_UNUSED(id); }
     virtual void resumeInstall(const QString& id) { Q_UNUSED(id); }
 
+    // Look up whatever an installed game needs to be *drawn* and could not be
+    // worked out locally, and record it where discovery can reach it without a
+    // network call. Asynchronous; announces itself with
+    // installedMetadataChanged().
+    //
+    // The default does nothing, and for a store whose artwork URL falls out of
+    // its own id that is a complete answer rather than a stub — Steam builds
+    // its banner URL from the appid and has nothing to ask anyone.
+    virtual void refreshInstalledArtwork() {}
+
     // Whether an install of this id is running or queued right now. The dialog
     // asks while painting a row, so it must answer from memory.
     virtual bool isInstalling(const QString& id) const { Q_UNUSED(id); return false; }
@@ -123,6 +133,10 @@ signals:
     void installProgress(const QString& id, const StoreInstallProgress& progress);
     void installFinished(const QString& id);
     void installFailed(const QString& id, const QString& reason);
+
+    // Something an *installed* game is shown with changed on disk — emitted
+    // once per batch, not per game, because acting on it means rediscovering.
+    void installedMetadataChanged();
 
 private:
     SignInHandler m_signInHandler;

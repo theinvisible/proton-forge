@@ -66,6 +66,10 @@ QList<Game> GogLauncher::discoverGames()
         game.setNeedsUpdate(GogInstallRegistry::hasUpdate(entry));
         game.setSizeOnDisk(entry.size);
         game.setInstallWarnings(entry.warnings);
+        // Whatever was recorded, and nothing derived: an empty one means the
+        // list draws its placeholder, which is the honest answer until
+        // GogStoreService has looked the banner up.
+        game.setImageUrl(entry.imageUrl);
 
         games.append(game);
     }

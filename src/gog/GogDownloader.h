@@ -79,6 +79,7 @@ public:
     struct Request {
         QString productId;
         QString title;
+        QString imageUrl;         // known when the store dialog asked; empty from the CLI
         QStringList languages;    // empty means en-US plus whatever is shared
         QStringList dlcIds;
         QString installRoot;      // empty means the configured one

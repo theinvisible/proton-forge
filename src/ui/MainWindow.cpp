@@ -56,10 +56,22 @@ MainWindow::MainWindow(QWidget* parent)
                 LauncherManager::instance().refreshAvailability();
                 loadGames();
             });
+            // A store that had to go and look something up for a game already
+            // installed — artwork, today — announces it here.
+            connect(store, &IStoreService::installedMetadataChanged, this,
+                    &MainWindow::loadGames);
         }
     }
 
     loadGames();
+
+    // After the first list is on screen, not before it: this only fills in what
+    // is missing, and a store with nothing to look up does nothing at all.
+    for (const auto& launcher : LauncherManager::instance().launchers()) {
+        if (IStoreService* store = launcher->storeService()) {
+            store->refreshInstalledArtwork();
+        }
+    }
 
     // Kick off a one-shot background driver detection so feature gating in the
     // settings panel can compare against the real NVIDIA driver version.

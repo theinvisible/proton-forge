@@ -490,6 +490,9 @@ fx_gog_tree() {
 #   complete=    yes|no, default yes
 #   args=        launch arguments, space separated
 #   info=        yes|no — also drop a goggame-<id>.info file, default no
+#   image=       recorded banner URL, default none (the "not looked up yet"
+#                state, which is what an install made before artwork was
+#                recorded looks like)
 #
 # Writes the game tree and appends to gog-installs.json, which is what
 # GogLauncher::discoverGames actually reads.
@@ -499,7 +502,7 @@ fx_gog_game() {
 
     declare -A p=(
         [title]="GOG Game $productId" [platform]=windows [exe]=windows
-        [build]=1000 [latest]= [complete]=yes [args]= [info]=no
+        [build]=1000 [latest]= [complete]=yes [args]= [info]=no [image]=
     )
     local arg key value
     for arg in "$@"; do
@@ -534,10 +537,10 @@ fx_gog_game() {
 
     python3 - "$LAB_APP_HOME/.config/ProtonForge/gog-installs.json" \
         "$productId" "${p[title]}" "$dir" "${p[platform]}" "${p[build]}" "${p[latest]}" \
-        "${p[complete]}" "$exePath" "$workDir" "${p[args]}" <<'PY'
+        "${p[complete]}" "$exePath" "$workDir" "${p[args]}" "${p[image]}" <<'PY'
 import json, os, sys
 (path, pid, title, install, platform, build, latest,
- complete, exe, workdir, args) = sys.argv[1:12]
+ complete, exe, workdir, args, image) = sys.argv[1:13]
 
 os.makedirs(os.path.dirname(path), exist_ok=True)
 try:
@@ -561,6 +564,7 @@ doc["installs"].append({
     "launchArgs": args.split() if args else [],
     "languages": ["en-US"],
     "size": 1024,
+    **({"imageUrl": image} if image else {}),
 })
 json.dump(doc, open(path, "w"), indent=2)
 PY

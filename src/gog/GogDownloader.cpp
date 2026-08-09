@@ -788,6 +788,11 @@ void GogDownloader::unpackOfflineInstaller(const QString& path)
     if (entry.title.isEmpty()) {
         entry.title = m_job->request.title;
     }
+    // Only when we were told one: a re-install from the CLI knows no artwork,
+    // and must not erase what the store dialog recorded.
+    if (!m_job->request.imageUrl.isEmpty()) {
+        entry.imageUrl = m_job->request.imageUrl;
+    }
 
     // start.sh is what GOG's own installer creates and what the user would run.
     // GameRunner::resolveNativeLaunch honours executablePath directly, so the
@@ -1252,6 +1257,10 @@ void GogDownloader::finalizeInstall()
     if (entry.title.isEmpty()) {
         entry.title = m_job->request.title.isEmpty() ? m_job->plan.installDirectory
                                                      : m_job->request.title;
+    }
+    // See the offline route: absent means unknown, not "clear it".
+    if (!m_job->request.imageUrl.isEmpty()) {
+        entry.imageUrl = m_job->request.imageUrl;
     }
     registry.put(entry);
 

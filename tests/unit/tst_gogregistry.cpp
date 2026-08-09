@@ -32,6 +32,8 @@ private slots:
 
     void readsARegistryFile();
     void roundTripsThroughJson();
+    void remembersTheArtworkItWasGiven();
+    void refusesToForgetArtworkItAlreadyHas();
     void survivesGarbage_data();
     void survivesGarbage();
     void dropsRowsWithNothingToActOn();
@@ -118,7 +120,66 @@ void TstGogRegistry::roundTripsThroughJson()
         // storing them rather than showing them once during the install.
         QCOMPARE(again.at(i).warnings, original.at(i).warnings);
         QCOMPARE(again.at(i).installedAt, original.at(i).installedAt);
+        // Likewise the banner: it is here so that discovery, which runs on a
+        // worker thread and may not fetch, has an answer without asking anyone.
+        QCOMPARE(again.at(i).imageUrl, original.at(i).imageUrl);
     }
+}
+
+void TstGogRegistry::remembersTheArtworkItWasGiven()
+{
+    const QString url = QStringLiteral("https://images.gog-statics.com/abc_product_tile_256.jpg");
+
+    Entry entry;
+    entry.productId = "1207658930";
+    entry.installPath = "/home/user/Games/ProtonForge/GOG/Game";
+    entry.imageUrl = url;
+
+    const QList<Entry> back =
+        GogInstallRegistry::parse(GogInstallRegistry::serialize({entry}));
+    QCOMPARE(back.size(), 1);
+    QCOMPARE(back.first().imageUrl, url);
+
+    // Every registry written before artwork was recorded has no such field, and
+    // that absence is what tells the store service to go and look one up. It
+    // must read as empty rather than failing the row or inventing a URL.
+    const QByteArray old = R"({"version":1,"installs":[{
+        "productId":"1207658930",
+        "installPath":"/home/user/Games/ProtonForge/GOG/Game",
+        "complete":true}]})";
+    const QList<Entry> legacy = GogInstallRegistry::parse(old);
+    QCOMPARE(legacy.size(), 1);
+    QVERIFY(legacy.first().valid);
+    QVERIFY(legacy.first().imageUrl.isEmpty());
+}
+
+void TstGogRegistry::refusesToForgetArtworkItAlreadyHas()
+{
+    // setImageUrl is what the lookups write through, and they report failure by
+    // handing back an empty string. Letting that through would blank a banner
+    // every time GOG was briefly unreachable.
+    const QString url = QStringLiteral("https://images.gog-statics.com/abc_product_tile_256.jpg");
+
+    Entry entry;
+    entry.productId = "1207658930";
+    entry.installPath = m_home.path() + "/Games/ProtonForge/GOG/Game";
+    entry.complete = true;
+
+    GogInstallRegistry& registry = GogInstallRegistry::instance();
+    registry.load();
+    QVERIFY(registry.put(entry));
+
+    QVERIFY(registry.setImageUrl(entry.productId, url));
+    QCOMPARE(registry.entry(entry.productId).imageUrl, url);
+
+    // Both of these must report "nothing changed", because both mean there is
+    // nothing new to repaint.
+    QVERIFY(!registry.setImageUrl(entry.productId, QString()));
+    QCOMPARE(registry.entry(entry.productId).imageUrl, url);
+    QVERIFY(!registry.setImageUrl(entry.productId, url));
+
+    // And a product we never installed is not ours to record anything about.
+    QVERIFY(!registry.setImageUrl(QStringLiteral("999"), url));
 }
 
 void TstGogRegistry::survivesGarbage_data()

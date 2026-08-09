@@ -70,7 +70,33 @@ assert_json_contains "the shader cache is under the GOG install root" "$GAMES" \
     'd[0]["shaderCachePath"]' "/Games/ProtonForge/shadercache/1207658930"
 
 # ---------------------------------------------------------------------------
-part "c) an incomplete download is not a game"
+part "c) the banner comes from the registry, never from the id"
+
+fx_reset
+fx_steam_tree none >/dev/null
+BANNER="https://images.gog-statics.com/abc123_product_tile_256.jpg"
+fx_gog_game 1207658930 title="With Art" image="$BANNER" >/dev/null
+
+GAMES="$(app_cli --list-games)"
+assert_json "the recorded banner is handed to the list" "$GAMES" 'd[0]["imageUrl"]' "$BANNER"
+
+fx_reset
+fx_steam_tree none >/dev/null
+fx_gog_game 1207658930 title="No Art Yet" >/dev/null
+
+GAMES="$(app_cli --list-games)"
+# A GOG product id is not a Steam appid, and GOG's artwork is content-hashed —
+# there is nothing to derive from the id. Empty is the honest answer, and it is
+# what tells the store service to go and look one up; a guessed URL would leave
+# the tile shimmering at a 404 forever.
+assert_json "and nothing is invented when none was recorded" "$GAMES" 'd[0]["imageUrl"]' ""
+
+# Discovery must not have gone looking for it either — it runs on the game
+# list's worker thread, where a network call would block the UI.
+assert_eq "listing a GOG game with no artwork still succeeds" "0" "$(app_rc)"
+
+# ---------------------------------------------------------------------------
+part "d) an incomplete download is not a game"
 
 fx_reset
 fx_steam_tree none >/dev/null
@@ -82,7 +108,7 @@ GAMES="$(app_cli --list-games)"
 assert_json "an unfinished install is not listed" "$GAMES" 'len(d)' "0"
 
 # ---------------------------------------------------------------------------
-part "d) an update waiting"
+part "e) an update waiting"
 
 fx_reset
 fx_steam_tree none >/dev/null
@@ -100,7 +126,7 @@ GAMES="$(app_cli --list-games)"
 assert_json "but never on an unchecked one" "$GAMES" 'd[0]["needsUpdate"]' "false"
 
 # ---------------------------------------------------------------------------
-part "e) a native Linux install"
+part "f) a native Linux install"
 
 fx_reset
 fx_steam_tree none >/dev/null
@@ -111,7 +137,7 @@ assert_json "it is marked native" "$GAMES" 'd[0]["nativeLinux"]' "true"
 assert_json_contains "and points at start.sh" "$GAMES" 'd[0]["executablePath"]' "start.sh"
 
 # ---------------------------------------------------------------------------
-part "f) uninstalling something we never installed"
+part "g) uninstalling something we never installed"
 
 fx_reset
 fx_steam_tree none >/dev/null
@@ -124,7 +150,7 @@ app_cli --gog-uninstall 1207658930 >/dev/null 2>&1
 assert_eq "it refuses rather than guessing a path" "1" "$(app_rc)"
 
 # ---------------------------------------------------------------------------
-part "g) --gog-install needs a session"
+part "h) --gog-install needs a session"
 
 fx_reset
 fx_steam_tree none >/dev/null

@@ -26,6 +26,9 @@ private slots:
     void normalizesImageUrls_data();
     void normalizesImageUrls();
 
+    void buildsBannerUrls_data();
+    void buildsBannerUrls();
+
     void buildsStoreUrls();
     void survivesGarbage();
 };
@@ -107,7 +110,7 @@ void TstGogApi::parsesProductDetail()
         "id": 1207664663,
         "title": "The Witcher 3",
         "slug": "the_witcher_3_wild_hunt",
-        "images": {"logo2x": "//images.gog-statics.com/logo2x.png"},
+        "images": {"logo2x": "//images-2.gog-statics.com/1db8a603abf8305f210da1f9b9d2ecd3132354642a5baab1ac5feb773204262e_glx_logo_2x.jpg"},
         "content_system_compatibility": {"windows": true, "osx": false, "linux": false},
         "expanded_dlcs": [{"id": 1207664703}, {"id": 1207664713}]
     })";
@@ -117,8 +120,14 @@ void TstGogApi::parsesProductDetail()
     QVERIFY(detail.valid);
     QCOMPARE(detail.id, QStringLiteral("1207664663"));
     QCOMPARE(detail.dlcIds, QStringList({"1207664703", "1207664713"}));
-    // Already has an extension — the variant suffix must not be bolted on.
-    QCOMPARE(detail.imageUrl, QStringLiteral("https://images.gog-statics.com/logo2x.png"));
+    // The wide banner, not the logo GOG names in this field: logo2x is 200x120
+    // where the game list's tile and the detail panel are both cut for a Steam
+    // header's proportions. Rebuilt from the hash, because the value arrives
+    // complete with its own suffix.
+    QCOMPARE(detail.imageUrl,
+             QStringLiteral("https://images.gog-statics.com/"
+                            "1db8a603abf8305f210da1f9b9d2ecd3132354642a5baab1ac5feb773204262e"
+                            "_product_tile_256.jpg"));
 }
 
 void TstGogApi::separatesContentSystemFromStorePlatforms()
@@ -168,6 +177,47 @@ void TstGogApi::normalizesImageUrls()
     QFETCH(QString, variant);
     QFETCH(QString, expected);
     QCOMPARE(GogApiClient::normalizeImageUrl(raw, variant), expected);
+}
+
+void TstGogApi::buildsBannerUrls_data()
+{
+    QTest::addColumn<QString>("raw");
+    QTest::addColumn<QString>("expected");
+
+    const QString hash =
+        QStringLiteral("1db8a603abf8305f210da1f9b9d2ecd3132354642a5baab1ac5feb773204262e");
+    const QString tile =
+        QStringLiteral("https://images.gog-statics.com/%1_product_tile_256.jpg").arg(hash);
+
+    // The shape that made this function necessary: a complete URL carrying the
+    // wrong variant. normalizeImageUrl would hand it straight back, because
+    // appending a second suffix to something ending in .jpg produces a 404.
+    QTest::newRow("a logo URL becomes the banner")
+        << QStringLiteral("//images-2.gog-statics.com/%1_glx_logo_2x.jpg").arg(hash) << tile;
+    QTest::newRow("any other variant, same answer")
+        << QStringLiteral("https://images.gog-statics.com/%1_bg_crop_1366x655.jpg").arg(hash)
+        << tile;
+    // Idempotent: re-reading a cached product must not compound suffixes.
+    QTest::newRow("already the banner") << tile << tile;
+    QTest::newRow("a bare hash, as the library listing sends it") << hash << tile;
+    // The numbered image hosts are interchangeable; one host in the output
+    // keeps ImageCache from holding the same picture several times over.
+    QTest::newRow("host is normalised away")
+        << QStringLiteral("//images-4.gog-statics.com/%1_glx_logo_2x.jpg").arg(hash) << tile;
+
+    // No hash to rebuild from. Handing it back is the honest answer — inventing
+    // one would produce a confident 404 and a tile that shimmers forever.
+    QTest::newRow("no hash, left as it came")
+        << QStringLiteral("//images.gog-statics.com/logo2x.png")
+        << QStringLiteral("https://images.gog-statics.com/logo2x.png");
+    QTest::newRow("empty stays empty") << QString() << QString();
+}
+
+void TstGogApi::buildsBannerUrls()
+{
+    QFETCH(QString, raw);
+    QFETCH(QString, expected);
+    QCOMPARE(GogApiClient::bannerImageUrl(raw), expected);
 }
 
 void TstGogApi::buildsStoreUrls()

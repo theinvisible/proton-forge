@@ -71,11 +71,18 @@ GogStoreService::GogStoreService()
         QList<StoreEntry> entries;
         entries.reserve(products.size());
         m_titles.clear();
+        m_images.clear();
         for (const GogApiClient::Product& product : products) {
             entries.append(toEntry(product));
             m_titles.insert(product.id, product.title);
+            m_images.insert(product.id, product.imageUrl);
         }
         emit libraryReady(entries);
+
+        // The listing already carries a banner for everything owned, so an
+        // install that has none can be filled in from here for free — no
+        // per-product request at all.
+        adoptArtworkFromLibrary();
     });
     connect(&api, &GogApiClient::libraryFailed, this, &GogStoreService::libraryFailed);
 
@@ -116,6 +123,82 @@ GogStoreService::GogStoreService()
         // could not find out.
         m_awaitingBuilds.remove(productId);
     });
+
+    // Artwork lookups, connected once here for the same reason the build ones
+    // are: a connection made per batch and torn down on a counter outlives the
+    // batch whenever a lookup fails instead of answering.
+    connect(&api, &GogApiClient::productReady, this,
+            [this](const QString& productId, const GogApiClient::ProductDetail& detail) {
+        if (!m_awaitingProducts.contains(productId)) {
+            return;   // somebody else asked; not ours to record
+        }
+        recordArtwork(productId, detail.imageUrl);
+        finishArtworkLookup(productId);
+    });
+    connect(&api, &GogApiClient::productFailed, this,
+            [this](const QString& productId, const QString&) {
+        // Left empty rather than filled with a guess, so the next start tries
+        // again instead of caching a URL that resolves to nothing.
+        finishArtworkLookup(productId);
+    });
+}
+
+void GogStoreService::recordArtwork(const QString& productId, const QString& imageUrl)
+{
+    if (GogInstallRegistry::instance().setImageUrl(productId, imageUrl)) {
+        m_artworkChanged = true;
+    }
+}
+
+void GogStoreService::finishArtworkLookup(const QString& productId)
+{
+    m_awaitingProducts.remove(productId);
+    if (!m_awaitingProducts.isEmpty() || !m_artworkChanged) {
+        return;
+    }
+    // Once, when the last one settles: the game list redraws from a fresh
+    // discovery pass, and doing that per product would repeat it N times to
+    // reach the same picture.
+    m_artworkChanged = false;
+    emit installedMetadataChanged();
+}
+
+void GogStoreService::adoptArtworkFromLibrary()
+{
+    GogInstallRegistry& registry = GogInstallRegistry::instance();
+    registry.load();
+
+    for (const GogInstallRegistry::Entry& entry : registry.completeEntries()) {
+        if (entry.imageUrl.isEmpty()) {
+            recordArtwork(entry.productId, m_images.value(entry.productId));
+        }
+    }
+
+    if (m_awaitingProducts.isEmpty() && m_artworkChanged) {
+        m_artworkChanged = false;
+        emit installedMetadataChanged();
+    }
+}
+
+void GogStoreService::refreshInstalledArtwork()
+{
+    GogInstallRegistry& registry = GogInstallRegistry::instance();
+    registry.load();
+
+    GogApiClient& api = GogApiClient::instance();
+
+    for (const GogInstallRegistry::Entry& entry : registry.completeEntries()) {
+        if (!entry.imageUrl.isEmpty()) {
+            continue;   // already known, and it does not go stale
+        }
+        if (m_awaitingProducts.contains(entry.productId)) {
+            continue;   // already asked; the answer serves both callers
+        }
+
+        m_awaitingProducts.insert(entry.productId);
+        // Disk-cached for a week, so this costs one request per game once.
+        api.fetchProduct(entry.productId);
+    }
 }
 
 bool GogStoreService::isAuthenticated() const
@@ -144,6 +227,7 @@ void GogStoreService::install(const QString& id)
     GogDownloader::Request request;
     request.productId = id;
     request.title = m_titles.value(id);
+    request.imageUrl = m_images.value(id);
     GogDownloader::instance().enqueue(request);
 }
 
