@@ -1,0 +1,57 @@
+{
+    "installs": [
+        {
+            "buildId": "56452082907692588",
+            "complete": true,
+            "dlcIds": [],
+            "executablePath": "/home/user/Games/ProtonForge/GOG/The Witcher 2/bin/witcher2.exe",
+            "installPath": "/home/user/Games/ProtonForge/GOG/The Witcher 2",
+            "installedAt": "2026-07-14T19:02:11",
+            "languages": ["en-US"],
+            "latestBuildId": "56452082907692588",
+            "latestCheckedAt": "2026-08-01T09:31:00",
+            "launchArgs": ["-launcher"],
+            "nativeLinux": false,
+            "platform": "windows",
+            "productId": "1207658930",
+            "size": 26214400000,
+            "imageUrl": "https://images.gog-statics.com/1db8a603abf8305f210da1f9b9d2ecd3132354642a5baab1ac5feb773204262e_product_tile_256.jpg",
+            "title": "The Witcher 2: Assassins of Kings",
+            "updatedAt": "2026-07-14T19:41:55",
+            "versionName": "1.35",
+            "warnings": [
+                "This build lists redistributables (MSVC2019, DirectX). ProtonForge does not run them; Proton provides its own."
+            ],
+            "workingDirectory": "/home/user/Games/ProtonForge/GOG/The Witcher 2/bin"
+        },
+        {
+            "buildId": "51132312414318173",
+            "complete": true,
+            "dlcIds": [],
+            "executablePath": "/home/user/Games/ProtonForge/GOG/FTL/start.sh",
+            "installPath": "/home/user/Games/ProtonForge/GOG/FTL",
+            "installedAt": "2026-07-20T08:15:00",
+            "languages": ["en-US"],
+            "latestBuildId": "99999999999999999",
+            "latestCheckedAt": "2026-08-01T09:31:00",
+            "launchArgs": [],
+            "nativeLinux": true,
+            "platform": "linux",
+            "productId": "1207666073",
+            "size": 262144000,
+            "title": "FTL: Faster Than Light",
+            "updatedAt": "2026-07-20T08:19:12",
+            "versionName": "1",
+            "workingDirectory": ""
+        },
+        {
+            "buildId": "12345678901234567",
+            "complete": false,
+            "installPath": "/home/user/Games/ProtonForge/GOG/Half Downloaded",
+            "productId": "1207999999",
+            "title": "Half Downloaded",
+            "size": 5368709120
+        }
+    ],
+    "version": 1
+}

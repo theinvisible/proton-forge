@@ -3,11 +3,15 @@ Version: @VERSION@
 Section: games
 Priority: optional
 Architecture: amd64
-Depends: libqt6core6 (>= 6.0.0), libqt6gui6 (>= 6.0.0), libqt6widgets6 (>= 6.0.0), libqt6network6 (>= 6.0.0), libc6 (>= 2.34)
+Depends: libqt6core6 (>= 6.0.0), libqt6gui6 (>= 6.0.0), libqt6widgets6 (>= 6.0.0), libqt6network6 (>= 6.0.0), libc6 (>= 2.34), zlib1g, libqt6keychain1
 Maintainer: ProtonForge <noreply@protonforge.dev>
-Description: DLSS & Proton Manager for Steam Games
+Description: DLSS & Proton Manager for Steam and GOG games
  ProtonForge is a Qt6 application for managing NVIDIA DLSS settings
- and Proton versions for Steam games on Linux.
+ and Proton versions for Windows games on Linux. It handles Steam
+ libraries and GOG accounts side by side; since there is no GOG client
+ for Linux, it downloads and installs those games itself. Neither store
+ is required for the other, and Proton can be managed with no Steam
+ installed at all.
  .
  Features:
   - Configure DLSS Super Resolution, Ray Reconstruction, and Frame Generation
@@ -16,5 +20,6 @@ Description: DLSS & Proton Manager for Steam Games
   - Proton-CachyOS and Proton-GE management
   - Per-game settings persistence
   - Frame rate limiting for smooth motion
-  - Steam CDN game artwork integration
+  - GOG library browsing, installing, updating and uninstalling
+  - Game artwork for both stores
 Homepage: https://github.com/theinvisible/proton-forge

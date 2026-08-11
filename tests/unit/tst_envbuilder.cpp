@@ -40,8 +40,43 @@ private slots:
     void legacyMangoHudVariableStillParses();
     void customWrapper_data();
     void customWrapper();
+    void everyEmittedVariableIsClassified();
+    void dlssOverridesAreProtonOnly();
+    void driverLevelVariablesReachNativeGames();
+    void unknownVariablesAreTreatedLeniently();
 
 private:
+    // Every option turned on, so a test can see the full set of variables
+    // ProtonForge is capable of emitting rather than a sample of it.
+    static DLSSSettings everythingOn()
+    {
+        DLSSSettings s;
+        s.enablePrimeRenderOffload = true;
+        s.enableNVAPI = true;
+        s.enableNGXUpdater = true;
+        s.enableReflex = true;
+        s.enableVkd3dLowLatency = true;
+        s.enableVkd3dDescriptorHeap = true;
+        s.dlssUpgrade = true;
+        s.showIndicator = true;
+        s.srOverride = true;
+        s.rrOverride = true;
+        s.fgOverride = true;
+        s.enableSmoothMotion = true;
+        s.enableFrameRateLimit = true;
+        s.targetFrameRate = 60;
+        s.enableProtonWayland = true;
+        s.enableProtonHDR = true;
+        s.enableHDRWSI = true;
+        s.disableAutoHDR = true;
+        s.protonPriorityHigh = true;
+        s.protonUseNTSync = true;
+        s.protonUseD7VK = true;
+        s.protonLog = true;
+        s.enableMangoHud = true;
+        return s;
+    }
+
     // parseLaunchOptions folds unrecognised tokens into customParams, which the
     // caller then assigns to the settings object (see MainWindow's import path).
     // Doing the same here is what makes the round-trip comparable.
@@ -456,6 +491,75 @@ void TstEnvBuilder::customWrapper()
     DLSSSettings settings;
     settings.customLaunchParams = custom;
     QCOMPARE(EnvBuilder::customWrapper(settings), expected);
+}
+
+void TstEnvBuilder::everyEmittedVariableIsClassified()
+{
+    // The drift guard. scopeOf() decides which controls the UI greys out for a
+    // native Linux game; a new option whose variable nobody classified would
+    // silently default to Any and be offered as if it worked. Adding a variable
+    // to buildLaunchOptions without adding it to the scope table fails here.
+    const QStringList managed = EnvBuilder::managedVars();
+    const QString built = EnvBuilder::buildLaunchOptions(everythingOn());
+
+    QStringList unclassified;
+    for (const QString& token : built.split(' ', Qt::SkipEmptyParts)) {
+        const int eq = token.indexOf('=');
+        if (eq <= 0)
+            continue;   // "mangohud", "%command%" and other command-part tokens
+        const QString key = token.left(eq);
+        if (!managed.contains(key))
+            unclassified << key;
+    }
+
+    QVERIFY2(unclassified.isEmpty(),
+             qPrintable("unclassified in EnvBuilder::scopeOf: " + unclassified.join(", ")));
+
+    // ...and the reverse, so the table cannot accumulate variables that no
+    // longer exist and quietly grey out a control for no reason. Both builders
+    // count: MANGOHUD is a real environment variable on the direct-launch path
+    // but appears in launch options as the `mangohud` wrapper token instead.
+    const QProcessEnvironment env = EnvBuilder::buildEnvironment(everythingOn());
+    for (const QString& key : managed) {
+        QVERIFY2(built.contains(key + "=") || env.contains(key),
+                 qPrintable("scope table lists " + key + ", which nothing emits"));
+    }
+}
+
+void TstEnvBuilder::dlssOverridesAreProtonOnly()
+{
+    // The reason this whole distinction exists: every DLSS SR/RR/FG override
+    // travels in DXVK_NVAPI_DRS_SETTINGS, which only DXVK-NVAPI reads, and
+    // DXVK-NVAPI exists only inside a Proton prefix. NVIDIA do not support
+    // preset overrides on Linux outside of it, so a native game cannot be
+    // given these settings at all.
+    QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_DRS_SETTINGS"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_VKREFLEX"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("PROTON_ENABLE_NVAPI"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("VKD3D_CONFIG"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("DXVK_FRAME_RATE"), EnvBuilder::VarScope::ProtonOnly);
+}
+
+void TstEnvBuilder::driverLevelVariablesReachNativeGames()
+{
+    // The counterpart: these are read by the driver, a Vulkan implicit layer or
+    // a wrapper, all of which sit below the API a game talks to. Greying these
+    // out for a native game would be wrong.
+    QCOMPARE(EnvBuilder::scopeOf("__NV_PRIME_RENDER_OFFLOAD"), EnvBuilder::VarScope::Any);
+    QCOMPARE(EnvBuilder::scopeOf("__GLX_VENDOR_LIBRARY_NAME"), EnvBuilder::VarScope::Any);
+    QCOMPARE(EnvBuilder::scopeOf("__VK_LAYER_NV_optimus"), EnvBuilder::VarScope::Any);
+    QCOMPARE(EnvBuilder::scopeOf("NVPRESENT_ENABLE_SMOOTH_MOTION"), EnvBuilder::VarScope::Any);
+    QCOMPARE(EnvBuilder::scopeOf("ENABLE_HDR_WSI"), EnvBuilder::VarScope::Any);
+    QCOMPARE(EnvBuilder::scopeOf("MANGOHUD"), EnvBuilder::VarScope::Any);
+}
+
+void TstEnvBuilder::unknownVariablesAreTreatedLeniently()
+{
+    // A user's own variable from Custom Launch Parameters is none of our
+    // business, and neither is one we have not classified yet. Matching
+    // FeatureGate's policy, the unknown case never disables anything.
+    QCOMPARE(EnvBuilder::scopeOf("SOMETHING_WE_DO_NOT_KNOW"), EnvBuilder::VarScope::Any);
+    QCOMPARE(EnvBuilder::scopeOf(""), EnvBuilder::VarScope::Any);
 }
 
 QTEST_MAIN(TstEnvBuilder)

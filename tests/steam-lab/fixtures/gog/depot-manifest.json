@@ -1,0 +1,56 @@
+{
+  "version": 2,
+  "depot": {
+    "productId": "1207664663",
+    "items": [
+      {
+        "path": "bin/x64/witcher3.exe",
+        "type": "DepotFile",
+        "md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "flags": ["executable"],
+        "chunks": [
+          {"compressedMd5": "c0ffee00000000000000000000000001", "compressedSize": 500, "md5": "d00d0000000000000000000000000001", "size": 1000},
+          {"compressedMd5": "c0ffee00000000000000000000000002", "compressedSize": 400, "md5": "d00d0000000000000000000000000002", "size": 900}
+        ]
+      },
+      {
+        "path": "content\\patch0.bundle",
+        "type": "DepotFile",
+        "md5": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "chunks": [
+          {"compressedMd5": "c0ffee00000000000000000000000003", "compressedSize": 300, "md5": "d00d0000000000000000000000000003", "size": 700}
+        ]
+      },
+      {
+        "path": "bin/x64",
+        "type": "DepotDirectory"
+      },
+      {
+        "path": "support/redist/vcredist.exe",
+        "type": "DepotFile",
+        "flags": ["support"],
+        "chunks": [
+          {"compressedMd5": "c0ffee00000000000000000000000004", "compressedSize": 100, "md5": "d00d0000000000000000000000000004", "size": 200}
+        ]
+      },
+      {
+        "path": "docs/readme-link",
+        "type": "DepotLink",
+        "target": "docs/readme.txt"
+      },
+      {
+        "path": "empty.txt",
+        "type": "DepotFile",
+        "md5": "cccccccccccccccccccccccccccccccc",
+        "chunks": []
+      },
+      {
+        "path": "../../../.ssh/authorized_keys",
+        "type": "DepotFile",
+        "chunks": [
+          {"compressedMd5": "c0ffee00000000000000000000000099", "compressedSize": 10, "md5": "d00d0000000000000000000000000099", "size": 20}
+        ]
+      }
+    ]
+  }
+}

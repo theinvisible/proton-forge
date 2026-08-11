@@ -17,6 +17,26 @@ set(UNIT_TESTS
     tst_cpudetector
     tst_kscreendoctor
     tst_processrunner
+    tst_game
+    tst_steamlauncher
+    tst_launchermanager
+    tst_launchplan
+    tst_badgerow
+    tst_storevisuals
+    tst_mangohudpreview
+    tst_secretstore
+    tst_gogauth
+    tst_gogapi
+    tst_steamstore
+    tst_gogstore
+    tst_gogcontent
+    tst_gogplan
+    tst_gogplaytasks
+    tst_gogregistry
+    tst_gogchunks
+    tst_gogzip
+    tst_gogoffline
+    tst_gogqueue
 )
 
 foreach(test IN LISTS UNIT_TESTS)

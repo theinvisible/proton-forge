@@ -1,0 +1,16 @@
+<!-- Hand-drawn approximation of Steam's valve wheel, not Valve's artwork.
+     Own box (0 0 24 24) rather than the Material glyphs' 0 -960 960 960: this is
+     a self-coloured badge, and its circle fill must match
+     AppStyle::ColorStoreSteam. SVG Tiny only — Qt renders this through the qsvg
+     icon plugin, so no <text>, no CSS, no masks. The ring's hole is painted in
+     the badge colour instead of relying on fill-rule.
+     Ring plus an offset hub, and deliberately no connecting rod: a bar that
+     reaches the ring on both sides turns the whole thing into a prohibition
+     sign at the 16px the source-filter combo draws it at, and a bar thin enough
+     not to is a blur at that size. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="12" fill="#2a475e"/>
+  <circle cx="12" cy="12" r="7.8" fill="#ffffff"/>
+  <circle cx="12" cy="12" r="5.6" fill="#2a475e"/>
+  <circle cx="13.9" cy="10.1" r="2.2" fill="#ffffff"/>
+</svg>

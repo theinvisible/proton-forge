@@ -3,6 +3,7 @@
 
 #include <QDialog>
 #include <QCheckBox>
+#include <QLabel>
 #include <QComboBox>
 #include <QGroupBox>
 #include <QSpinBox>
@@ -10,6 +11,10 @@
 #include <QLineEdit>
 #include <QMap>
 #include <QStringList>
+
+// Defined in the .cpp: a plain QWidget that paints MangoHudPreview::draw(). It
+// has no signals of its own, so it needs neither moc nor a header of its own.
+class MangoHudPreviewCanvas;
 
 class MangoHudDialog : public QDialog {
     Q_OBJECT
@@ -36,6 +41,15 @@ private:
     QGroupBox* createSystemGroup();
     QGroupBox* createAppearanceGroup();
     QGroupBox* createLoggingGroup();
+    QGroupBox* createKeybindsGroup();
+    QWidget*   createPreviewPanel();
+
+    // Pushes the current widget state into the preview. Wired to every option
+    // widget at once by connectPreviewSignals(), so a new option cannot be added
+    // without the preview following it.
+    void updatePreview();
+    void connectPreviewSignals();
+    void refreshPreviewHint();
 
     // Performance
     QCheckBox*      m_fpsLimitEnabled;
@@ -91,6 +105,23 @@ private:
     QSpinBox*       m_logDuration;
     QCheckBox*      m_outputFolderEnabled;
     QLineEdit*      m_outputFolder;
+
+    // Keybinds. The m_key prefix keeps m_keyToggleFpsLimit — the key that turns
+    // the limit on and off — apart from m_fpsLimit, which is the limit itself.
+    QCheckBox*      m_keyToggleHudEnabled;
+    QLineEdit*      m_keyToggleHud;
+    QCheckBox*      m_keyToggleFpsLimitEnabled;
+    QLineEdit*      m_keyToggleFpsLimit;
+    QCheckBox*      m_keyToggleLoggingEnabled;
+    QLineEdit*      m_keyToggleLogging;
+
+    // Preview
+    MangoHudPreviewCanvas* m_preview = nullptr;
+    QLabel*                m_previewScaleHint = nullptr;
+    // Detected once, not per repaint: the gpu_name and vulkan_driver rows show
+    // this machine's hardware rather than a made-up card.
+    QString                m_detectedGpu;
+    QString                m_detectedDriver;
 
     // Raw file lines for preserving structure on save
     QStringList     m_originalLines;

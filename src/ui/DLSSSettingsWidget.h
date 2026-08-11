@@ -38,8 +38,8 @@ signals:
     void settingsChanged(const DLSSSettings& settings);
     void playClicked();
     void copyClicked();
-    void writeToSteamClicked();
-    void importFromSteamClicked();
+    void writeToLauncherClicked();
+    void importFromLauncherClicked();
 
 private slots:
     void onSettingChanged();
@@ -67,6 +67,11 @@ private:
 
     void styleComboBoxPopups();
     void updateFeatureWarnings();
+    // Greys out every control whose environment variable cannot reach the
+    // selected game, so the panel never offers a switch with no wire behind
+    // it. Driven by EnvBuilder::scopeOf; see the implementation for why the
+    // values themselves are deliberately left untouched.
+    void applyPlatformGating(const Game& game);
     void blockSignalsForAll(bool block);
     void populateExecutableSelector(const Game& game);
     void updateExecutableSelectorWithResults(const QStringList& executables);
@@ -98,6 +103,16 @@ private:
 
     // Feature gating warnings (driver/Proton requirements not met)
     QLabel* m_featureWarnings;
+
+    // Group boxes whose contents are Proton-only in their entirety, kept so
+    // applyPlatformGating() can grey the whole box (title included) rather
+    // than each control inside it. Groups that mix scopes are gated per
+    // control instead and need no pointer here.
+    QGroupBox* m_srGroup;
+    QGroupBox* m_rrGroup;
+    QGroupBox* m_fgGroup;
+    QGroupBox* m_upgradeGroup;
+    QGroupBox* m_protonTweaksGroup;
 
     // HDR settings
     QCheckBox* m_enableAllHDR;  // Master checkbox
@@ -137,6 +152,10 @@ private:
     QCheckBox* m_enableSmoothMotion;
     QCheckBox* m_enableFrameRateLimit;
     QSpinBox* m_targetFrameRate;
+    // Its row label: a plain layout does not pass the enabled state on, so the
+    // label has to be switched together with the spin box or it stays lit next
+    // to a greyed-out field.
+    QLabel* m_targetFrameRateLabel;
 
     // Overlay
     QCheckBox* m_enableSteamOverlay;

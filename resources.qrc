@@ -12,5 +12,7 @@
         <file>icons/computer.svg</file>
         <file>icons/info.svg</file>
         <file>icons/wine.svg</file>
+        <file>icons/stores/steam.svg</file>
+        <file>icons/stores/gog.svg</file>
     </qresource>
 </RCC>

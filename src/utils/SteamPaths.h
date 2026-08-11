@@ -26,6 +26,7 @@ void invalidateCache();
 QString steamAppsPath();           // <root>/steamapps
 QString compatibilityToolsPath();  // <root>/compatibilitytools.d
 QString configVdfPath();           // <root>/config/config.vdf
+QString loginUsersPath();          // <root>/config/loginusers.vdf
 QString steamRuntimePath();        // <root>/ubuntu12_32/steam-runtime
 QString overlayLibPath(bool is64); // <root>/ubuntu12_{32,64}/gameoverlayrenderer.so
 QString userDataPath();            // <root>/userdata

@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>org.protonforge.ProtonForge</id>
   <name>ProtonForge</name>
-  <summary>Advanced DLSS &amp; Proton Manager for Steam Games on Linux</summary>
+  <summary>Advanced DLSS &amp; Proton Manager for Steam and GOG games on Linux</summary>
 
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
@@ -12,8 +12,13 @@
   <description>
     <p>
       ProtonForge is a powerful Qt6 application designed to give Linux gamers full control over
-      NVIDIA DLSS settings and Proton versions for Steam games. Configure DLSS Super Resolution,
+      NVIDIA DLSS settings and Proton versions. Configure DLSS Super Resolution,
       Ray Reconstruction, Frame Generation, HDR support, and more - all from a single, intuitive interface.
+    </p>
+    <p>
+      It handles two game sources side by side: local Steam libraries, and your GOG account.
+      Because there is no GOG client for Linux, ProtonForge downloads and installs those games
+      itself and launches them through Proton. Neither store is required for the other.
     </p>
     <p>Features:</p>
     <ul>
@@ -22,7 +27,8 @@
       <li>Proton Management: Automatic updates for Proton-CachyOS and Proton-GE</li>
       <li>Game Launch Integration: Direct launch or Steam integration</li>
       <li>Performance Tuning: Frame rate limiting, vsync enhancements</li>
-      <li>Beautiful Game Library Browser with Steam artwork</li>
+      <li>GOG: browse the games you own, install, update and uninstall them</li>
+      <li>Beautiful Game Library Browser with artwork for both stores</li>
     </ul>
     <p>
       Note: DLSS features require NVIDIA RTX graphics cards (GTX 16xx/RTX 20xx or newer).

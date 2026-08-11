@@ -71,12 +71,6 @@ GameRunner::GameRunner(QObject* parent)
 {
 }
 
-QString GameRunner::getCompatDataPath(const Game& game)
-{
-    // Compat data is stored in the same library as the game
-    return game.libraryPath() + "/compatdata/" + game.id();
-}
-
 QString GameRunner::findDefaultProton() const
 {
     // Get all Steam library paths
@@ -84,9 +78,20 @@ QString GameRunner::findDefaultProton() const
 
     // Build list of directories to check for Proton
     QStringList protonDirs;
-    // First check compatibilitytools.d in the detected Steam directory
+
+    // Where our own Proton-Manager installs to. With Steam present this is the
+    // same compatibilitytools.d as below and dedups away; without Steam it is
+    // the only one of these that resolves at all, and leaving it out is what
+    // made the default ("auto") find nothing on a machine with no Steam but a
+    // Proton installed through ProtonForge itself.
+    const QString managedTools = ProtonManager::protonCachyOSPath();
+    if (!managedTools.isEmpty()) {
+        protonDirs << managedTools;
+    }
+
+    // Then compatibilitytools.d in the detected Steam directory
     const QString compatTools = SteamPaths::compatibilityToolsPath();
-    if (!compatTools.isEmpty()) {
+    if (!compatTools.isEmpty() && !protonDirs.contains(compatTools)) {
         protonDirs << compatTools;
     }
 
@@ -329,10 +334,14 @@ QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& setting
         }
     }
 
-    // First try to find per-game configured Proton
-    QString protonPath = findProtonFromConfig(game.id());
-    if (!protonPath.isEmpty()) {
-        return protonPath;
+    // Then Steam's own per-game choice. Only for games whose id really is a
+    // Steam appid — another store's product id that happens to be the same
+    // number would otherwise silently pick up a stranger's CompatToolMapping.
+    if (game.traits().idIsSteamAppId) {
+        QString protonPath = findProtonFromConfig(game.id());
+        if (!protonPath.isEmpty()) {
+            return protonPath;
+        }
     }
 
     // Fall back to default Proton (latest CachyOS)
@@ -434,7 +443,7 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
     // Steam games need the client up — Steamworks, overlay, cloud saves and
     // playtime all go through it. The wait runs on a timer instead of spinning
     // the event loop inside this call.
-    if (game.launcher() == "Steam" && !SteamClient::isReady()) {
+    if (game.traits().requiresClientRunning && !SteamClient::isReady()) {
         if (!SteamClient::isRunning()) {
             QString error;
             if (!SteamClient::start(&error)) {
@@ -521,6 +530,7 @@ GameRunner::LaunchPlan GameRunner::resolveLaunch(const Game& game, const DLSSSet
 GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const DLSSSettings& settings)
 {
     LaunchPlan plan;
+    const LauncherTraits traits = game.traits();
 
     QString protonPath = findProtonPath(game, settings);
     if (protonPath.isEmpty()) {
@@ -534,7 +544,14 @@ GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const D
         return plan;
     }
 
-    QString compatDataPath = getCompatDataPath(game);
+    // Empty means no launcher ever said where this game's prefix belongs.
+    // Refuse rather than invent one: an unwritable STEAM_COMPAT_DATA_PATH fails
+    // deep inside Proton, a long way from the actual cause.
+    const QString compatDataPath = game.compatDataPath();
+    if (compatDataPath.isEmpty()) {
+        plan.error = "No Proton prefix location is configured for this game";
+        return plan;
+    }
 
     // Resolve the Steam Linux Runtime this Proton asks for. Running inside it
     // is what Steam does, and it keeps helper processes (MangoHud's popen()
@@ -547,46 +564,80 @@ GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const D
     if (runtimeRequired && !useContainer) {
         plan.warning = QString(
             "Steam Linux Runtime not installed — launching %1 without the container. "
-            "Install it via Steam for the intended environment.").arg(game.name());
+            "ProtonForge cannot install it; Steam ships it as a compatibility tool.")
+            .arg(game.name());
     }
 
     // Build environment
     QProcessEnvironment env = EnvBuilder::buildEnvironment(settings);
 
-    // Required Proton environment variables
+    // Proton needs to know where its prefix goes whoever owns the game.
     env.insert("STEAM_COMPAT_DATA_PATH", compatDataPath);
-    env.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH", SteamPaths::steamRoot());
-    env.insert("SteamAppId", game.id());
-    env.insert("SteamGameId", game.id());
+
+    // Only when there is a Steam install to point at. Proton reads this to link
+    // steamclient.so into the prefix and copes with it being absent; handing it
+    // an empty string instead is strictly worse than saying nothing.
+    const QString steamRoot = SteamPaths::steamRoot();
+    if (!steamRoot.isEmpty()) {
+        env.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH", steamRoot);
+    }
+
+    // Steamworks identity. A DRM-free game from another store has no appid and
+    // must not claim one.
+    if (traits.usesSteamEnv) {
+        env.insert("SteamAppId", game.id());
+        env.insert("SteamGameId", game.id());
+    }
 
     QString shaderPath;
     if (useContainer) {
         // pressure-vessel only sees what it is told to mount, so anything the
-        // game touches has to be named here.
+        // game touches has to be named here. The install path matters as much
+        // as the executable's own directory: a game whose exe lives in bin/
+        // keeps its data a level up, and mounting only bin/ starts a game that
+        // cannot find its own assets.
         QStringList mounts = SteamLauncher::libraryPaths();
-        const QString exeDir = QFileInfo(gameExe).absolutePath();
-        if (!mounts.contains(exeDir)) {
-            mounts << exeDir;   // custom executablePath outside any library
-        }
+        mounts << game.installPath()
+               << QFileInfo(gameExe).absolutePath()
+               << QFileInfo(compatDataPath).absolutePath();
+        mounts.removeAll(QString());
+        mounts.removeDuplicates();
 
-        shaderPath = game.libraryPath() + "/shadercache/" + game.id() + "/fozpipelinesv6";
+        shaderPath = game.shaderCachePath();
 
-        env.insert("STEAM_COMPAT_APP_ID", game.id());
+        env.insert("STEAM_COMPAT_APP_ID",
+                   traits.usesSteamEnv ? game.id() : QStringLiteral("0"));
         env.insert("STEAM_COMPAT_INSTALL_PATH", game.installPath());
-        env.insert("STEAM_COMPAT_LIBRARY_PATHS", game.libraryPath());
         env.insert("STEAM_COMPAT_TOOL_PATHS", protonPath + ":" + runtimePath);
-        env.insert("STEAM_COMPAT_MOUNTS", mounts.join(":"));
-        env.insert("STEAM_COMPAT_SHADER_PATH", shaderPath);
+        if (!game.libraryPath().isEmpty()) {
+            env.insert("STEAM_COMPAT_LIBRARY_PATHS", game.libraryPath());
+        }
+        if (!mounts.isEmpty()) {
+            env.insert("STEAM_COMPAT_MOUNTS", mounts.join(":"));
+        }
+        if (!shaderPath.isEmpty()) {
+            env.insert("STEAM_COMPAT_SHADER_PATH", shaderPath);
+        }
     }
 
-    // Setup Steam Overlay and runtime
-    env.insert("STEAM_RUNTIME", SteamPaths::steamRuntimePath());
+    // The legacy Steam runtime. Nothing here executes it, but Proton looks for
+    // it — and there is nothing to look for without a Steam install.
+    if (traits.usesSteamEnv) {
+        const QString steamRuntime = SteamPaths::steamRuntimePath();
+        if (!steamRuntime.isEmpty()) {
+            env.insert("STEAM_RUNTIME", steamRuntime);
+        }
+    }
 
     // Inherit current user's DISPLAY and other X11 variables
     if (!env.contains("DISPLAY")) {
         env.insert("DISPLAY", ":0");
     }
-    if (settings.enableSteamOverlay) {
+
+    // The overlay is Steam's, and enableSteamOverlay defaults to true. Gating on
+    // the trait rather than flipping that default is what keeps every existing
+    // user's stored value working while a GOG game never sees the preload.
+    if (traits.usesSteamEnv && settings.enableSteamOverlay) {
         const QString overlay64 = SteamPaths::overlayLibPath(true);
         const QString overlay32 = SteamPaths::overlayLibPath(false);
 
@@ -621,7 +672,9 @@ GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const D
         plan.program = protonExe;
         plan.args << "run" << gameExe;
     }
-    plan.args << EnvBuilder::customGameArgs(settings);
+    // What the launcher says the game needs, then what the user added — so a
+    // user's own arguments still come last and win.
+    plan.args << game.launchArgs() << EnvBuilder::customGameArgs(settings);
 
     plan.valid            = true;
     plan.nativeLinux      = false;
@@ -631,7 +684,9 @@ GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const D
     plan.gameExe          = gameExe;
     plan.compatDataPath   = compatDataPath;
     plan.shaderPath       = shaderPath;
-    plan.workingDirectory = QFileInfo(gameExe).absolutePath();
+    plan.workingDirectory = game.workingDirectory().isEmpty()
+                                ? QFileInfo(gameExe).absolutePath()
+                                : game.workingDirectory();
     plan.env              = env;
 
     // Outermost, in front of the whole compat-tool chain — the same nesting
@@ -651,8 +706,14 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
         emit launchWarning(game, plan.warning);
     }
 
-    // Create compat data directory if needed
-    QDir().mkpath(plan.compatDataPath);
+    // Create compat data directory if needed. Failing this is fatal: Proton
+    // would be handed a STEAM_COMPAT_DATA_PATH it cannot write to and fail far
+    // from the actual cause. The shader cache below is only an optimisation,
+    // hence the deliberate asymmetry.
+    if (!QDir().mkpath(plan.compatDataPath)) {
+        emit launchError(game, "Could not create the Proton prefix directory: " + plan.compatDataPath);
+        return false;
+    }
     if (!plan.shaderPath.isEmpty()) {
         QDir().mkpath(plan.shaderPath);
     }
@@ -780,7 +841,7 @@ GameRunner::LaunchPlan GameRunner::resolveNativeLaunch(const Game& game, const D
     QProcessEnvironment env = EnvBuilder::buildEnvironment(settings);
 
     // Add Steam environment variables for Steam games
-    if (game.launcher() == "Steam") {
+    if (game.traits().usesSteamEnv) {
         env.insert("SteamAppId", game.id());
         env.insert("SteamGameId", game.id());
 
@@ -812,8 +873,10 @@ GameRunner::LaunchPlan GameRunner::resolveNativeLaunch(const Game& game, const D
     plan.nativeLinux      = true;
     plan.gameExe          = gameExe;
     plan.program          = gameExe;
-    plan.args             = EnvBuilder::customGameArgs(settings);
-    plan.workingDirectory = QFileInfo(gameExe).absolutePath();
+    plan.args             = game.launchArgs() + EnvBuilder::customGameArgs(settings);
+    plan.workingDirectory = game.workingDirectory().isEmpty()
+                                ? QFileInfo(gameExe).absolutePath()
+                                : game.workingDirectory();
     plan.env              = env;
 
     applyWrapper(plan, settings);

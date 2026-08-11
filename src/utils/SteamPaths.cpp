@@ -148,6 +148,12 @@ QString configVdfPath()
     return root.isEmpty() ? QString() : root + "/config/config.vdf";
 }
 
+QString loginUsersPath()
+{
+    const QString root = steamRoot();
+    return root.isEmpty() ? QString() : root + "/config/loginusers.vdf";
+}
+
 QString steamRuntimePath()
 {
     const QString root = steamRoot();

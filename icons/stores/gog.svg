@@ -1,0 +1,9 @@
+<!-- Hand-drawn G, not GOG's artwork. Same badge conventions as steam.svg: box
+     0 0 24 24, circle fill must match AppStyle::ColorStoreGog, SVG Tiny only —
+     which is why the letter is an outlined path and not <text>. One letter, not
+     three: "GOG" turns to mud at the 16px the source-filter combo draws it at. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="12" fill="#7c2bbb"/>
+  <path fill="#ffffff" d="M18.22 7.64A7.6 7.6 0 1 0 19.48 13.32L16.53 12.8A4.6 4.6 0 1 1 15.77 9.36Z"/>
+  <rect x="12.4" y="10.9" width="7.1" height="2.4" fill="#ffffff"/>
+</svg>

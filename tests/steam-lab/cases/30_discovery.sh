@@ -201,4 +201,62 @@ fx_add_game "$NATIVE" 1245620 >/dev/null
 app_cli --print-launch-options 999999 >/dev/null 2>&1
 assert_eq "an unknown app id is its own exit code" "4" "$(app_rc)"
 
+# ---------------------------------------------------------------------------
+part "j) two sources at once"
+
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" 1245620 name="ELDEN RING" >/dev/null
+fx_gog_game 1207658930 title="The Witcher 2" >/dev/null
+
+GAMES="$(app_cli --list-games)"
+assert_json "both launchers contribute" "$GAMES" 'len(d)' "2"
+assert_json "each game names its own source" "$GAMES" \
+    'sorted(g["launcher"] for g in d)' '["GOG", "Steam"]'
+
+# The traits are stamped per launcher at discovery, which is what stops any
+# call site from having to compare launcher() against a string literal.
+assert_json "only the Steam game uses the Steam environment" "$GAMES" \
+    'sorted((g["launcher"], g["traits"]["usesSteamEnv"]) for g in d)' \
+    '[["GOG", false], ["Steam", true]]'
+
+# ---------------------------------------------------------------------------
+part "k) a Steam appid and a GOG product id that are the same number"
+
+# Nothing prevents this — the two id spaces are unrelated. Before settingsKey()
+# was launcher-namespaced, one game's settings would have overwritten the
+# other's, silently.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" 1207658930 name="Steam Game" >/dev/null
+fx_gog_game 1207658930 title="GOG Game" >/dev/null
+
+GAMES="$(app_cli --list-games)"
+assert_json "both are listed" "$GAMES" 'len(d)' "2"
+assert_json "and their settings keys differ" "$GAMES" \
+    'sorted(g["settingsKey"] for g in d)' '["GOG:1207658930", "Steam:1207658930"]'
+
+# Only the Steam one may be looked up on ProtonDB, since only its id is an
+# appid — ProtonDBClient::fetchSummary has no numeric guard of its own, so this
+# trait is the only thing standing between a GOG id and protondb.com.
+assert_json "only the Steam one claims a Steam appid" "$GAMES" \
+    'sorted((g["launcher"], g["traits"]["idIsSteamAppId"]) for g in d)' \
+    '[["GOG", false], ["Steam", true]]'
+
+# ---------------------------------------------------------------------------
+part "l) Steam disappears, GOG stays"
+
+fx_reset
+fx_gog_game 1207658930 title="The Witcher 2" >/dev/null
+fx_steam_tree none >/dev/null
+
+INFO="$(app_cli --steam-info)"
+assert_json "Steam is gone" "$INFO" 'd["variant"]' "none"
+
+GAMES="$(app_cli --list-games)"
+assert_json "but the GOG game is still there" "$GAMES" 'len(d)' "1"
+# Games were found, so this is a success even though Steam is absent — the
+# exit code reports on the command, not on Steam.
+assert_eq "and the command succeeds" "0" "$(app_rc)"
+
 case_finish

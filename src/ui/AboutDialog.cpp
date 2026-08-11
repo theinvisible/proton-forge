@@ -8,6 +8,9 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QFrame>
+#include <QPropertyAnimation>
+#include <QMouseEvent>
+#include <QStringList>
 #include <cmath>
 
 static constexpr float PI = 3.14159265f;
@@ -168,6 +171,135 @@ void AnimatedLogoWidget::paintEvent(QPaintEvent*)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CardCarousel
+// ─────────────────────────────────────────────────────────────────────────────
+
+CardCarousel::CardCarousel(QWidget* parent)
+    : QWidget(parent)
+{
+    m_strip = new QWidget(this);       // clipped to our rect, so off-card content hides
+    m_strip->move(0, 0);
+
+    m_anim = new QPropertyAnimation(m_strip, "pos", this);
+    m_anim->setDuration(220);
+    m_anim->setEasingCurve(QEasingCurve::OutCubic);
+
+    setCursor(Qt::OpenHandCursor);
+}
+
+void CardCarousel::addCard(QWidget* card)
+{
+    card->setParent(m_strip);
+    card->show();
+    m_cards.append(card);
+    layoutCards();
+    updateGeometry();
+}
+
+QSize CardCarousel::sizeHint() const
+{
+    QSize hint(0, 0);
+    for (QWidget* card : m_cards)
+        hint = hint.expandedTo(card->sizeHint());
+    return hint;
+}
+
+void CardCarousel::resizeEvent(QResizeEvent*)
+{
+    layoutCards();
+}
+
+void CardCarousel::layoutCards()
+{
+    if (m_cards.isEmpty())
+        return;
+
+    const int w = width();
+    const int h = height();
+    m_strip->resize(w * m_cards.size(), h);
+    for (int i = 0; i < m_cards.size(); ++i)
+        m_cards[i]->setGeometry(i * w, 0, w, h);
+
+    if (m_anim->state() != QAbstractAnimation::Running && !m_dragging)
+        m_strip->move(-m_index * w, 0);
+}
+
+void CardCarousel::setCurrentIndex(int index, bool animate)
+{
+    index = qBound(0, index, qMax(0, m_cards.size() - 1));
+    const int target = -index * width();
+
+    m_anim->stop();
+    if (animate && isVisible()) {
+        m_anim->setStartValue(m_strip->pos());
+        m_anim->setEndValue(QPoint(target, 0));
+        m_anim->start();
+    } else {
+        m_strip->move(target, 0);
+    }
+
+    if (index != m_index) {
+        m_index = index;
+        emit currentChanged(m_index);
+    }
+}
+
+void CardCarousel::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() != Qt::LeftButton || m_cards.size() < 2) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+
+    m_anim->stop();
+    m_dragging    = true;
+    m_pressX      = event->position().x();
+    m_pressOffset = m_strip->x();
+    setCursor(Qt::ClosedHandCursor);
+    emit touched();
+    event->accept();
+}
+
+void CardCarousel::mouseMoveEvent(QMouseEvent* event)
+{
+    if (!m_dragging) {
+        QWidget::mouseMoveEvent(event);
+        return;
+    }
+
+    const int minX = -(m_cards.size() - 1) * width();
+    const int dx   = int(event->position().x()) - m_pressX;
+    int x = m_pressOffset + dx;
+    // Past the first/last card the strip still moves, but sluggishly, so the
+    // end of the strip is felt rather than hit as a wall.
+    if (x > 0)         x /= 4;
+    else if (x < minX) x = minX + (x - minX) / 4;
+    m_strip->move(x, 0);
+    event->accept();
+}
+
+void CardCarousel::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (!m_dragging) {
+        QWidget::mouseReleaseEvent(event);
+        return;
+    }
+
+    m_dragging = false;
+    setCursor(Qt::OpenHandCursor);
+
+    const int dx        = int(event->position().x()) - m_pressX;
+    const int threshold = qMax(24, width() / 6);
+    int index = m_index;
+    if (dx <= -threshold)      ++index;
+    else if (dx >= threshold)  --index;
+
+    setCurrentIndex(index);   // clamps, and snaps back when the drag was short
+    emit touched();
+    event->accept();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AboutDialog
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -226,37 +358,109 @@ AboutDialog::AboutDialog(QWidget* parent)
     // Description
     auto* descLabel = new QLabel(
         "Fine-tune DLSS Super Resolution, Ray Reconstruction &amp; Frame Generation.<br>"
-        "Manage Proton-CachyOS and Proton-GE. Unleash HDR. Your games, your rules.");
+        "Manage Proton-CachyOS and Proton-GE. Unleash HDR.<br>"
+        "Steam and GOG in one library. Your games, your rules.");
     descLabel->setWordWrap(true);
     descLabel->setAlignment(Qt::AlignCenter);
     descLabel->setStyleSheet("color: #bbb; font-size: 11px;");
     bodyLayout->addWidget(descLabel);
 
-    // Powered by card
-    auto* poweredFrame = new QFrame;
-    poweredFrame->setStyleSheet(
-        "QFrame { background: #1c1c1c; border: 1px solid #333;"
-        "         border-radius: 6px; padding: 10px; }");
-    auto* poweredLayout = new QVBoxLayout(poweredFrame);
-    poweredLayout->setSpacing(1);
-    poweredLayout->setContentsMargins(8, 8, 8, 8);
+    // ── Info cards, paged ──────────────────────────────────────────────
+    auto makeCard = [](const QString& title, const QString& items) {
+        auto* frame = new QFrame;
+        frame->setStyleSheet(
+            "QFrame { background: #1c1c1c; border: 1px solid #333;"
+            "         border-radius: 6px; padding: 10px; }");
+        auto* layout = new QVBoxLayout(frame);
+        layout->setSpacing(1);
+        layout->setContentsMargins(8, 8, 8, 8);
 
-    auto* poweredTitle = new QLabel("⚡  POWERED BY");
-    poweredTitle->setStyleSheet("color: #76B900; font-size: 10px; font-weight: bold; border: none;");
-    poweredLayout->addWidget(poweredTitle);
+        auto* titleLabel = new QLabel(title);
+        titleLabel->setStyleSheet(
+            "color: #76B900; font-size: 10px; font-weight: bold; border: none;");
+        layout->addWidget(titleLabel);
 
-    auto* itemsLabel = new QLabel(
+        auto* itemsLabel = new QLabel(items);
+        itemsLabel->setStyleSheet(
+            "color: #777; font-size: 10px; font-family: monospace; border: none;");
+        layout->addWidget(itemsLabel);
+        return frame;
+    };
+
+    m_cards = new CardCarousel;
+    m_cards->addCard(makeCard("🎮  WHAT IT DOES",
+        "├─ DLSS 4 presets, Reflex &amp; Smooth Motion<br>"
+        "├─ Compatibility gating per driver &amp; Proton<br>"
+        "├─ HDR on Wayland, KDE Plasma &amp; Gnome<br>"
+        "├─ Steam and GOG in one game library<br>"
+        "├─ GOG: sign in, download, update, launch<br>"
+        "└─ Credentials in your system keyring"));
+    m_cards->addCard(makeCard("⚡  POWERED BY",
         "├─ NVIDIA DLSS Technology<br>"
         "├─ Proton-CachyOS &amp; Proton-GE<br>"
+        "├─ GOG Content System &amp; Galaxy API<br>"
+        "├─ ProtonDB · MangoHud · NVML<br>"
         "├─ Qt6 Framework<br>"
-        "└─ The Linux Gaming Community");
-    itemsLabel->setStyleSheet("color: #777; font-size: 10px; font-family: monospace; border: none;");
-    poweredLayout->addWidget(itemsLabel);
-    bodyLayout->addWidget(poweredFrame);
+        "└─ The Linux Gaming Community"));
+    bodyLayout->addWidget(m_cards);
+
+    // Pager row: ‹ · dots · ›
+    const QString navStyle =
+        "QPushButton { background: transparent; border: none; color: #666;"
+        "              font-size: 14px; padding: 0 6px; min-width: 18px; }"
+        "QPushButton:hover { color: #76B900; }";
+
+    auto* prevBtn = new QPushButton("‹");
+    prevBtn->setStyleSheet(navStyle);
+    prevBtn->setCursor(Qt::PointingHandCursor);
+    prevBtn->setFocusPolicy(Qt::NoFocus);
+    prevBtn->setToolTip("Previous");
+
+    auto* nextBtn = new QPushButton("›");
+    nextBtn->setStyleSheet(navStyle);
+    nextBtn->setCursor(Qt::PointingHandCursor);
+    nextBtn->setFocusPolicy(Qt::NoFocus);
+    nextBtn->setToolTip("Next");
+
+    m_cardDots = new QLabel;
+    m_cardDots->setAlignment(Qt::AlignCenter);
+    m_cardDots->setStyleSheet("font-size: 10px;");
+    m_cardDots->setToolTip("Drag the card sideways to switch");
+
+    auto* pagerRow = new QHBoxLayout;
+    pagerRow->setContentsMargins(0, 0, 0, 0);
+    pagerRow->setSpacing(0);
+    pagerRow->addStretch();
+    pagerRow->addWidget(prevBtn);
+    pagerRow->addWidget(m_cardDots);
+    pagerRow->addWidget(nextBtn);
+    pagerRow->addStretch();
+    bodyLayout->addLayout(pagerRow);
+
+    const int cardCount = m_cards->count();
+    connect(m_cards, &CardCarousel::currentChanged, this, &AboutDialog::updateDots);
+
+    auto step = [this, cardCount](int delta) {
+        m_cards->setCurrentIndex((m_cards->currentIndex() + delta + cardCount) % cardCount);
+        m_cardTimer->start();   // manual paging restarts the dwell time
+    };
+    connect(prevBtn, &QPushButton::clicked, this, [step]() { step(-1); });
+    connect(nextBtn, &QPushButton::clicked, this, [step]() { step(+1); });
+
+    m_cardTimer = new QTimer(this);
+    m_cardTimer->setInterval(6000);
+    connect(m_cardTimer, &QTimer::timeout, this, [this, cardCount]() {
+        m_cards->setCurrentIndex((m_cards->currentIndex() + 1) % cardCount);
+    });
+    connect(m_cards, &CardCarousel::touched, m_cardTimer, [this]() { m_cardTimer->start(); });
+    m_cardTimer->start();
+
+    updateDots(0);
 
     // Stats line
     auto* statsLabel = new QLabel(
         "🚀 FPS: Unlimited &nbsp;|&nbsp; Ray Tracing: On &nbsp;|&nbsp; Quality: Ultra");
+    statsLabel->setTextFormat(Qt::RichText);   // entities alone don't trigger auto-detection
     statsLabel->setAlignment(Qt::AlignCenter);
     statsLabel->setStyleSheet("color: #555; font-size: 10px;");
     bodyLayout->addWidget(statsLabel);
@@ -281,4 +485,13 @@ AboutDialog::AboutDialog(QWidget* parent)
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
     btnRow->addWidget(closeBtn);
     root->addLayout(btnRow);
+}
+
+void AboutDialog::updateDots(int index)
+{
+    QStringList dots;
+    for (int i = 0; i < m_cards->count(); ++i)
+        dots << QString("<span style='color:%1;'>●</span>")
+                    .arg(i == index ? "#76B900" : "#3a3a3a");
+    m_cardDots->setText(dots.join("&nbsp;"));
 }

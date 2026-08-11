@@ -210,11 +210,14 @@ counts as `docker`, so nothing runs unguarded by accident.
 | `30_discovery` | `build` | Steam detection and game discovery across every layout permutation |
 | `40_launchopts` | `build` | settings → launch options → `localconfig.vdf`, and back |
 | `45_launch` | `build` | the whole launch chain, including the Steam Linux Runtime wrapping |
+| `46_gog_launch` | `build` | the same chain for a GOG game: no Steam identity, no overlay, ProtonForge's own prefix, and the native `start.sh` route |
 | `50_real_steam` | `docker` | real Steam-written files vs what `SteamPaths` looks for |
 | `55_steamclient` | `build` | the client state machine, and deferred launches |
 | `60_gui` | `gui build` | the real window on Xvfb |
 | `70_flatpak` | `flatpak build` | the Flatpak built from the working tree, and its sandbox |
 | `80_proton_mgr` | `build`, opt-in | installing Proton from GitHub for real |
+| `90_gog` | `build` | GOG discovery from the install registry, update state, and the CLI's session commands |
+| `91_stores` | `build` | the store layer: how a configured, unconfigured and unknown store each answer |
 
 The distribution matrix lives in `packaging/distros.txt` — the only place holding
 distribution knowledge, shared with `.github/workflows/release.yml` so a target
@@ -257,8 +260,20 @@ invocation and Qt's own flags reach the GUI exactly as they did before it existe
 | `--apply <appid>` | writes `localconfig.vdf`, reports what it wrote and what it reads back |
 | `--launch <appid> [--dry-run]` | launches, or prints the resolved plan without starting anything |
 | `--set key=value` | overrides one setting first; repeatable |
+| `--gog-login-url` | the GOG sign-in URL to open in a browser |
+| `--gog-status` | JSON: whether a GOG session is restored, and whose |
+| `--store-list <launcher>` | JSON array: what the account owns, installed or not |
+| `--gog-plan <productid>` | JSON: what installing would fetch — and writes nothing |
+| `--gog-install <productid>` | downloads and installs; progress on stderr, result on stdout |
+| `--gog-uninstall <productid>` | deletes the install and its Proton prefix |
 
 Exit codes: `0` ok, `1` error, `2` usage, `3` no Steam detected, `4` unknown game.
+
+`--gog-plan` is the analogue of `--launch --dry-run`: it resolves builds, depots
+and manifests against GOG's live content system and prints the file list and
+total size without writing a byte of game data. It needs no sign-in, because the
+content system is public and only the chunk URLs are signed — so it also answers
+"can ProtonForge install this at all" before an account exists.
 
 `--set` takes the field names from the settings file and validates them against
 `DLSSSettings` itself rather than a list, so a new setting becomes settable with no
@@ -490,6 +505,150 @@ per 500 ms tick — which on a Flatpak Steam install meant two blocking
 Verified with `strace -f -e trace=execve` across a full pass of the UI: the only
 `execve` left is ProtonForge itself, plus one `kscreen-doctor` on a KDE session
 where there used to be two.
+
+### 6. A finished GOG install kept its "installing" badge — fixed
+
+`tst_gogqueue`
+
+Reported from use, not by the suite. Installing a GOG game from the store dialog
+left the row reading *"↓ installing"* after the download had completed, and the
+button next to it still saying *"Cancel"*, with nothing that would later correct
+either.
+
+`GogDownloader` announced the outcome and *then* tore the job down:
+
+```cpp
+emit installFinished(productId, installPath);
+endJob();                                  // clears m_job
+```
+
+Everything listening reacts to that signal by asking what is installing now —
+`StoreLibraryDialog` rebuilds its rows from `IStoreService::isInstalling()`,
+which reads the downloader's queue. During the emit the job was still on it, so
+the answer was "this one", and the badge it painted was the one it already had.
+The dialog's refresh was not missing; it ran against a queue that had not been
+updated yet. Both orderings are now the other way round, in all four places that
+end a job.
+
+The same reversal decides when a *queued* job starts. `endJob()` called
+`startNext()` inline, so with two games queued the second one's `queueChanged`,
+its progress — and, when it could resolve its build from cache and fail there,
+its own `installFailed` — all reached the listener **before** the news about the
+job that had just ended. `startNext()` is now scheduled on the event loop, which
+makes "a job's outcome is announced before the next job's first signal"
+unconditional rather than true-if-it-happens-to-block.
+
+`tst_gogqueue` pins both halves without a network or an account: two
+content-system lookups pre-seeded into the disk cache with a generation-1-only
+answer make an install fail for a real reason and entirely offline (the native
+installer detour between them needs a token, and there is no session). It reads
+`isInstalling()` from inside the failure handler — the moment that was wrong —
+and, for the ordering, races a job that must go round the event loop against one
+that reaches its answer without yielding.
+
+Three more of the same shape, found while fixing it:
+
+* **Cancelling a queued install announced nothing.** `cancel()` on a job that had
+  not started yet dropped it from the queue and emitted only `queueChanged`,
+  which says the queue moved but not which game left it — and the store dialog
+  does not listen to it. So the row kept the badge that had just stopped being
+  true, by the same mechanism and with no way back. Both cancellation paths now
+  report the same way.
+* **The progress bar could outlive its download.** `StoreLibraryDialog` hid the
+  progress frame only when the finishing store was also the selected one, so
+  switching to another store mid-install left the bar on screen afterwards,
+  still showing an install that had ended. It belongs to whatever is
+  downloading, not to whatever is on screen, and is now cleared before that
+  check.
+* **`saveStateJournal()` aimed at `/`** when a job failed before an install path
+  had been resolved — `journalPath()` is `installPath + "/.protonforge-gog"`, and
+  an empty install path names the filesystem root. Harmless as a normal user,
+  which is why nothing had noticed.
+
+### 7. Anno 1602 in German installed into two directories and drew a black menu — fixed
+
+`tst_gogplan`
+
+Reported from use. The English build started and showed its main menu; the
+German build started and showed nothing where the menu should be.
+
+The two builds are the same game and the same engine. What differs is that GOG's
+depots disagree with each other about the case of three directory names:
+
+| Directory | Shared depot (`*`) | German depot |
+|---|---|---|
+| `GADDATA` | 3 files | `Gaddata`, 49 files |
+| `SAMPLES` | 83 files | `Samples`, 23 files |
+| `TOOLGFX` | 9 files | `ToolGfx`, 21 files |
+
+On the filesystem GOG builds for, that distinction does not exist: whichever
+depot is unpacked first creates `GADDATA`, and everything the others write goes
+into the same folder. ProtonForge wrote the depot paths out verbatim onto a
+case-sensitive filesystem and got **two** directories. The game asks for one
+spelling — Wine resolves an exact match first, so it gets whichever it named and
+sees only that part of its own data. `GADDATA/BASE.GAD` and `Gaddata/ANNO.GAD`
+are the base GUI definition and the main menu; the menu needs both, and they had
+landed in different directories.
+
+English never showed it because that depot happens to agree with the shared one.
+Polish splits eight directories, so it would have been worse.
+
+`GogInstallPlan::build` now decides each directory's spelling once, when it is
+first named — which is the rule the original filesystem applied, arrived at the
+same way, so the layout is the one the game was built against. File *names* are
+deliberately not merged: two files are two files, and whether they can coexist
+is a question about the drive, which `wouldCollideCaseInsensitively` already
+answers.
+
+Verified against the live build: before, 3 files in `GADDATA` and 49 in
+`Gaddata`; after, all 52 in `GADDATA` with `ANNO.GAD` and `BASE.GAD` together.
+
+Found alongside it: **`--gog-plan` always planned in English** while
+`--gog-install` used the configured language, so the dry run could report a
+different file set — and, for exactly this build, a different layout — than the
+install it was meant to predict. Both read `gog/language` now.
+
+### 8. GOG games had no cover art in the main list — fixed
+
+`tst_gogapi`, `tst_gogregistry`, `90_gog`
+
+Reported from use. GOG rows showed the placeholder while the Steam rows beside
+them showed their banner.
+
+`Game::setImageUrl()` was called in exactly **one** place in the codebase —
+`SteamLauncher.cpp:224` — and `GogLauncher::discoverGames()` never called it. So
+every GOG game reached the list with an empty URL and the delegate took its "no
+artwork" branch. The store dialog *did* show GOG covers, from a live library
+call, which is what made the gap easy to miss.
+
+Steam's URL is derivable from the appid. GOG's artwork is content-hashed, so
+there is nothing to derive — and discovery runs on `GameListWidget`'s worker
+thread, where it may not fetch. The URL therefore has to be **looked up once and
+persisted**, which is what `GogInstallRegistry::Entry::imageUrl` is for. It is
+filled from the library listing when the game is installed through the dialog,
+and otherwise backfilled by `GogStoreService::refreshInstalledArtwork()` — the
+same shape as the existing `refreshUpdateState()`, down to the connections being
+made once in the constructor rather than per batch.
+
+Two things that came out in the doing:
+
+* **`GogApiClient::fetchProduct()` had no callers at all** — built in Phase 6,
+  never wired. It asked with a bearer token; `api.gog.com/products/<id>` is
+  catalogue data and answers without one, so it now uses `getPublic`. Artwork
+  therefore works signed out, which matters for a DRM-free library that stays
+  listed when signed out.
+* **The field GOG calls `logo2x` is not the banner.** It is 200×120 (ratio 1.67)
+  where the list tile and the detail panel are both cut for a Steam header
+  (2.14). The same content hash serves `_product_tile_256.jpg` at 256×117 —
+  2.19, and the variant the store dialog already uses. `bannerImageUrl()`
+  rebuilds the URL from the hash rather than appending a suffix, because
+  `logo2x` arrives complete with its own and `normalizeImageUrl` correctly
+  refuses to bolt a second one on. No hash in the input means the input is
+  returned untouched: a guessed URL would leave the tile shimmering at a 404.
+
+Verified end to end against the real account: both installed GOG games resolved,
+persisted into `gog-installs.json`, and their banners fetched into `ImageCache`
+— `--list-games` reports the URLs on the next start with no network involved.
 
 ### Also found, and fixed
 

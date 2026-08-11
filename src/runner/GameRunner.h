@@ -60,7 +60,9 @@ public:
     // Proton detection
     QString findProtonPath(const Game& game, const DLSSSettings& settings = DLSSSettings());
     QString findGameExecutable(const Game& game);
-    QString getCompatDataPath(const Game& game);
+    // The prefix location now lives on the Game (Game::compatDataPath()); the
+    // launcher that discovered it knows where it put it, and deriving it here
+    // from the Steam library layout only ever worked for Steam.
 
 signals:
     void gameStarted(const Game& game);

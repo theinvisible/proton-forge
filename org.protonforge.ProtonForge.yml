@@ -18,6 +18,12 @@ finish-args:
 
   # File system access
   - --filesystem=home
+  # Game libraries on a second drive. NOT covered by --filesystem=home, and the
+  # XDG file portal cannot stand in for it: that hands out a one-shot handle,
+  # not a path a background download can keep writing to for an hour.
+  - --filesystem=/run/media
+  - --filesystem=/media
+  - --filesystem=/mnt
   # Native Steam (~/.steam is a hidden dotdir; keep explicit so the symlink
   # target stays reachable on hosts that don't expose it via --filesystem=home)
   - --filesystem=~/.steam:rw
@@ -32,10 +38,33 @@ finish-args:
   # Allow running games
   - --talk-name=org.freedesktop.Flatpak
 
+  # Credential storage. SecretStore falls back to a 0600 file when neither of
+  # these answers, which is the normal state on a bare gaming session — so this
+  # widens where credentials *can* live, it is not a requirement.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.kwalletd6
+
   # Pulseaudio/Pipewire
   - --socket=pulseaudio
 
 modules:
+  # Not in org.kde.Platform, and small enough to build here. Without it the app
+  # still works — SecretStore falls back to its own 0600 file — but credentials
+  # would never reach the desktop's keyring.
+  - name: qtkeychain
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_WITH_QT6=ON
+      - -DBUILD_TEST_APPLICATION=OFF
+    sources:
+      # Matches the qtkeychain-qt6-dev the .deb build uses, so both packages get
+      # the same backend behaviour. Note the tag carries no "v" prefix — the
+      # older ones did, which is an easy 404 to write.
+      - type: archive
+        url: https://github.com/frankosterfeld/qtkeychain/archive/refs/tags/0.15.0.tar.gz
+        sha256: f4254dc8f0933b06d90672d683eab08ef770acd8336e44dfa030ce041dc2ca22
+
   - name: protonforge
     buildsystem: cmake-ninja
     config-opts:

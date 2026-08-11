@@ -323,4 +323,52 @@ else
 fi
 
 gui_app_stop
+
+# ---------------------------------------------------------------------------
+part "h) the store library"
+
+# Library -> Game Stores is built by iterating the launchers that expose an
+# IStoreService, so it exercises the whole store layer at once: the interface,
+# both adapters, and the three-panel dialog. None of that is reachable from the
+# CLI, and a delegate or layout mistake in it is the kind of thing unit tests
+# cannot see.
+#
+# Signed out of everything on purpose. That is the state a new user is in, and
+# the dialog has to be useful in it — GOG offers a sign-in, Steam explains that
+# it wants an API key.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" 1245620 name="ELDEN RING" installdir="ELDEN RING" exe=windows >/dev/null
+
+if gui_app_start; then
+    if WIN="$(gui_win '^ProtonForge')"; then
+        gui_activate "$WIN"
+        gui_key alt+l     # &Library
+        gui_key s         # "Game &Stores..."
+
+        if DIALOG="$(gui_wait_window '^Game Stores' 8)"; then
+            ok "Library -> Game Stores opens"
+            sleep 1
+            assert_true "and the app survives it" gui_app_running
+            gui_activate "$DIALOG"
+            gui_key Escape
+            sleep 1
+            assert_true "the app is still up after closing it" gui_app_running
+        else
+            gui_screenshot no-store-library >/dev/null
+            fail "Library -> Game Stores did not open" \
+"the menu entry is missing or the dialog failed to construct.
+windows on screen:
+$(gui_list_windows)
+Screenshot: $CASE_OUT_DIR/no-store-library.xwd"
+        fi
+    else
+        fail "no main window to drive the Library menu from" "$(gui_list_windows)"
+    fi
+    gui_app_stop
+else
+    fail "the app did not start for the store library check" \
+        "$(tail -n 20 "$CASE_OUT_DIR/gui-stdout.log")"
+fi
+
 case_finish

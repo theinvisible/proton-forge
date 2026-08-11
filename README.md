@@ -1,8 +1,10 @@
 # ProtonForge
 
-**Advanced DLSS & Proton Manager for Steam Games on Linux**
+**Advanced DLSS & Proton Manager for Linux**
 
-ProtonForge is a powerful Qt6 application designed to give Linux gamers full control over NVIDIA DLSS settings and Proton versions for Steam games. Configure DLSS Super Resolution, Ray Reconstruction, Frame Generation, HDR support, and more - all from a single, intuitive interface.
+ProtonForge is a powerful Qt6 application designed to give Linux gamers full control over NVIDIA DLSS settings and Proton versions. Configure DLSS Super Resolution, Ray Reconstruction, Frame Generation, HDR support, and more - all from a single, intuitive interface.
+
+It handles two game sources side by side: your local **Steam** libraries, and your **GOG** account — and because there is no GOG client for Linux, ProtonForge downloads and installs those games itself. Steam does not need to be installed for any of it.
 
 ![alt text](https://hadler.me/wordpress/wp-content/uploads/2026/02/Bildschirmfoto_20260222_080736.png "ProtonForge main page")
 
@@ -38,6 +40,21 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Delete Versions**: Remove unused Proton installations to save disk space
 - **GitHub API Token (optional)**: Add a Personal Access Token in Settings to raise the GitHub API rate limit (60 → 5,000 requests/hour); ProtonForge warns when the limit is hit and when the configured token is invalid or has expired
 
+### Game Sources
+- **Steam**: games are discovered from your local Steam libraries, and launch options can be written back into Steam
+- **GOG**: sign in with your GOG account, browse the games you own, and install them — there is no GOG client for Linux, so ProtonForge downloads and installs them itself, then launches them through Proton
+- **Native Linux builds preferred**: a GOG game that ships a Linux version gets it; everything else runs under Proton, without the Steam overlay or a Steamworks identity it never had
+- **Owned but not installed**: with a Steam Web API key configured, Steam games you own but have not installed are listed too, one click from installing via the Steam client
+- **One library, both sources**: GOG games sit in the same list as Steam ones, with their own cover art, a source badge and a source filter, and get the same per-game DLSS/HDR/Proton profile
+
+### GOG Installs
+- **Sign in from the app**: the login opens in your normal browser; you paste the redirect URL back. No embedded browser, and your password never passes through ProtonForge
+- **Downloads that survive the long tail**: parallel chunked downloads with md5 verification, pause/resume, and resume-after-quit — a partial download keeps a journal inside its own folder, so deleting the folder is complete cleanup
+- **Updates are deltas**: only the files that actually changed are fetched, and files a new version dropped are removed
+- **Choose where games go**: install location and preferred language in Settings → GOG, with a directory picker. Another drive works; games go under `<location>/GOG` and their Proton prefixes under `<location>/prefixes/GOG`
+- **Uninstall knows what it owns**: ProtonForge deletes only what it recorded installing — a Heroic or Lutris library in the same directory is never touched
+- **Credentials in the keyring**: the GOG refresh token, the Steam Web API key and the GitHub token go to the system keyring when one is available, otherwise to a 0600 file — never into `settings.json`
+
 ### Game Launch & Integration
 - **Direct Launch**: Start games directly from ProtonForge with custom settings
 - **Steam Integration**: Copy launch options to clipboard or write directly to Steam
@@ -51,9 +68,9 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Debug Logging**: Enable Proton log output for troubleshooting (PROTON_LOG)
 
 ### Overlay
-- **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues
+- **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues. Never injected into a non-Steam game, which could not talk to Steam anyway
 - **MangoHud**: Enable the MangoHud performance overlay for real-time FPS, CPU/GPU usage, temperatures, and frame time metrics
-- **MangoHud Configuration**: Built-in GUI editor for `~/.config/MangoHud/MangoHud.conf` — configure display metrics, appearance, position, logging, and more without editing config files manually (accessible per-game via Configure button or globally via Tools menu)
+- **MangoHud Configuration**: Built-in GUI editor for `~/.config/MangoHud/MangoHud.conf` — configure display metrics, appearance, position, logging, the HUD/FPS-limit/logging keybinds, and more without editing config files manually, with a live preview of what the overlay will look like (accessible per-game via Configure button or globally via Tools menu)
 - **Installation Detection**: Automatically detects whether MangoHud is installed and disables the option with a helpful message if not
 
 ### Performance Tuning
@@ -62,7 +79,9 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **DLSS Upgrade**: Force newer DLSS DLL versions
 
 ### User Interface
-- **Game Library Browser**: Beautiful grid view with Steam artwork
+- **Game Library Browser**: Beautiful card view with cover art for both Steam and GOG games
+- **Source Badge & Filter**: Each game shows where it came from, and the list can be filtered to one source — both appear only once you actually have more than one, so a Steam-only setup looks exactly as it always did
+- **Game Stores Dialog**: One place to browse every store you have an account with (Library → Game Stores), with install progress, pause and uninstall. The details panel adds what the owned-games listing does not carry — a short description, whether there are achievements, the text and voice languages, genres, features and the platforms the store really lists — fetched per title from each store's public catalogue endpoint (no API key) and cached on disk for a week
 - **Real-time Preview**: See launch command changes in real-time
 - **Native Linux Support**: Separate settings for native Linux games
 - **Single Instance**: Prevents multiple app instances running simultaneously
@@ -73,8 +92,8 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
 - **Operating System**: Linux (tested on Ubuntu, Arch, Fedora)
 - **Desktop Environment**: KDE Plasma 5.27+ or Gnome 46+ (for HDR support)
 - **Display Server**: Wayland (required for HDR)
-- **Qt**: Qt6 6.0 or later
-- **Steam**: Installed and configured
+- **Qt**: Qt6 6.4 or later (the oldest version ProtonForge is built and tested against)
+- **A game source**: a Steam installation, a GOG account, or both — neither is required for the other, and Proton can be installed and managed with no Steam present at all
 - **NVIDIA GPU**: For DLSS features (GTX 16xx/RTX 20xx or newer). The newest options (Smooth Motion, 5x/6x Multi-Frame Generation, transformer presets) require recent NVIDIA drivers — ProtonForge shows a warning when your driver or selected Proton version is too old
 
 ### Build Dependencies
@@ -85,6 +104,16 @@ ProtonForge is a powerful Qt6 application designed to give Linux gamers full con
   - Qt6Widgets
   - Qt6Network
   - Qt6Concurrent
+  - Qt6DBus
+- zlib (`zlib1g-dev`) — GOG's content system serves everything zlib-encoded with no `Content-Encoding` header, so nothing in Qt will inflate it for us
+- QtKeychain (`qtkeychain-qt6-dev`) — **optional**; without it credentials fall back to a 0600 file
+
+> The authoritative list is [`packaging/build-depends.txt`](packaging/build-depends.txt) — CI, the release
+> workflow and the test containers all install from it:
+>
+> ```bash
+> grep -vE '^\s*(#|$)' packaging/build-depends.txt | xargs sudo apt-get install -y
+> ```
 
 ## 🚀 Installation
 
@@ -172,7 +201,7 @@ bash build-deb.sh
    protonforge
    ```
 
-2. **Select a Game**: Click on any Steam game in the library
+2. **Select a Game**: Click on any game in the library
 
 3. **Configure Settings**:
    - Enable NVAPI (required for DLSS)
@@ -183,7 +212,23 @@ bash build-deb.sh
 4. **Launch or Export**:
    - Click **Play** to launch directly with custom settings
    - Click **Copy to Clipboard** to get launch options
-   - Click **Write to Steam** to save settings permanently
+   - Click **Write to Steam** to save settings permanently — Steam games only; for a GOG game there is nothing to write to, so the button is not shown and **Play** is the way in
+
+### GOG Games
+
+**Sign in**:
+1. **Library** → **Game Stores…**, pick **GOG**, click **Sign in**
+2. The GOG login opens in your normal browser. Sign in there
+3. GOG lands on a page that looks blank — copy that page's **address** out of the address bar and paste it back into ProtonForge
+
+   ProtonForge never sees your password, and only the refresh token is stored (in your keyring where one is available).
+
+**Install a game**: pick it in the list and click **Install**. The download runs in the background and survives closing the dialog — and quitting the app, which resumes where it left off. Where games land and which language they get is under **Settings → GOG**.
+
+**Update or uninstall**: a game with a newer build shows *Update available*; installing again fetches only what changed. **Uninstall** removes the game and its Proton prefix, and nothing else.
+
+> ProtonForge talks to GOG using the same interface the GOG Galaxy client uses.
+> It is not affiliated with or endorsed by GOG.
 
 ### Proton Management
 
@@ -218,28 +263,56 @@ For HDR to work, you need:
 gsettings set org.gnome.mutter experimental-features "['hdr']"
 ```
 
+### Command Line
+
+ProtonForge answers a handful of questions without opening a window, which is
+useful for scripting and for reporting bugs:
+
+```bash
+protonforge --list-games                 # every game from every source, as JSON
+protonforge --launch <id> --dry-run      # exactly what would be run, writing nothing
+protonforge --gog-status                 # signed in? which credential store?
+protonforge --gog-login-url              # the sign-in URL, for a headless setup
+protonforge --store-list GOG             # what you own, installed or not
+protonforge --gog-plan <productid>       # what installing would fetch — writes nothing
+protonforge --gog-install <productid>    # install it
+protonforge --gog-uninstall <productid>  # remove it and its Proton prefix
+```
+
+`--dry-run` and `--gog-plan` are the two that touch nothing at all; reach for them
+first when something behaves unexpectedly.
+
 ## 🔧 Configuration Files
 
 ProtonForge stores configurations in:
 
-- **Settings**: `~/.config/ProtonForge/settings.json`
-- **Image Cache**: `~/.cache/ProtonForge/images/`
-- **Qt Settings**: Standard QSettings location
+| Path | What |
+|---|---|
+| `~/.config/ProtonForge/settings.json` | per-game and default DLSS/HDR/Proton profiles |
+| `~/.config/ProtonForge/ProtonForge.conf` | Qt settings — install location, preferred language, UI state |
+| `~/.config/ProtonForge/gog-installs.json` | what ProtonForge installed from GOG, and the only record it acts on |
+| `~/.config/ProtonForge/gog-manifests/` | file fingerprints per install, so the next update is a delta |
+| `~/.config/ProtonForge/secrets.json` | credentials — **only** when no system keyring is available, at `0600` |
+| `~/Games/ProtonForge/` | where GOG games and their Proton prefixes go (configurable) |
+| `~/.cache/ProtonForge/` | cover art, ProtonDB and GOG API caches — safe to delete |
 
-Settings are automatically saved per-game and persist across sessions.
+Settings are automatically saved per-game and persist across sessions. Credentials go to the system keyring when one answers; `secrets.json` is the fallback and is never part of `settings.json`, which is meant to be readable and pasteable into a bug report.
 
 ## 🏗️ Project Structure
 
 ```
 protonforge/
 ├── src/
-│   ├── core/           # Game data, settings, DLSS config, feature gating
-│   ├── launchers/      # Steam launcher integration
-│   ├── network/        # Image downloading and caching
+│   ├── core/           # Game data, settings, DLSS config, feature gating, SecretStore
+│   ├── launchers/      # Steam and GOG launchers, plus the store-account interface
+│   ├── gog/            # GOG auth, account API, content system, downloader, ZIP reader
+│   ├── network/        # Image downloading, ProtonDB, JSON disk cache
 │   ├── parsers/        # VDF parser for Steam configs
 │   ├── runner/         # Game execution and Proton handling
 │   ├── ui/             # Qt widgets and dialogs
 │   └── utils/          # Utilities (EnvBuilder, ProtonManager, GpuInfoCache, HDRChecker)
+├── tests/              # Unit tests and the steam-lab harness — see TESTS.md
+├── packaging/          # Build dependencies and target distributions, one list each
 ├── debian/             # Debian package configuration
 ├── CMakeLists.txt
 └── build-deb.sh        # Automated .deb builder
@@ -317,13 +390,25 @@ SOFTWARE.
 A: Yes, DLSS features require NVIDIA RTX. However, you can still use ProtonForge for Proton management on any GPU.
 
 **Q: Does this work with non-Steam games?**
-A: Currently, ProtonForge focuses on Steam games. Support for other launchers may be added in the future.
+A: Yes — GOG is supported end to end: sign in, browse what you own, install, update and launch. Other stores are a matter of writing an adapter; the launcher and store layers are interfaces, not special cases.
+
+**Q: Do I need Steam installed?**
+A: No. With only a GOG account, games install and launch, and Proton is downloaded and managed by ProtonForge itself.
+
+**Q: Is my GOG password safe?**
+A: ProtonForge never sees it. The login happens in your own browser on GOG's site; you paste back the URL GOG redirects to, which carries a one-time code. Only the refresh token is kept, in your system keyring where one is available.
+
+**Q: Can I install GOG games onto another drive?**
+A: Yes — set the location in Settings → GOG. In the Flatpak build it has to be somewhere the sandbox can reach.
+
+**Q: Will ProtonForge touch my Heroic or Lutris GOG installs?**
+A: No. It lists and deletes only what it recorded installing itself, so there is never a question about who owns a directory.
 
 **Q: Can I use this on X11?**
 A: Yes, but HDR features require Wayland. All other features work on both X11 and Wayland.
 
 **Q: Will this break my Steam installation?**
-A: No, ProtonForge only modifies per-game launch options and installs Proton versions to the standard location (`~/.steam/root/compatibilitytools.d/`).
+A: No, ProtonForge only modifies per-game launch options and installs Proton versions to the standard location (`~/.steam/root/compatibilitytools.d/`). GOG games are never written into Steam and never get a Steam identity or the Steam overlay.
 
 **Q: How do I report bugs?**
 A: Please open an issue on GitHub with:

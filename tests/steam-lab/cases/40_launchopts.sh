@@ -237,4 +237,23 @@ assert 'UserLocalConfigStore' in text, 'lost the root key'
 "
 assert_contains "the other game's entry is untouched" "$LOCALCONFIG" '"570"'
 
+# ---------------------------------------------------------------------------
+part "writing back to a launcher that has nowhere to write"
+
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+LOCALCONFIG="$(fx_localconfig "$NATIVE" "$APPID=PROTON_LOG=1 %command%")"
+fx_gog_game 1207658930 title="The Witcher 2" >/dev/null
+
+BEFORE="$(md5sum "$LOCALCONFIG" | cut -d" " -f1)"
+app_cli --apply 1207658930 --set enableProtonHDR=true >/dev/null 2>&1
+
+# GOG has no per-game launch-option store, so this is an honest failure rather
+# than a no-op that reports success. traits.supportsLaunchOptionsIO is false and
+# the UI does not offer it at all; the CLI still has to answer.
+assert_eq "--apply on a GOG game fails" "1" "$(app_rc)"
+
+AFTER="$(md5sum "$LOCALCONFIG" | cut -d" " -f1)"
+assert_eq "and Steam's localconfig.vdf is untouched" "$BEFORE" "$AFTER"
+
 case_finish

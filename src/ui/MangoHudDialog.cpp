@@ -1,5 +1,6 @@
 #include "MangoHudDialog.h"
 #include "AppStyle.h"
+#include "MangoHudPreview.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -18,15 +19,95 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QMessageBox>
+#include <QResizeEvent>
+#include <functional>
+
+// The preview canvas. A window onto the game, with the overlay drawn into the
+// corner the Appearance group picked. Deliberately dumb: it holds a state struct
+// and paints it, and every decision about what that state means lives in
+// MangoHudPreview.h where a unit test can reach it.
+class MangoHudPreviewCanvas : public QWidget
+{
+public:
+    explicit MangoHudPreviewCanvas(QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setMinimumHeight(230);
+    }
+
+    void setState(const MangoHudPreview::State& state)
+    {
+        m_state = state;
+        update();
+    }
+
+    const MangoHudPreview::State& state() const { return m_state; }
+
+    // Called after a resize, because how much the overlay had to shrink depends on
+    // the canvas size and the dialog can only say so once that is known.
+    std::function<void()> onGeometryChanged;
+
+protected:
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QWidget::resizeEvent(event);
+        if (onGeometryChanged) {
+            onGeometryChanged();
+        }
+    }
+
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setRenderHint(QPainter::TextAntialiasing);
+
+        const QRectF frame = QRectF(rect()).adjusted(1, 1, -1, -1);
+
+        // A stand-in for the game: enough contrast for the background alpha to
+        // mean something, quiet enough not to compete with the overlay.
+        QLinearGradient backdrop(frame.topLeft(), frame.bottomRight());
+        backdrop.setColorAt(0.0, QColor("#243447"));
+        backdrop.setColorAt(0.55, QColor("#3c5064"));
+        backdrop.setColorAt(1.0, QColor("#16202b"));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(backdrop);
+        painter.drawRect(frame);
+
+        painter.setBrush(QColor(255, 255, 255, 18));
+        painter.drawEllipse(QRectF(frame.center().x() - frame.width() * 0.18,
+                                   frame.top() + frame.height() * 0.18,
+                                   frame.width() * 0.36, frame.width() * 0.36));
+        painter.setBrush(QColor(0, 0, 0, 40));
+        painter.drawRect(QRectF(frame.left(), frame.bottom() - frame.height() * 0.28,
+                                frame.width(), frame.height() * 0.28));
+
+        MangoHudPreview::draw(&painter, frame, m_state);
+
+        if (MangoHudPreview::rows(m_state).isEmpty()) {
+            painter.setPen(QColor(AppStyle::ColorTextMuted));
+            painter.drawText(frame, Qt::AlignCenter,
+                             "Nothing is enabled —\nthe overlay would be empty.");
+        }
+    }
+
+private:
+    MangoHudPreview::State m_state;
+};
 
 MangoHudDialog::MangoHudDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle("MangoHud Configuration");
-    setMinimumSize(850, 550);
-    resize(920, 650);
+    // Wide enough for the options plus the preview beside them, and still inside
+    // a 1280x800 laptop screen — both this and the minimum, which a window
+    // manager will not let the user shrink past.
+    setMinimumSize(980, 560);
+    resize(1200, 680);
     setupUI();
     loadConfig();
+    connectPreviewSignals();
+    updatePreview();
 }
 
 bool MangoHudDialog::isMangoHudInstalled()
@@ -74,6 +155,7 @@ void MangoHudDialog::setupUI()
     leftColumn->addWidget(createPerformanceGroup());
     leftColumn->addWidget(createCpuGroup());
     leftColumn->addWidget(createGpuGroup());
+    leftColumn->addWidget(createKeybindsGroup());
     leftColumn->addStretch();
 
     // Right column
@@ -89,7 +171,15 @@ void MangoHudDialog::setupUI()
     contentLayout->addLayout(rightColumn, 1);
 
     scrollArea->setWidget(contentWidget);
-    mainLayout->addWidget(scrollArea, 1);
+
+    // The preview sits beside the scroll area rather than inside it: it is only
+    // useful while options are being ticked, so it must not scroll away.
+    auto* bodyLayout = new QHBoxLayout;
+    bodyLayout->setContentsMargins(0, 0, 0, 0);
+    bodyLayout->setSpacing(0);
+    bodyLayout->addWidget(scrollArea, 1);
+    bodyLayout->addWidget(createPreviewPanel());
+    mainLayout->addLayout(bodyLayout, 1);
 
     // Button bar
     auto* btnLayout = new QHBoxLayout;
@@ -141,6 +231,40 @@ static void addRow(QVBoxLayout* layout, const QString& label, QWidget* widget)
     row->addWidget(lbl);
     row->addWidget(widget, 1);
     layout->addLayout(row);
+}
+
+// One keybind row: the checkbox is the label, and the field beside it is only
+// editable while it is ticked. The field still shows MangoHud's built-in binding
+// when unticked, greyed out — that is the whole point of the row, since an absent
+// line does not mean "no key", it means "MangoHud's default key".
+//
+// MangoHud wants X11 keysym names joined with '+', which is not guessable, hence
+// the tooltip. Returns the field and hands back the checkbox through `box`.
+static QLineEdit* addKeybindRow(QVBoxLayout* layout, const QString& label,
+                                const QString& mangoHudDefault, QCheckBox** box)
+{
+    auto* check = new QCheckBox(label);
+    check->setMinimumWidth(140);
+
+    auto* edit = makeLineEdit(mangoHudDefault);
+    edit->setText(mangoHudDefault);
+    edit->setEnabled(false);
+
+    const QString hint =
+        QString("X11 keysym names joined with '+', e.g. %1.\n"
+                "Unticked, MangoHud's own default applies.").arg(mangoHudDefault);
+    check->setToolTip(hint);
+    edit->setToolTip(hint);
+
+    auto* row = new QHBoxLayout;
+    row->addWidget(check);
+    row->addWidget(edit, 1);
+    layout->addLayout(row);
+
+    QObject::connect(check, &QCheckBox::toggled, edit, &QWidget::setEnabled);
+
+    *box = check;
+    return edit;
 }
 
 static QPushButton* makeDetectButton()
@@ -417,6 +541,176 @@ QGroupBox* MangoHudDialog::createLoggingGroup()
     return group;
 }
 
+// The defaults MangoHud itself uses when the key is absent — from its shipped
+// MangoHud.conf.example, INTERACTION section. They are also what the fields show
+// while unticked, so they have to be right rather than merely plausible.
+QGroupBox* MangoHudDialog::createKeybindsGroup()
+{
+    auto* group = makeGroup("Keybinds");
+    auto* layout = new QVBoxLayout(group);
+
+    m_keyToggleHud = addKeybindRow(layout, "Toggle HUD:", "Shift_R+F12",
+                                   &m_keyToggleHudEnabled);
+    m_keyToggleFpsLimit = addKeybindRow(layout, "Toggle FPS Limit:", "Shift_L+F1",
+                                        &m_keyToggleFpsLimitEnabled);
+    m_keyToggleLogging = addKeybindRow(layout, "Toggle Logging:", "Shift_L+F2",
+                                       &m_keyToggleLoggingEnabled);
+
+    return group;
+}
+
+// ── Preview ────────────────────────────────────────────────────────────────
+
+QWidget* MangoHudDialog::createPreviewPanel()
+{
+    // Detected once, here, rather than on every repaint: the row is supposed to
+    // show what this machine would actually print.
+    const QList<GPUInfo> gpus = GPUDetector::detectAllGPUs();
+    if (!gpus.isEmpty()) {
+        m_detectedGpu = shortenGpuName(gpus.first().name);
+        const QString module = gpus.first().driverInfo.moduleName;
+        const QString version = gpus.first().driverVersion;
+        if (!module.isEmpty() || !version.isEmpty()) {
+            m_detectedDriver = QString("%1 %2").arg(module, version).trimmed();
+        }
+    }
+
+    auto* panel = new QWidget;
+    panel->setFixedWidth(320);
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(0, 16, 16, 16);
+    layout->setSpacing(8);
+
+    auto* title = new QLabel("Preview");
+    title->setStyleSheet(QString("color: %1; font-weight: bold;").arg(AppStyle::ColorTextPrimary));
+    layout->addWidget(title);
+
+    m_preview = new MangoHudPreviewCanvas(panel);
+    m_preview->onGeometryChanged = [this]() { refreshPreviewHint(); };
+    // Takes the height the panel has: the wider the window onto the game, the less
+    // the overlay has to be shrunk to fit into it.
+    layout->addWidget(m_preview, 1);
+
+    m_previewScaleHint = new QLabel;
+    m_previewScaleHint->setWordWrap(true);
+    m_previewScaleHint->setStyleSheet(
+        QString("color: %1; font-size: 11px;").arg(AppStyle::ColorTextMuted));
+    layout->addWidget(m_previewScaleHint);
+    return panel;
+}
+
+void MangoHudDialog::connectPreviewSignals()
+{
+    // Every option widget at once, by type, instead of one connect per option.
+    // Naming them individually is how a preview quietly stops covering the option
+    // somebody adds next year; this cannot miss one. The keybind fields are
+    // included and simply do not affect what rows() returns.
+    for (QCheckBox* box : findChildren<QCheckBox*>()) {
+        connect(box, &QCheckBox::toggled, this, &MangoHudDialog::updatePreview);
+    }
+    for (QLineEdit* edit : findChildren<QLineEdit*>()) {
+        connect(edit, &QLineEdit::textChanged, this, &MangoHudDialog::updatePreview);
+    }
+    for (QComboBox* combo : findChildren<QComboBox*>()) {
+        connect(combo, &QComboBox::currentIndexChanged, this, &MangoHudDialog::updatePreview);
+    }
+    for (QSpinBox* spin : findChildren<QSpinBox*>()) {
+        connect(spin, &QSpinBox::valueChanged, this, &MangoHudDialog::updatePreview);
+    }
+    for (QDoubleSpinBox* spin : findChildren<QDoubleSpinBox*>()) {
+        connect(spin, &QDoubleSpinBox::valueChanged, this, &MangoHudDialog::updatePreview);
+    }
+}
+
+void MangoHudDialog::updatePreview()
+{
+    if (!m_preview) {
+        return;
+    }
+
+    MangoHudPreview::State state;
+
+    state.gpuStats = m_gpuStats->isChecked();
+    state.gpuTemp = m_gpuTemp->isChecked();
+    state.gpuCoreClock = m_gpuCoreClock->isChecked();
+    state.gpuMemClock = m_gpuMemClock->isChecked();
+    state.gpuPower = m_gpuPower->isChecked();
+    state.gpuName = m_gpuName->isChecked();
+    state.vulkanDriver = m_vulkanDriver->isChecked();
+    state.gpuLabel = m_gpuText->text().trimmed();
+    state.detectedGpu = m_detectedGpu;
+    state.vulkanDriverName = m_detectedDriver;
+
+    state.cpuStats = m_cpuStats->isChecked();
+    state.cpuTemp = m_cpuTemp->isChecked();
+    state.cpuPower = m_cpuPower->isChecked();
+    state.cpuMhz = m_cpuMhz->isChecked();
+    state.cpuLabel = m_cpuText->text().trimmed();
+
+    state.fps = m_fps->isChecked();
+    state.frametime = m_frametime->isChecked();
+    state.frameTiming = m_frameTiming->isChecked();
+    state.histogram = m_histogram->isChecked();
+    state.showFpsLimit = m_showFpsLimit->isChecked();
+    // Empty unless a limit is actually in force — MangoHud has nothing to show
+    // otherwise. "0" is MangoHud's own "no limit".
+    if (m_fpsLimitEnabled->isChecked()) {
+        const QString limit = m_fpsLimit->text().trimmed().section(',', 0, 0).trimmed();
+        if (!limit.isEmpty() && limit != QLatin1String("0")) {
+            state.fpsLimit = limit;
+        }
+    }
+
+    state.ram = m_ram->isChecked();
+    state.swap = m_swap->isChecked();
+    state.vram = m_vram->isChecked();
+    state.resolution = m_resolution->isChecked();
+    state.time = m_time->isChecked();
+    state.arch = m_arch->isChecked();
+    state.version = m_version->isChecked();
+    state.engineVersion = m_engineVersion->isChecked();
+    state.wine = m_wine->isChecked();
+
+    state.position = m_position->currentData().toString();
+    state.fontSize = m_fontSize->value();
+    state.backgroundAlpha = m_backgroundAlpha->value();
+    state.customText = m_customTextCenter->text().trimmed();
+
+    m_preview->setState(state);
+    refreshPreviewHint();
+}
+
+void MangoHudDialog::refreshPreviewHint()
+{
+    if (!m_preview || !m_previewScaleHint) {
+        return;
+    }
+
+    const MangoHudPreview::State& state = m_preview->state();
+    if (MangoHudPreview::rows(state).isEmpty()) {
+        m_previewScaleHint->setText("A window onto the game, with the overlay where "
+                                    "the Appearance group puts it.");
+        return;
+    }
+
+    const qreal scale = MangoHudPreview::scaleToFit(state, QSizeF(m_preview->size()));
+    if (scale < 0.999) {
+        m_previewScaleHint->setText(
+            QString("Shrunk to %1% to fit the panel — in game it is drawn at font "
+                    "size %2, roughly %3x%4 pixels.")
+                .arg(qRound(scale * 100))
+                .arg(state.fontSize)
+                .arg(qRound(MangoHudPreview::boxSize(state).width()))
+                .arg(qRound(MangoHudPreview::boxSize(state).height())));
+    } else {
+        m_previewScaleHint->setText(
+            QString("Actual size: font size %1, roughly %2x%3 pixels in game.")
+                .arg(state.fontSize)
+                .arg(qRound(MangoHudPreview::boxSize(state).width()))
+                .arg(qRound(MangoHudPreview::boxSize(state).height())));
+    }
+}
+
 // ── Config file parsing ────────────────────────────────────────────────────
 
 void MangoHudDialog::loadConfig()
@@ -534,6 +828,27 @@ void MangoHudDialog::parseConfigFile(const QString& path)
     m_logDuration->setValue(getValue("log_duration", "0").toInt());
     m_outputFolderEnabled->setChecked(isActive("output_folder"));
     m_outputFolder->setText(getValue("output_folder"));
+
+    // Keybinds. MangoHud ships these commented out, which is exactly the state
+    // getValue/isActive already distinguishes: the value fills the field, the
+    // missing tick says the default is in force.
+    //
+    // A keysym name never contains '#', so a trailing one on these lines is a
+    // comment. Cut here rather than in the shared parser, where custom_text_center
+    // may legitimately hold a '#'. The field keeps its constructed default when
+    // the file has nothing to say.
+    auto keybind = [&](const QString& key, QLineEdit* field) {
+        const QString value = getValue(key).section('#', 0, 0).trimmed();
+        if (!value.isEmpty())
+            field->setText(value);
+    };
+
+    m_keyToggleHudEnabled->setChecked(isActive("toggle_hud"));
+    keybind("toggle_hud", m_keyToggleHud);
+    m_keyToggleFpsLimitEnabled->setChecked(isActive("toggle_fps_limit"));
+    keybind("toggle_fps_limit", m_keyToggleFpsLimit);
+    m_keyToggleLoggingEnabled->setChecked(isActive("toggle_logging"));
+    keybind("toggle_logging", m_keyToggleLogging);
 }
 
 void MangoHudDialog::saveConfig()
@@ -593,6 +908,11 @@ void MangoHudDialog::writeConfigFile(const QString& path)
         {"autostart_log",      QString::number(m_autostartLog->value()),  false, m_autostartLogEnabled->isChecked()},
         {"log_duration",       QString::number(m_logDuration->value()),  false, m_logDurationEnabled->isChecked()},
         {"output_folder",      m_outputFolder->text().trimmed(),         false, m_outputFolderEnabled->isChecked()},
+        // onlyIfNonEmpty: a bare "toggle_hud=" would read as a binding to nothing,
+        // so a field cleared while ticked comments the line out instead.
+        {"toggle_hud",         m_keyToggleHud->text().trimmed(),         true,  m_keyToggleHudEnabled->isChecked()},
+        {"toggle_fps_limit",   m_keyToggleFpsLimit->text().trimmed(),    true,  m_keyToggleFpsLimitEnabled->isChecked()},
+        {"toggle_logging",     m_keyToggleLogging->text().trimmed(),     true,  m_keyToggleLoggingEnabled->isChecked()},
     };
 
     // Build sets of all managed keys
