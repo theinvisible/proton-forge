@@ -7,7 +7,6 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QPainter>
 
 #include "core/SecretStore.h"
 
@@ -27,7 +26,6 @@ private:
     QWidget* buildGithubPage();
     QWidget* buildSteamPage();
     QWidget* buildGogPage();
-    static QIcon makeCategoryIcon(const QColor& color, const QString& letter);
 
     QListWidget*    m_categoryList;
     QStackedWidget* m_stack;

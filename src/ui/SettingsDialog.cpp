@@ -1,5 +1,6 @@
 #include "SettingsDialog.h"
 #include "AppStyle.h"
+#include "StoreVisuals.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSplitter>
@@ -16,7 +17,6 @@
 #include "launchers/SteamStoreService.h"
 #include <QTimer>
 #include <QMessageBox>
-#include <QPixmap>
 
 SettingsDialog::SettingsDialog(QWidget* parent)
     : QDialog(parent)
@@ -26,28 +26,6 @@ SettingsDialog::SettingsDialog(QWidget* parent)
     resize(840, 560);
     setupUI();
     loadSettings();
-}
-
-QIcon SettingsDialog::makeCategoryIcon(const QColor& color, const QString& letter)
-{
-    QPixmap pixmap(36, 36);
-    pixmap.fill(Qt::transparent);
-
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-
-    painter.setBrush(color);
-    painter.setPen(Qt::NoPen);
-    painter.drawEllipse(0, 0, 36, 36);
-
-    QFont font = painter.font();
-    font.setBold(true);
-    font.setPixelSize(16);
-    painter.setFont(font);
-    painter.setPen(Qt::white);
-    painter.drawText(QRect(0, 0, 36, 36), Qt::AlignCenter, letter);
-
-    return QIcon(pixmap);
 }
 
 void SettingsDialog::setupUI()
@@ -102,19 +80,22 @@ void SettingsDialog::setupUI()
     // The list and the stack are indexed in lockstep — onCategoryChanged is a
     // plain setCurrentIndex(currentRow()) — so these two blocks must stay in
     // the same order.
+    // Not a store and so not in the StoreVisuals table: this page is the Proton
+    // download from GitHub Releases, which is what package.svg already means in
+    // the Tools menu.
     auto* githubItem = new QListWidgetItem(
-        makeCategoryIcon(QColor("#1f6feb"), "G"), "GitHub");
+        StoreVisuals::circleIcon(QColor(AppStyle::ColorGitHub),
+                                 QIcon(":/icons/package.svg")), "GitHub");
     githubItem->setSizeHint(QSize(0, 56));
     m_categoryList->addItem(githubItem);
 
     auto* steamItem = new QListWidgetItem(
-        makeCategoryIcon(QColor("#2a475e"), "S"), "Steam");
+        StoreVisuals::icon(QStringLiteral("Steam")), "Steam");
     steamItem->setSizeHint(QSize(0, 56));
     m_categoryList->addItem(steamItem);
 
-    // Not "G" — GitHub already owns a letter-G circle above.
     auto* gogItem = new QListWidgetItem(
-        makeCategoryIcon(QColor("#7c2bbb"), "O"), "GOG");
+        StoreVisuals::icon(QStringLiteral("GOG")), "GOG");
     gogItem->setSizeHint(QSize(0, 56));
     m_categoryList->addItem(gogItem);
 

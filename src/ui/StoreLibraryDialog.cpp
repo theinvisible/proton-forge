@@ -1,5 +1,6 @@
 #include "StoreLibraryDialog.h"
 #include "AppStyle.h"
+#include "StoreVisuals.h"
 #include "network/ImageCache.h"
 #include "launchers/LauncherManager.h"
 
@@ -79,6 +80,9 @@ void StoreLibraryDialog::setupUI()
     leftLayout->setContentsMargins(0, 0, 0, 0);
     m_storeList = new QListWidget(leftPanel);
     m_storeList->setStyleSheet(listStyle());
+    // Per widget, not per stylesheet — m_entryList shares listStyle() and must
+    // keep drawing its rows without icons.
+    m_storeList->setIconSize(QSize(22, 22));
     leftLayout->addWidget(sectionLabel("STORE", leftPanel));
     leftLayout->addWidget(m_storeList);
 
@@ -311,7 +315,11 @@ void StoreLibraryDialog::populateStores()
                 QMessageBox::warning(this, "Install failed", reason);
             });
 
-            auto* item = new QListWidgetItem(service->displayName(), m_storeList);
+            // The logo is looked up by launcherName(), the stable id — never by
+            // the label next to it.
+            auto* item = new QListWidgetItem(StoreVisuals::icon(service->launcherName()),
+                                             service->displayName(), m_storeList);
+            item->setSizeHint(QSize(0, 34));   // 22px icon + listStyle()'s 6px padding
             item->setData(RoleStoreIndex, m_services.size() - 1);
         }
     }

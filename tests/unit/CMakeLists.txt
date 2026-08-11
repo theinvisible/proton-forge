@@ -22,6 +22,7 @@ set(UNIT_TESTS
     tst_launchermanager
     tst_launchplan
     tst_badgerow
+    tst_storevisuals
     tst_secretstore
     tst_gogauth
     tst_gogapi

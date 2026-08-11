@@ -160,6 +160,7 @@ set(UI_HEADERS
     src/ui/GogLoginDialog.h
     src/ui/StoreLibraryDialog.h
     src/ui/BadgeRow.h
+    src/ui/StoreVisuals.h
 )
 
 set(RESOURCES

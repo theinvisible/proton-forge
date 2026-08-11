@@ -2,6 +2,7 @@
 #include "AppStyle.h"
 #include "network/ImageCache.h"
 #include "BadgeRow.h"
+#include "StoreVisuals.h"
 #include "launchers/ILauncher.h"
 #include "launchers/LauncherManager.h"
 #include "launchers/SteamLauncher.h"
@@ -34,15 +35,6 @@ static constexpr int RoleImageUrl    = Qt::UserRole + 4;
 static constexpr int RoleNeedsUpdate = Qt::UserRole + 5;
 static constexpr int RoleImageFailed = Qt::UserRole + 6;
 static constexpr int RoleLauncher    = Qt::UserRole + 7;
-
-// Presentation only. A launcher without an entry here just gets the neutral
-// colour — nothing behavioural hangs off this, unlike the traits.
-static QColor launcherBadgeColor(const QString& launcher)
-{
-    if (launcher == QLatin1String("Steam")) return QColor("#2a475e");
-    if (launcher == QLatin1String("GOG"))   return QColor("#7c2bbb");
-    return QColor("#555555");
-}
 
 // Built in two places — when an item is created and when an update check
 // changes it — so it lives here rather than being written out twice and
@@ -159,7 +151,7 @@ public:
         // a Steam-only user sees exactly what they saw before.
         const QString source = index.data(RoleLauncher).toString();
         if (m_owner->showsSourceBadge() && !source.isEmpty()) {
-            badges += {source.toUpper(), launcherBadgeColor(source)};
+            badges += {source.toUpper(), StoreVisuals::accentColor(source)};
         }
         badges += isNative ? BadgeRow::Badge{"LINUX", QColor("#e8710a")}
                            : BadgeRow::Badge{"WINDOWS", QColor("#1565c0")};
@@ -283,6 +275,7 @@ GameListWidget::GameListWidget(QWidget* parent)
     // Source filter. Hidden while there is only one source to choose from, so a
     // Steam-only install sees no new control at all.
     m_sourceFilter = new QComboBox(this);
+    m_sourceFilter->setIconSize(QSize(16, 16));   // the popup view inherits this
     m_sourceFilter->setStyleSheet(
         "QComboBox {"
         "  background-color: #1e1e1e;"
@@ -476,9 +469,12 @@ void GameListWidget::refreshSourceFilter()
 
     QSignalBlocker blocker(m_sourceFilter);
     m_sourceFilter->clear();
-    m_sourceFilter->addItem("All sources", QString());
+    // "All sources" needs an icon of its own, or its text sits left of every
+    // other row and the popup reads as ragged. package.svg is already the
+    // library glyph in the Library menu.
+    m_sourceFilter->addItem(QIcon(":/icons/package.svg"), "All sources", QString());
     for (const QString& source : sources) {
-        m_sourceFilter->addItem(source, source);
+        m_sourceFilter->addItem(StoreVisuals::icon(source), source, source);
     }
     const int index = m_sourceFilter->findData(m_sourceFilterName);
     m_sourceFilter->setCurrentIndex(index < 0 ? 0 : index);

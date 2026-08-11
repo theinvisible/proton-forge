@@ -21,6 +21,13 @@ inline constexpr const char* ColorTextMuted     = "#999";
 inline constexpr const char* ColorBadgeLinux    = "#e8710a";
 inline constexpr const char* ColorBadgeWindows  = "#1565c0";
 inline constexpr const char* ColorBadgeUpdate   = "#00acc1";
+// Per-store accents. Each of the two store colours is also baked into that
+// store's badge SVG (icons/stores/*.svg), which cannot be read back out of the
+// asset — change the two together. See StoreVisuals.h.
+inline constexpr const char* ColorStoreSteam    = "#2a475e";
+inline constexpr const char* ColorStoreGog      = "#7c2bbb";
+inline constexpr const char* ColorStoreUnknown  = "#555555";
+inline constexpr const char* ColorGitHub        = "#1f6feb";
 inline constexpr const char* ColorDanger        = "#c0392b";
 inline constexpr const char* ColorDangerButton  = "#f44336";
 inline constexpr const char* ColorSuccessButton = "#4CAF50";
