@@ -161,6 +161,7 @@ set(UI_HEADERS
     src/ui/StoreLibraryDialog.h
     src/ui/BadgeRow.h
     src/ui/StoreVisuals.h
+    src/ui/MangoHudPreview.h
 )
 
 set(RESOURCES
