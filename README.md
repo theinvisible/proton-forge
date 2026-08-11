@@ -81,7 +81,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 ### User Interface
 - **Game Library Browser**: Beautiful card view with cover art for both Steam and GOG games
 - **Source Badge & Filter**: Each game shows where it came from, and the list can be filtered to one source — both appear only once you actually have more than one, so a Steam-only setup looks exactly as it always did
-- **Game Stores Dialog**: One place to browse every store you have an account with (Library → Game Stores), with install progress, pause and uninstall
+- **Game Stores Dialog**: One place to browse every store you have an account with (Library → Game Stores), with install progress, pause and uninstall. The details panel adds what the owned-games listing does not carry — a short description, whether there are achievements, the text and voice languages, genres, features and the platforms the store really lists — fetched per title from each store's public catalogue endpoint (no API key) and cached on disk for a week
 - **Real-time Preview**: See launch command changes in real-time
 - **Native Linux Support**: Separate settings for native Linux games
 - **Single Instance**: Prevents multiple app instances running simultaneously

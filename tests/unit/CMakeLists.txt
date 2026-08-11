@@ -28,6 +28,7 @@ set(UNIT_TESTS
     tst_gogauth
     tst_gogapi
     tst_steamstore
+    tst_gogstore
     tst_gogcontent
     tst_gogplan
     tst_gogplaytasks

@@ -49,6 +49,49 @@ inline void sortEntriesByTitle(QList<StoreEntry>& entries)
     });
 }
 
+// What one title *is*, as opposed to what the library listing says about it.
+//
+// Fetched per title on selection rather than with the library: both stores answer
+// this from a different endpoint than the owned-games list, one product at a time,
+// and a library of nine hundred games would be nine hundred requests nobody asked
+// for. Disk-cached, because none of it changes hour to hour.
+//
+// Every field is optional. A store that knows none of this returns valid=false and
+// the panel shows what it always showed; a store that knows half of it fills half.
+struct StoreEntryDetails {
+    QString shortDescription;
+    QStringList genres;
+    // Canonical names, so the two stores read alike: "Single-player",
+    // "Multi-player", "Co-op", "Cloud saves", "Controller support". Steam's
+    // categories are mapped onto GOG's vocabulary rather than the other way
+    // round, because GOG's is the shorter and less Steam-specific list.
+    QStringList features;
+
+    // Text languages, and the subset that is also voiced. Both stores state the
+    // difference and it is the one people actually ask about.
+    QStringList languages;
+    QStringList voiceLanguages;
+
+    // hasAchievements without a count means "yes, but the store did not say how
+    // many" — GOG never says.
+    bool hasAchievements = false;
+    int achievementCount = 0;
+
+    QString releaseDate;          // as the store words it; no reformatting
+    QStringList developers;
+    QStringList publishers;
+
+    // Unlike either owned-games listing, both detail endpoints do state the
+    // platforms. Shown in the panel only — the badges in the list come from
+    // StoreEntry and stay as they were, or they would change under the user as
+    // each title's details arrive.
+    bool supportsWindows = false;
+    bool supportsLinux = false;
+    bool supportsMac = false;
+
+    bool valid = false;
+};
+
 // How far along an install is. Generic on purpose: the library dialog draws a
 // bar and a line of text and must not know which store is filling them in.
 struct StoreInstallProgress {
@@ -117,6 +160,11 @@ public:
 
     virtual void fetchLibrary() = 0;
 
+    // Per-title metadata for the details panel. False means the panel does not
+    // ask, so a store that cannot answer needs no stub that fails.
+    virtual bool providesDetails() const { return false; }
+    virtual void fetchDetails(const QString& id) { Q_UNUSED(id); }
+
     virtual void install(const QString& id) { Q_UNUSED(id); }
     virtual void uninstall(const QString& id) { Q_UNUSED(id); }
     // `discard` deletes what has already been downloaded. Without it the
@@ -149,6 +197,12 @@ signals:
     // appid order, which reads as random on screen.
     void libraryReady(const QList<StoreEntry>& entries);
     void libraryFailed(const QString& reason);
+
+    // Echo the id back first, the ProtonDBClient idiom: several titles can be in
+    // flight while the user clicks through the list, and the panel has to know
+    // whether an answer is still the one it is waiting for.
+    void detailsReady(const QString& id, const StoreEntryDetails& details);
+    void detailsFailed(const QString& id, const QString& reason);
 
     // Forwarded by whatever the service installs with, so the dialog stays
     // store-agnostic rather than connecting to a GOG-specific downloader.

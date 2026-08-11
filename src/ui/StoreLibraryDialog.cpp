@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QCheckBox>
 #include <QMessageBox>
+#include <QScrollArea>
 #include <QSplitter>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -151,10 +152,32 @@ void StoreLibraryDialog::setupUI()
     m_uninstallButton->setStyleSheet(AppStyle::secondaryButtonStyle());
     m_uninstallButton->hide();
 
+    // Scrollable since the panel grew a description and a language list: a game
+    // with nineteen localisations does not fit a 320px column, and the buttons
+    // below must not be pushed off the bottom by one. Horizontal scrolling is off
+    // so text wraps instead of the panel growing.
+    auto* detailsScroll = new QScrollArea(rightPanel);
+    detailsScroll->setWidgetResizable(true);
+    detailsScroll->setFrameShape(QFrame::NoFrame);
+    detailsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    detailsScroll->setStyleSheet(
+        "QScrollArea { background: transparent; border: none; }"
+        "QScrollBar:vertical { background: transparent; width: 8px; }"
+        "QScrollBar::handle:vertical { background: #4a4a4a; border-radius: 4px; min-height: 20px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
+
+    auto* detailsContent = new QWidget;
+    auto* detailsLayout = new QVBoxLayout(detailsContent);
+    detailsLayout->setContentsMargins(0, 0, 6, 0);
+    detailsLayout->setSpacing(8);
+    detailsLayout->addWidget(m_detailImage);
+    detailsLayout->addWidget(m_detailTitle);
+    detailsLayout->addWidget(m_detailBody);
+    detailsLayout->addStretch();
+    detailsScroll->setWidget(detailsContent);
+
     rightLayout->addWidget(sectionLabel("DETAILS", rightPanel));
-    rightLayout->addWidget(m_detailImage);
-    rightLayout->addWidget(m_detailTitle);
-    rightLayout->addWidget(m_detailBody, 1);
+    rightLayout->addWidget(detailsScroll, 1);
     rightLayout->addWidget(m_storePageButton);
     rightLayout->addWidget(m_installButton);
     rightLayout->addWidget(m_uninstallButton);
@@ -273,6 +296,34 @@ void StoreLibraryDialog::populateStores()
                     m_middleStack->setCurrentIndex(1);
                 }
             });
+            // Several titles can be in flight while the user clicks down the list.
+            // The answer is always cached, but only redrawn when it is still the
+            // one on screen — the same guard the cover art needs, and for the same
+            // reason.
+            connect(service, &IStoreService::detailsReady, this,
+                    [this, service](const QString& id, const StoreEntryDetails& details) {
+                const QString key = detailsKey(service->launcherName(), id);
+                m_detailsPending.remove(key);
+                m_detailsCache.insert(key, details);
+                const QListWidgetItem* item = m_entryList->currentItem();
+                if (item && currentService() == service
+                    && item->data(RoleEntryId).toString() == id) {
+                    refreshDetails();
+                }
+            });
+            connect(service, &IStoreService::detailsFailed, this,
+                    [this, service](const QString& id, const QString& reason) {
+                Q_UNUSED(reason);
+                const QString key = detailsKey(service->launcherName(), id);
+                m_detailsPending.remove(key);
+                m_detailsUnavailable.insert(key);
+                const QListWidgetItem* item = m_entryList->currentItem();
+                if (item && currentService() == service
+                    && item->data(RoleEntryId).toString() == id) {
+                    refreshDetails();
+                }
+            });
+
             connect(service, &IStoreService::authStateChanged, this, [this, service](bool) {
                 if (currentService() == service) {
                     m_entriesByLauncher.remove(service->launcherName());
@@ -327,6 +378,11 @@ void StoreLibraryDialog::populateStores()
     if (m_storeList->count() > 0) {
         m_storeList->setCurrentRow(0);
     }
+}
+
+QString StoreLibraryDialog::detailsKey(const QString& launcher, const QString& id)
+{
+    return launcher + QLatin1Char('/') + id;
 }
 
 IStoreService* StoreLibraryDialog::currentService() const
@@ -526,14 +582,89 @@ void StoreLibraryDialog::showDetails(const StoreEntry& entry)
     const bool updatable = m_installed.needUpdate.contains(entry.id);
     const bool installing = service->isInstalling(entry.id);
 
+    // Store metadata: asked for on the first look at a title, then remembered.
+    // Nothing here knows which store answered — a service that returns false from
+    // providesDetails() simply leaves this section out.
+    const QString key = detailsKey(service->launcherName(), entry.id);
+    if (service->providesDetails() && !m_detailsCache.contains(key)
+        && !m_detailsPending.contains(key) && !m_detailsUnavailable.contains(key)) {
+        m_detailsPending.insert(key);
+        service->fetchDetails(entry.id);
+    }
+    const StoreEntryDetails details = m_detailsCache.value(key);
+
     QStringList lines;
-    lines << QStringLiteral("<b>ID</b>: %1").arg(entry.id);
-    if (entry.supportsWindows || entry.supportsLinux) {
-        QStringList platforms;
+
+    if (!details.shortDescription.isEmpty()) {
+        lines << QStringLiteral("<span style='color:#c8c8c8'>%1</span><br>")
+                     .arg(details.shortDescription.toHtmlEscaped());
+    } else if (m_detailsPending.contains(key)) {
+        lines << QStringLiteral("<span style='color:#777'>Loading details…</span><br>");
+    } else if (m_detailsUnavailable.contains(key)) {
+        lines << QStringLiteral("<span style='color:#777'>No store details available.</span><br>");
+    }
+
+    if (!details.genres.isEmpty()) {
+        lines << QStringLiteral("<b>Genres</b>: %1")
+                     .arg(details.genres.join(", ").toHtmlEscaped());
+    }
+
+    // The details endpoint states the platforms; the owned-games listing does not,
+    // which is why StoreEntry has them false for every Steam title. Prefer the
+    // answer that was actually given.
+    QStringList platforms;
+    if (details.valid) {
+        if (details.supportsWindows) platforms << "Windows";
+        if (details.supportsLinux)   platforms << "Linux";
+        if (details.supportsMac)     platforms << "macOS";
+    } else {
         if (entry.supportsWindows) platforms << "Windows";
-        if (entry.supportsLinux) platforms << "Linux";
+        if (entry.supportsLinux)   platforms << "Linux";
+    }
+    if (!platforms.isEmpty()) {
         lines << QStringLiteral("<b>Platforms</b>: %1").arg(platforms.join(", "));
     }
+
+    if (details.valid) {
+        // Spelled out either way round: "no achievements" is an answer people go
+        // looking for, and a missing line reads as "nobody checked".
+        lines << QStringLiteral("<b>Achievements</b>: %1")
+                     .arg(!details.hasAchievements ? QStringLiteral("No")
+                          : details.achievementCount > 0
+                                ? QStringLiteral("%1").arg(details.achievementCount)
+                                : QStringLiteral("Yes"));
+    }
+
+    if (!details.features.isEmpty()) {
+        lines << QStringLiteral("<b>Features</b>: %1")
+                     .arg(details.features.join(", ").toHtmlEscaped());
+    }
+
+    if (!details.languages.isEmpty()) {
+        lines << QStringLiteral("<b>Languages</b> (%1): %2")
+                     .arg(details.languages.size())
+                     .arg(details.languages.join(", ").toHtmlEscaped());
+        if (!details.voiceLanguages.isEmpty()) {
+            lines << QStringLiteral("<b>Voice</b>: %1")
+                         .arg(details.voiceLanguages.join(", ").toHtmlEscaped());
+        }
+    }
+
+    if (!details.releaseDate.isEmpty()) {
+        lines << QStringLiteral("<b>Released</b>: %1").arg(details.releaseDate.toHtmlEscaped());
+    }
+    if (!details.developers.isEmpty()) {
+        lines << QStringLiteral("<b>Developer</b>: %1")
+                     .arg(details.developers.join(", ").toHtmlEscaped());
+    }
+    // Only when it says something the developer line did not — the two are the
+    // same company for most of both catalogues.
+    if (!details.publishers.isEmpty() && details.publishers != details.developers) {
+        lines << QStringLiteral("<b>Publisher</b>: %1")
+                     .arg(details.publishers.join(", ").toHtmlEscaped());
+    }
+
+    lines << QStringLiteral("<b>ID</b>: %1").arg(entry.id);
 
     // Where it lives and how big it is — the two questions asked before
     // installing anything, and the two nobody wants to go hunting for.
@@ -682,6 +813,10 @@ void StoreLibraryDialog::onRefreshClicked()
         return;
     }
     m_entriesByLauncher.remove(service->launcherName());
+    // Refresh is the retry for a store that could not be reached: without this a
+    // single failed request would keep saying "no store details" until the dialog
+    // is reopened. The cached answers stay — they are on disk anyway.
+    m_detailsUnavailable.clear();
     refreshInstalledState();
     showStoreState();
 }

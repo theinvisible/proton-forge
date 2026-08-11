@@ -41,6 +41,26 @@ public:
         bool valid = false;
     };
 
+    // What a product *is*, from the v2 catalogue endpoint — a different endpoint
+    // from ProductDetail's, and the only one that states features, languages and
+    // a description. Kept apart from ProductDetail rather than merged into it:
+    // that one answers "can we install this", which the install path needs and
+    // must not start depending on a second request.
+    struct GameDetails {
+        QString id;
+        QString description;      // the store's own overview, HTML
+        QStringList features;     // "Achievements", "Cloud saves", "Single-player"
+        QStringList genres;
+        QStringList textLanguages;
+        QStringList voiceLanguages;
+        QStringList developers;
+        QString publisher;
+        bool supportsWindows = false;
+        bool supportsLinux = false;
+        bool supportsMac = false;
+        bool valid = false;
+    };
+
     static GogApiClient& instance();
 
     // --- pure ---
@@ -50,6 +70,7 @@ public:
     // whether to ask for more.
     static QList<Product> parseFilteredProducts(const QByteArray& json, int* totalPages);
     static ProductDetail parseProduct(const QByteArray& json);
+    static GameDetails parseGameDetails(const QByteArray& json);
 
     // GOG serves artwork protocol-relative ("//images.gog-statics.com/<hash>")
     // and without a size suffix. Both have to be repaired before the URL is
@@ -68,6 +89,7 @@ public:
 
     void fetchLibrary();
     void fetchProduct(const QString& productId);
+    void fetchGameDetails(const QString& productId);
     void clearCache();
 
 signals:
@@ -75,6 +97,8 @@ signals:
     void libraryFailed(const QString& reason);
     void productReady(const QString& productId, const GogApiClient::ProductDetail& detail);
     void productFailed(const QString& productId, const QString& reason);
+    void gameDetailsReady(const QString& productId, const GogApiClient::GameDetails& details);
+    void gameDetailsFailed(const QString& productId, const QString& reason);
 
 private:
     GogApiClient();

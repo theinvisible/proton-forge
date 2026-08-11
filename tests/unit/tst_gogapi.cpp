@@ -22,6 +22,9 @@ private slots:
     void skipsProductsWithoutAnId();
     void parsesProductDetail();
     void separatesContentSystemFromStorePlatforms();
+    void parsesGameDetails();
+    void collapsesLanguagesListedTwice();
+    void refusesGameDetailsThatSayNothing();
 
     void normalizesImageUrls_data();
     void normalizesImageUrls();
@@ -239,6 +242,91 @@ void TstGogApi::survivesGarbage()
 
         QVERIFY2(!GogApiClient::parseProduct(bad).valid, "product: " + bad);
     }
+}
+
+// The v2 catalogue response, trimmed to what the details panel reads. Shaped as
+// GOG sends it, which for localisations means one entry per language *per scope* —
+// a language that is both written and voiced appears twice, nested two _embedded
+// levels deep.
+static QByteArray witcher2GameDetails()
+{
+    return R"({
+      "overview": "\n\nThe second installment in the RPG saga about Geralt of Rivia.",
+      "description": "<p>The full store description, which starts with the overview.</p>",
+      "_embedded": {
+        "product": {"id": 1207658930, "title": "The Witcher 2"},
+        "features": [
+          {"name": "Achievements", "id": "achievements"},
+          {"name": "Cloud saves", "id": "cloud_saves"},
+          {"name": "Controller support", "id": "controller_support"},
+          {"name": "Single-player", "id": "single_player"}
+        ],
+        "tags": [{"name": "Role-playing"}, {"name": "Action"}, {"name": "Fantasy"}],
+        "localizations": [
+          {"_embedded": {"language": {"code": "en", "name": "English"},
+                         "localizationScope": {"type": "text"}}},
+          {"_embedded": {"language": {"code": "en", "name": "English"},
+                         "localizationScope": {"type": "audio"}}},
+          {"_embedded": {"language": {"code": "cz", "name": "Czech"},
+                         "localizationScope": {"type": "text"}}}
+        ],
+        "developers": [{"name": "CD PROJEKT RED"}],
+        "publisher": {"name": "CD PROJEKT RED"},
+        "supportedOperatingSystems": [
+          {"operatingSystem": {"name": "windows"}},
+          {"operatingSystem": {"name": "linux"}},
+          {"operatingSystem": {"name": "osx"}}
+        ]
+      }
+    })";
+}
+
+void TstGogApi::parsesGameDetails()
+{
+    const GogApiClient::GameDetails d =
+        GogApiClient::parseGameDetails(witcher2GameDetails());
+
+    QVERIFY(d.valid);
+    QCOMPARE(d.id, QStringLiteral("1207658930"));
+    // The overview wins over the long description: the latter starts with the
+    // former and then keeps going for several screens.
+    QVERIFY(d.description.contains("second installment"));
+    QVERIFY(!d.description.contains("<p>"));
+
+    // Achievements stay in the feature list here — lifting them out is
+    // GogStoreService's job, because that is where the interface says so.
+    QCOMPARE(d.features, QStringList({"Achievements", "Cloud saves",
+                                      "Controller support", "Single-player"}));
+    QCOMPARE(d.genres, QStringList({"Role-playing", "Action", "Fantasy"}));
+    QCOMPARE(d.developers, QStringList({"CD PROJEKT RED"}));
+    QCOMPARE(d.publisher, QStringLiteral("CD PROJEKT RED"));
+
+    // Unlike the owned-games listing, this endpoint states all three.
+    QVERIFY(d.supportsWindows);
+    QVERIFY(d.supportsLinux);
+    QVERIFY(d.supportsMac);
+}
+
+void TstGogApi::collapsesLanguagesListedTwice()
+{
+    const GogApiClient::GameDetails d =
+        GogApiClient::parseGameDetails(witcher2GameDetails());
+
+    // English is listed for text and for audio. It belongs once in the list of
+    // languages and once in the list of voiced ones — not twice in either.
+    QCOMPARE(d.textLanguages, QStringList({"English", "Czech"}));
+    QCOMPARE(d.voiceLanguages, QStringList({"English"}));
+}
+
+void TstGogApi::refusesGameDetailsThatSayNothing()
+{
+    // A well-formed response with nothing in it must not read as a loaded answer,
+    // or the panel shows a title with a blank body and no way to tell why.
+    QVERIFY(!GogApiClient::parseGameDetails(R"({"_embedded": {"product": {"id": 1}}})").valid);
+    QVERIFY(!GogApiClient::parseGameDetails(R"({"overview": ""})").valid);
+    QVERIFY(!GogApiClient::parseGameDetails("{}").valid);
+    QVERIFY(!GogApiClient::parseGameDetails("<html>not json</html>").valid);
+    QVERIFY(!GogApiClient::parseGameDetails(QByteArray()).valid);
 }
 
 QTEST_MAIN(TstGogApi)

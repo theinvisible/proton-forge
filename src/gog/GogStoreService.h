@@ -29,6 +29,13 @@ public:
     void signOut() override;
     void fetchLibrary() override;
 
+    bool providesDetails() const override { return true; }
+    void fetchDetails(const QString& id) override;
+
+    // GOG states features but never how many achievements there are, which is why
+    // StoreEntryDetails carries the two separately.
+    static StoreEntryDetails toDetails(const GogApiClient::GameDetails& details);
+
     void install(const QString& id) override;
     void uninstall(const QString& id) override;
     void cancelInstall(const QString& id, bool discard) override;

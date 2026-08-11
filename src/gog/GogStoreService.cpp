@@ -4,6 +4,8 @@
 #include "GogDownloader.h"
 #include "GogInstallRegistry.h"
 
+#include <QRegularExpression>
+
 namespace {
 
 QString humanSize(qint64 bytes)
@@ -89,6 +91,12 @@ GogStoreService::GogStoreService()
         adoptArtworkFromLibrary();
     });
     connect(&api, &GogApiClient::libraryFailed, this, &GogStoreService::libraryFailed);
+
+    connect(&api, &GogApiClient::gameDetailsReady, this,
+            [this](const QString& productId, const GogApiClient::GameDetails& details) {
+        emit detailsReady(productId, toDetails(details));
+    });
+    connect(&api, &GogApiClient::gameDetailsFailed, this, &GogStoreService::detailsFailed);
 
     // The downloader is app-global and outlives this dialog, so its progress is
     // forwarded rather than owned.
@@ -224,6 +232,60 @@ void GogStoreService::fetchLibrary()
     }
     GogApiClient::instance().fetchLibrary();
     refreshUpdateState();
+}
+
+StoreEntryDetails GogStoreService::toDetails(const GogApiClient::GameDetails& details)
+{
+    StoreEntryDetails out;
+    if (!details.valid) {
+        return out;
+    }
+
+    // GOG's overview is HTML. The panel renders rich text, so the tags would be
+    // honoured rather than shown — but they carry paragraph breaks and links that
+    // do not belong in three lines of summary, and the panel is not a browser.
+    QString description = details.description;
+    description.replace(QRegularExpression(QStringLiteral("<br\\s*/?>"),
+                                           QRegularExpression::CaseInsensitiveOption),
+                        QStringLiteral(" "));
+    description.remove(QRegularExpression(QStringLiteral("<[^>]*>")));
+    out.shortDescription = description.simplified();
+
+    out.genres = details.genres;
+    out.languages = details.textLanguages;
+    out.voiceLanguages = details.voiceLanguages;
+    out.developers = details.developers;
+    if (!details.publisher.isEmpty()) {
+        out.publishers << details.publisher;
+    }
+    out.supportsWindows = details.supportsWindows;
+    out.supportsLinux = details.supportsLinux;
+    out.supportsMac = details.supportsMac;
+
+    // Achievements arrive as one entry in the same feature list as everything
+    // else, so they are lifted out of it rather than shown twice. The count stays
+    // 0: GOG does not state one here, and inventing it would be worse than the
+    // panel saying "Yes".
+    for (const QString& feature : details.features) {
+        if (feature.compare(QLatin1String("Achievements"), Qt::CaseInsensitive) == 0) {
+            out.hasAchievements = true;
+            continue;
+        }
+        out.features << feature;
+    }
+
+    // No release date: the v2 payload leaves firstReleaseDate null for most of the
+    // catalogue, and a blank line reads worse than no line.
+
+    out.valid = true;
+    return out;
+}
+
+void GogStoreService::fetchDetails(const QString& id)
+{
+    // No sign-in check: this is catalogue data and answers while signed out, which
+    // is what keeps the panel useful on the way to signing in.
+    GogApiClient::instance().fetchGameDetails(id);
 }
 
 void GogStoreService::install(const QString& id)

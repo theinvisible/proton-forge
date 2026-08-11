@@ -292,6 +292,137 @@ void GogApiClient::fetchProduct(const QString& productId)
     });
 }
 
+GogApiClient::GameDetails GogApiClient::parseGameDetails(const QByteArray& json)
+{
+    GameDetails details;
+
+    const QJsonObject root = QJsonDocument::fromJson(json).object();
+    if (root.isEmpty()) {
+        return details;
+    }
+    const QJsonObject embedded = root.value(QStringLiteral("_embedded")).toObject();
+    if (embedded.isEmpty()) {
+        return details;
+    }
+
+    details.id = embedded.value(QStringLiteral("product")).toObject()
+                     .value(QStringLiteral("id")).toVariant().toString();
+
+    // `overview` is the store's own summary and `description` the long text; both
+    // are HTML and the long one starts with the short one. Prefer the summary,
+    // fall back to the description so a product with only the latter still says
+    // something.
+    details.description = root.value(QStringLiteral("overview")).toString();
+    if (details.description.isEmpty()) {
+        details.description = root.value(QStringLiteral("description")).toString();
+    }
+
+    for (const QJsonValue& value : embedded.value(QStringLiteral("features")).toArray()) {
+        const QString name = value.toObject().value(QStringLiteral("name")).toString();
+        if (!name.isEmpty()) {
+            details.features << name;
+        }
+    }
+    // GOG files genres under `tags`; there is a `genres` key on some products and
+    // it is empty on most, so tags is the one worth reading.
+    for (const QJsonValue& value : embedded.value(QStringLiteral("tags")).toArray()) {
+        const QString name = value.toObject().value(QStringLiteral("name")).toString();
+        if (!name.isEmpty()) {
+            details.genres << name;
+        }
+    }
+
+    // Each localization is a language plus a scope, and a language appears twice
+    // when it is both written and voiced.
+    for (const QJsonValue& value : embedded.value(QStringLiteral("localizations")).toArray()) {
+        const QJsonObject inner = value.toObject().value(QStringLiteral("_embedded")).toObject();
+        const QString name = inner.value(QStringLiteral("language")).toObject()
+                                 .value(QStringLiteral("name")).toString();
+        if (name.isEmpty()) {
+            continue;
+        }
+        const QString scope = inner.value(QStringLiteral("localizationScope")).toObject()
+                                  .value(QStringLiteral("type")).toString();
+        if (scope == QLatin1String("audio")) {
+            if (!details.voiceLanguages.contains(name)) {
+                details.voiceLanguages << name;
+            }
+        }
+        if (!details.textLanguages.contains(name)) {
+            details.textLanguages << name;
+        }
+    }
+
+    for (const QJsonValue& value : embedded.value(QStringLiteral("developers")).toArray()) {
+        const QString name = value.toObject().value(QStringLiteral("name")).toString();
+        if (!name.isEmpty()) {
+            details.developers << name;
+        }
+    }
+    details.publisher = embedded.value(QStringLiteral("publisher")).toObject()
+                            .value(QStringLiteral("name")).toString();
+
+    for (const QJsonValue& value :
+         embedded.value(QStringLiteral("supportedOperatingSystems")).toArray()) {
+        const QString os = value.toObject().value(QStringLiteral("operatingSystem")).toObject()
+                               .value(QStringLiteral("name")).toString();
+        if (os == QLatin1String("windows")) details.supportsWindows = true;
+        if (os == QLatin1String("linux"))   details.supportsLinux = true;
+        if (os == QLatin1String("osx") || os == QLatin1String("mac")) details.supportsMac = true;
+    }
+
+    // A response that parsed but says nothing at all is not worth showing as an
+    // answer; the panel would look like it had loaded something.
+    details.valid = !details.description.isEmpty() || !details.features.isEmpty()
+                    || !details.genres.isEmpty() || !details.textLanguages.isEmpty();
+    return details;
+}
+
+void GogApiClient::fetchGameDetails(const QString& productId)
+{
+    if (productId.isEmpty()) {
+        emit gameDetailsFailed(productId, QStringLiteral("No product id."));
+        return;
+    }
+
+    const QString path =
+        JsonDiskCache::filePath(kCacheArea, QStringLiteral("gamedetails-") + productId);
+
+    QByteArray cached;
+    if (JsonDiskCache::load(path, cached, kProductTtlSecs)) {
+        const GameDetails details = parseGameDetails(cached);
+        if (details.valid) {
+            emit gameDetailsReady(productId, details);
+            return;
+        }
+    }
+
+    // v2, not the products endpoint fetchProduct() uses: this is the only one that
+    // carries features, localizations and the overview. Catalogue data again, so
+    // no token — see the note in fetchProduct().
+    const QUrl url(QStringLiteral("https://api.gog.com/v2/games/%1?locale=en-US").arg(productId));
+
+    GogRequest::getPublic(m_networkManager, url, this,
+                          [this, productId, path](QNetworkReply* reply) {
+        if (!reply || reply->error() != QNetworkReply::NoError) {
+            emit gameDetailsFailed(productId, reply ? reply->errorString()
+                                                    : QStringLiteral("request failed"));
+            return;
+        }
+
+        const QByteArray body = reply->readAll();
+        const GameDetails details = parseGameDetails(body);
+        if (!details.valid) {
+            emit gameDetailsFailed(productId,
+                                   QStringLiteral("GOG returned no usable details."));
+            return;
+        }
+
+        JsonDiskCache::save(path, body);
+        emit gameDetailsReady(productId, details);
+    });
+}
+
 void GogApiClient::clearCache()
 {
     JsonDiskCache::remove(JsonDiskCache::filePath(kCacheArea, QStringLiteral("library")));

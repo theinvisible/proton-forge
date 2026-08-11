@@ -28,6 +28,11 @@ private slots:
     void handlesAMissingOrEmptyLoginUsers();
 
     void headerImageMatchesTheInstalledGamePattern();
+
+    void parsesAppDetails();
+    void reportsAnUnknownAppAsHavingNoDetails();
+    void separatesVoicedLanguagesFromWrittenOnes();
+    void keepsOnlyCategoriesThatDescribePlaying();
 };
 
 void TstSteamStore::parsesOwnedGames()
@@ -212,6 +217,117 @@ void TstSteamStore::headerImageMatchesTheInstalledGamePattern()
     // downloading the same picture twice.
     QCOMPARE(SteamStoreService::headerImageUrl("1245620"),
              QStringLiteral("https://steamcdn-a.akamaihd.net/steam/apps/1245620/header.jpg"));
+}
+
+// The storefront's appdetails response, trimmed to the fields the panel uses but
+// otherwise shaped exactly as Steam sends it — including the appid-keyed wrapper,
+// the languages-as-display-HTML, and the two dozen "categories" of which only a
+// handful say anything about playing the game.
+static QByteArray witcherAppDetails()
+{
+    return R"({
+      "292030": {
+        "success": true,
+        "data": {
+          "name": "The Witcher 3: Wild Hunt",
+          "short_description": "You are Geralt of Rivia, mercenary monster slayer.",
+          "supported_languages": "English<strong>*</strong>, French<strong>*</strong>, Italian, German<strong>*</strong>, Czech<br><strong>*</strong>languages with full audio support",
+          "achievements": {"total": 78},
+          "categories": [
+            {"id": 2, "description": "Single-player"},
+            {"id": 22, "description": "Steam Achievements"},
+            {"id": 29, "description": "Steam Trading Cards"},
+            {"id": 23, "description": "Steam Cloud"},
+            {"id": 18, "description": "Partial Controller Support"},
+            {"id": 62, "description": "Family Sharing"}
+          ],
+          "genres": [{"id": "3", "description": "RPG"}],
+          "release_date": {"coming_soon": false, "date": "18 May, 2015"},
+          "developers": ["CD PROJEKT RED"],
+          "publishers": ["CD PROJEKT RED"],
+          "platforms": {"windows": true, "mac": false, "linux": false}
+        }
+      }
+    })";
+}
+
+void TstSteamStore::parsesAppDetails()
+{
+    const StoreEntryDetails d =
+        SteamStoreService::parseAppDetails(witcherAppDetails(), QStringLiteral("292030"));
+
+    QVERIFY(d.valid);
+    QVERIFY(d.shortDescription.startsWith("You are Geralt"));
+    QCOMPARE(d.genres, QStringList({"RPG"}));
+    QVERIFY(d.hasAchievements);
+    QCOMPARE(d.achievementCount, 78);
+    QCOMPARE(d.releaseDate, QStringLiteral("18 May, 2015"));
+    QCOMPARE(d.developers, QStringList({"CD PROJEKT RED"}));
+    QCOMPARE(d.publishers, QStringList({"CD PROJEKT RED"}));
+
+    // The platforms the owned-games listing cannot tell us. This is the whole
+    // reason the panel prefers the details over the StoreEntry.
+    QVERIFY(d.supportsWindows);
+    QVERIFY(!d.supportsLinux);
+    QVERIFY(!d.supportsMac);
+}
+
+void TstSteamStore::reportsAnUnknownAppAsHavingNoDetails()
+{
+    // A delisted or region-hidden app answers with HTTP 200 and success=false.
+    // Treated as "nothing to show", not as an error — and certainly not as a
+    // half-filled panel.
+    const StoreEntryDetails missing =
+        SteamStoreService::parseAppDetails(R"({"9999": {"success": false}})",
+                                           QStringLiteral("9999"));
+    QVERIFY(!missing.valid);
+
+    // Asked about one appid, answered about another: also nothing, rather than
+    // silently showing the wrong game's description.
+    const StoreEntryDetails wrongId =
+        SteamStoreService::parseAppDetails(witcherAppDetails(), QStringLiteral("1245620"));
+    QVERIFY(!wrongId.valid);
+
+    QVERIFY(!SteamStoreService::parseAppDetails("not json at all", QStringLiteral("1")).valid);
+    QVERIFY(!SteamStoreService::parseAppDetails(QByteArray(), QStringLiteral("1")).valid);
+}
+
+void TstSteamStore::separatesVoicedLanguagesFromWrittenOnes()
+{
+    QStringList voiced;
+    const QStringList all = SteamStoreService::parseSupportedLanguages(
+        "English<strong>*</strong>, French<strong>*</strong>, Italian, German<strong>*</strong>, "
+        "Czech<br><strong>*</strong>languages with full audio support", &voiced);
+
+    // The footnote explaining the asterisk is not a language, and neither is the
+    // markup around it.
+    QCOMPARE(all, QStringList({"English", "French", "Italian", "German", "Czech"}));
+    QCOMPARE(voiced, QStringList({"English", "French", "German"}));
+
+    // A title with no audio note at all: every language is text-only, and nothing
+    // invents a voice list.
+    QStringList none;
+    QCOMPARE(SteamStoreService::parseSupportedLanguages("English, German", &none),
+             QStringList({"English", "German"}));
+    QVERIFY(none.isEmpty());
+
+    // And the caller may not care.
+    QCOMPARE(SteamStoreService::parseSupportedLanguages("English", nullptr),
+             QStringList({"English"}));
+    QVERIFY(SteamStoreService::parseSupportedLanguages(QString(), &none).isEmpty());
+}
+
+void TstSteamStore::keepsOnlyCategoriesThatDescribePlaying()
+{
+    const StoreEntryDetails d =
+        SteamStoreService::parseAppDetails(witcherAppDetails(), QStringLiteral("292030"));
+
+    // Trading cards and family sharing are not features of the game, and
+    // "Steam Achievements" is reported through hasAchievements rather than as a
+    // feature. What survives is renamed to GOG's vocabulary so the same game reads
+    // the same in both stores.
+    QCOMPARE(d.features, QStringList({"Single-player", "Cloud saves",
+                                      "Controller support (partial)"}));
 }
 
 QTEST_MAIN(TstSteamStore)

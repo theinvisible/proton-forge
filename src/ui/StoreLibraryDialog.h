@@ -59,6 +59,10 @@ private:
     void showProgress(const QString& id, const StoreInstallProgress& progress);
     void clearProgressFor(const QString& id);
 
+    // Store metadata is keyed by launcher as well as id: the two stores number
+    // their products independently and nothing stops them colliding.
+    static QString detailsKey(const QString& launcher, const QString& id);
+
     IStoreService* currentService() const;
     StoreEntry entryById(const QString& id) const;
     Game gameFor(const QString& id) const;
@@ -87,6 +91,15 @@ private:
 
     QList<IStoreService*> m_services;
     QHash<QString, QList<StoreEntry>> m_entriesByLauncher;
+
+    // Per-title store metadata, fetched once per title per session. Pending and
+    // unavailable are tracked separately so clicking through the list neither
+    // fires the same request twice nor retries a store that just said no on every
+    // re-selection — Refresh is what clears the second one.
+    QHash<QString, StoreEntryDetails> m_detailsCache;
+    QSet<QString> m_detailsPending;
+    QSet<QString> m_detailsUnavailable;
+
     InstalledState m_installed;
     QString m_installingId;
     bool m_installPaused = false;
