@@ -25,6 +25,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 - **Custom Scaling Ratios**: Set precise render resolution percentages
 - **Render Presets**: Pick the DLSS model preset, including the DLSS 4 transformer presets (J/K plus the DLSS 4.5 L/M models), with in-app tooltips documenting which presets actually exist
 - **Compatibility Warnings**: Options that require a newer NVIDIA driver or Proton version are flagged with a non-blocking warning based on your detected driver and the selected Proton version
+- **Platform Gating**: On a native Linux game the options that only Proton, DXVK, vkd3d-proton or DXVK-NVAPI would read are greyed out with a one-line explanation, because nothing in a native process reads them — the DLSS overrides in particular travel in `DXVK_NVAPI_DRS_SETTINGS`, and NVIDIA does not support preset overrides outside NVAPI. Driver-level options (Smooth Motion, PRIME offload) and the Vulkan HDR layer stay live, and your saved values are kept untouched, so forcing a compatibility tool in Steam still gets the full launch string
 
 ### HDR Support
 - **Individual HDR Options**: Separately configure PROTON_ENABLE_WAYLAND, PROTON_ENABLE_HDR, and ENABLE_HDR_WSI
@@ -81,9 +82,9 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 ### User Interface
 - **Game Library Browser**: Beautiful card view with cover art for both Steam and GOG games
 - **Source Badge & Filter**: Each game shows where it came from, and the list can be filtered to one source — both appear only once you actually have more than one, so a Steam-only setup looks exactly as it always did
-- **Game Stores Dialog**: One place to browse every store you have an account with (Library → Game Stores), with install progress, pause and uninstall. The details panel adds what the owned-games listing does not carry — a short description, whether there are achievements, the text and voice languages, genres, features and the platforms the store really lists — fetched per title from each store's public catalogue endpoint (no API key) and cached on disk for a week
+- **Game Stores Dialog**: One place to browse every store you have an account with (Library → Game Stores), with install progress, pause and uninstall. Owned games are listed alphabetically by title, from both stores. The details panel adds what the owned-games listing does not carry — a short description, whether there are achievements, the text and voice languages, genres, features and the platforms the store really lists — fetched per title from each store's public catalogue endpoint (no API key) and cached on disk for a week
 - **Real-time Preview**: See launch command changes in real-time
-- **Native Linux Support**: Separate settings for native Linux games
+- **Native Linux Support**: Separate settings for native Linux games, with the Proton-only controls greyed out and explained rather than left to look effective
 - **Single Instance**: Prevents multiple app instances running simultaneously
 
 ## 📋 Requirements
