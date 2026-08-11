@@ -17,6 +17,7 @@ class TstSteamStore : public QObject
 
 private slots:
     void parsesOwnedGames();
+    void ordersGamesByTitle();
     void reportsAnEmptyLibraryAsEmpty();
     void skipsGamesWithoutAnAppId();
     void survivesGarbage();
@@ -59,6 +60,49 @@ void TstSteamStore::parsesOwnedGames()
     // badge on every row, so both stay false.
     QVERIFY(!entries.first().supportsWindows);
     QVERIFY(!entries.first().supportsLinux);
+}
+
+void TstSteamStore::ordersGamesByTitle()
+{
+    // GetOwnedGames answers in appid order, which on screen reads as no order at
+    // all. Sorted in the parser rather than by whoever draws the list, because
+    // --store-list consumes the same entries and is not a list widget.
+    const QByteArray json = R"({
+        "response": {
+            "games": [
+                {"appid": 100, "name": "Portal 2"},
+                {"appid": 101, "name": "aperture desk job"},
+                {"appid": 102, "name": "Hades"},
+                {"appid": 103, "name": "Zork"},
+                {"appid": 104, "name": "ELDEN RING"}
+            ]
+        }
+    })";
+
+    const QList<StoreEntry> entries = SteamStoreService::parseOwnedGames(json, nullptr);
+
+    QStringList titles;
+    for (const StoreEntry& entry : entries) {
+        titles << entry.title;
+    }
+    // Case-insensitive: a lower-case title belongs among the others, not before
+    // or after all of them.
+    QCOMPARE(titles, QStringList({"aperture desk job", "ELDEN RING", "Hades",
+                                  "Portal 2", "Zork"}));
+
+    // std::sort is not stable, so two products sharing a title could come out
+    // either way round depending on the order the API happened to list them. The
+    // id breaks the tie, which is what makes the list the same on every fetch.
+    const QByteArray oneWay = R"({"response": {"games": [
+        {"appid": 200, "name": "Soundtrack"}, {"appid": 201, "name": "Soundtrack"}]}})";
+    const QByteArray theOther = R"({"response": {"games": [
+        {"appid": 201, "name": "Soundtrack"}, {"appid": 200, "name": "Soundtrack"}]}})";
+
+    const QList<StoreEntry> a = SteamStoreService::parseOwnedGames(oneWay, nullptr);
+    const QList<StoreEntry> b = SteamStoreService::parseOwnedGames(theOther, nullptr);
+    QCOMPARE(a.size(), 2);
+    QCOMPARE(a.first().id, b.first().id);
+    QCOMPARE(a.last().id, b.last().id);
 }
 
 void TstSteamStore::reportsAnEmptyLibraryAsEmpty()

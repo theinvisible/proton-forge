@@ -4,6 +4,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <algorithm>
 #include <functional>
 
 class QWidget;
@@ -28,6 +29,25 @@ struct StoreEntry {
     // to fail after the user clicks.
     bool installable = false;
 };
+
+// The order libraryReady() promises. Stated here, next to the signal that carries
+// it, and applied by each service before emitting rather than by the code that
+// draws a list: there are two consumers — the library dialog and `--store-list` —
+// and only one of them is a list widget.
+//
+// Case-insensitive, matching how SteamLauncher orders the games it discovers, and
+// tie-broken by id so a library with two identically named products comes out the
+// same way twice. Deliberately not locale- or number-aware: the installed-games
+// list is not either, and one list sorting "Fallout 2" before "Fallout 10" while
+// the other does the opposite would be worse than both being plain.
+inline void sortEntriesByTitle(QList<StoreEntry>& entries)
+{
+    std::sort(entries.begin(), entries.end(),
+              [](const StoreEntry& a, const StoreEntry& b) {
+        const int byTitle = QString::compare(a.title, b.title, Qt::CaseInsensitive);
+        return byTitle != 0 ? byTitle < 0 : a.id < b.id;
+    });
+}
 
 // How far along an install is. Generic on purpose: the library dialog draws a
 // bar and a line of text and must not know which store is filling them in.
@@ -125,6 +145,8 @@ public:
 
 signals:
     void authStateChanged(bool authenticated);
+    // Sorted by sortEntriesByTitle() above — Steam's GetOwnedGames answers in
+    // appid order, which reads as random on screen.
     void libraryReady(const QList<StoreEntry>& entries);
     void libraryFailed(const QString& reason);
 

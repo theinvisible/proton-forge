@@ -125,6 +125,9 @@ QList<StoreEntry> SteamStoreService::parseOwnedGames(const QByteArray& json, int
         entries.append(entry);
     }
 
+    // Here rather than at the two emit sites, so the cache path and the network
+    // path cannot disagree.
+    sortEntriesByTitle(entries);
     return entries;
 }
 

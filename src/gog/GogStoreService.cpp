@@ -77,6 +77,10 @@ GogStoreService::GogStoreService()
             m_titles.insert(product.id, product.title);
             m_images.insert(product.id, product.imageUrl);
         }
+        // GOG's own listing is fetched with sortBy=title, so this is usually a
+        // no-op — but the two stores have to come out in the *same* order, and
+        // that cannot depend on an API query parameter staying as it is.
+        sortEntriesByTitle(entries);
         emit libraryReady(entries);
 
         // The listing already carries a banner for everything owned, so an
