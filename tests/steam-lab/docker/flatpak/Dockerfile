@@ -42,6 +42,13 @@ ENV LANG=C.UTF-8
 # fails with "Could not connect: No such file or directory" — and the app under
 # test links QtDBus and expects a session bus of its own anyway. lib/flatpak.sh
 # starts one daemon per container and hands its address to every exec.
+#
+# librsvg2-common is the gdk-pixbuf SVG loader. flatpak-builder runs the
+# appstreamcli it finds in PATH — not the SDK's — and ours has to rasterise the
+# app's scalable icon; without the loader it reports "Unrecognized image file
+# format", drops the component and fails the build. Note this makes the lab
+# *stricter* than the release runner, which has no appstreamcli at all and
+# therefore skips the whole appstream step. Exercising it is the point.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -53,6 +60,7 @@ RUN apt-get update \
         python3-yaml \
         binutils \
         fuse3 \
+        librsvg2-common \
         xz-utils \
         zstd \
     && rm -rf /var/lib/apt/lists/*

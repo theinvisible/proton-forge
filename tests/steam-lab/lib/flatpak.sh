@@ -23,7 +23,13 @@
 # what a clean-room check wants and what CI can afford.
 
 : "${LAB_FLATPAK_APP_ID:=org.protonforge.ProtonForge}"
-: "${LAB_FLATPAK_IMAGE:=ubuntu:26.04}"
+# ubuntu:24.04 deliberately, not the newest: it is what GitHub's ubuntu-latest
+# runner is, and therefore which flatpak-builder the tag workflow uses. The
+# version matters more than it looks — 1.4.8 passes meson a libdir and 1.4.2 does
+# not, which is the difference between a module landing in /app/lib and in
+# /app/lib64, and a clean-room check on the newer one passed a manifest that CI
+# could not build. Override with LAB_FLATPAK_IMAGE to test another distribution.
+: "${LAB_FLATPAK_IMAGE:=ubuntu:24.04}"
 
 # shellcheck source=docker.sh
 source "$LAB_SRC_DIR/lib/docker.sh"

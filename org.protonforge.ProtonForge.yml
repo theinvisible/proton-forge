@@ -57,6 +57,14 @@ modules:
   - name: libsecret
     buildsystem: meson
     config-opts:
+      # libdir is pinned, and this is the whole fix rather than a detail: meson
+      # picks lib64 on its own, and flatpak-builder only overrides that from
+      # 1.4.8 on. Built by an older one — GitHub's ubuntu-24.04 runner has
+      # 1.4.2 — everything lands in /app/lib64, which is in neither
+      # PKG_CONFIG_PATH nor the loader path. pkg-config then falls back to the
+      # SDK's own libsecret-1.pc and qtkeychain fails on the missing header
+      # exactly as it did with no module here at all.
+      - --libdir=lib
       # crypto=disabled: the transport encryption wants libgcrypt or gnutls
       # headers, which the SDK is missing for the same reason. Secrets then
       # travel the session bus unencrypted — a bus only this user can talk to.
@@ -83,6 +91,12 @@ modules:
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
+      # Same reason as libsecret's --libdir, and the consequence here is worse
+      # than a failed build: GNUInstallDirs picks lib64, flatpak-builder pins it
+      # only from 1.4.8 on, and /app/lib64 is not on the loader path. Built by
+      # the older one the bundle installs, exports and then dies on startup with
+      # "libqt6keychain.so.1: cannot open shared object file".
+      - -DCMAKE_INSTALL_LIBDIR=lib
       - -DBUILD_WITH_QT6=ON
       - -DBUILD_TEST_APPLICATION=OFF
     sources:

@@ -133,10 +133,35 @@ assert_true "the icon is installed" \
 # itself, and these three assertions are what would notice it being dropped
 # again: a bundle without them still builds, still starts and still passes every
 # other check in this file, because SecretStore falls back to its 0600 file.
-assert_true "libsecret is built into /app, not taken from the SDK" \
-    fp_test_file /app/lib/libsecret-1.so.0
-assert_true "qtkeychain is in the bundle" \
-    fp_test_file /app/lib/libqt6keychain.so.1
+if fp_test_file /app/lib/libsecret-1.so.0; then
+    ok "libsecret is built into /app, not taken from the SDK"
+elif fp_test_file /app/lib64/libsecret-1.so.0; then
+    # The interesting failure, and the one CI hit: meson defaults libdir to lib64
+    # and only flatpak-builder >= 1.4.8 overrides it. /app/lib64 is in neither
+    # PKG_CONFIG_PATH nor the loader path, so the module is built, installed, and
+    # invisible to both qtkeychain's configure and QLibrary.
+    fail "libsecret was installed into /app/lib64" \
+"The manifest's libsecret module needs --libdir=lib. Without it, whether this
+works depends on the flatpak-builder version doing the building, and the older
+one is what the tag workflow has."
+else
+    fail "libsecret is not in the bundle" \
+"The manifest is supposed to build it, because the SDK ships the library and its
+.pc but not its headers."
+fi
+if fp_test_file /app/lib/libqt6keychain.so.1; then
+    ok "qtkeychain is in the bundle"
+elif fp_test_file /app/lib64/libqt6keychain.so.1; then
+    # Worse than libsecret's version of this: the bundle builds, installs and
+    # exports, and then the app dies on startup because /app/lib64 is not on the
+    # loader path. GNUInstallDirs picks lib64 and flatpak-builder only pins it
+    # from 1.4.8 on, so whether a release works depends on the runner.
+    fail "qtkeychain was installed into /app/lib64" \
+"The manifest's qtkeychain module needs -DCMAKE_INSTALL_LIBDIR=lib. Without it
+the app cannot load libqt6keychain.so.1 at all."
+else
+    fail "qtkeychain is not in the bundle" "the manifest is supposed to build it"
+fi
 
 # Built *with* the libsecret backend, which the two files above cannot show:
 # QtKeychain 0.15 does not link libsecret at all. It resolves the library by name

@@ -42,11 +42,12 @@
 
   <launchable type="desktop-id">org.protonforge.ProtonForge.desktop</launchable>
 
-  <screenshots>
-    <screenshot type="default">
-      <caption>Main window with game library and DLSS settings</caption>
-    </screenshot>
-  </screenshots>
+  <!-- No <screenshots> block: a <screenshot> without an <image> is not an empty
+       screenshot list, it is an unreadable one. appstreamcli compose fails the
+       whole component with file-read-error over it, which fails the Flatpak
+       build — and it only surfaced on flatpak-builder 1.4.2, the version the
+       release runner has. Adding one means adding an <image> with a URL that is
+       fetched at build time. -->
 
   <categories>
     <category>Game</category>

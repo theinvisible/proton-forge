@@ -673,6 +673,26 @@ only this user can talk to. The alternative was `LIBSECRET_SUPPORT=OFF`, which
 builds but leaves QtKeychain with KWallet over D-Bus only — every non-KDE desktop
 would fall through to `SecretStore`'s 0600 file with nothing saying so.
 
+**Both new modules pin their libdir, and that is the load-bearing part.** meson
+and GNUInstallDirs both choose `lib64` on their own, and flatpak-builder only
+overrides that from **1.4.8** on — GitHub's `ubuntu-24.04` runner, which the
+release workflow uses, has 1.4.2. Built by the older one:
+
+* libsecret's `.pc` goes to `/app/lib64/pkgconfig`, which is in no search path,
+  so pkg-config falls back to the SDK's own `libsecret-1.pc` and qtkeychain fails
+  on the missing header **exactly as it did with no module there at all**. That
+  is the second time the same symptom had a different cause, which is why
+  `--libdir=lib` is in the manifest with a comment rather than left to a default.
+* qtkeychain goes to `/app/lib64` and `/app/lib64` is not on the loader path. The
+  bundle then builds, installs, exports and uploads — and dies on startup with
+  ``libqt6keychain.so.1: cannot open shared object file``. Nothing before the
+  container tier would have caught that: a release would have shipped it.
+
+The first container run used `ubuntu:26.04` and its flatpak-builder 1.4.8, which
+pins the libdir itself, so it went 22/22 green on a manifest the release runner
+could not build. `LAB_FLATPAK_IMAGE` now defaults to `ubuntu:24.04` for that
+reason — matching the runner matters more than being current.
+
 Three things came out of it:
 
 * **The lab derived an unbuildable manifest.** `fp_devel_manifest` swapped the
@@ -702,6 +722,14 @@ Three things came out of it:
   home directory at the *host's* home path, because `--filesystem=home` is one of
   the grants under test and would otherwise grant a directory the fixtures are
   not in.
+* **flatpak-builder runs the `appstreamcli` from `PATH`, not the SDK's.** The
+  release runner has none, so it skips the appstream step altogether — which is
+  why the last green Flatpak build never exercised it. The container does have
+  one, and needs `librsvg2-common` for it: without the gdk-pixbuf SVG loader the
+  app's scalable icon reads as "Unrecognized image file format", the component is
+  dropped and the build fails. The tier is deliberately stricter than CI here.
+  Found along the way: the metainfo's `<screenshot>` carried a `<caption>` and no
+  `<image>`, which any appstreamcli that gets that far rejects. Removed.
 
 ### Also found, and fixed
 
