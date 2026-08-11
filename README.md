@@ -139,6 +139,29 @@ Or from Flathub (once published):
 flatpak install flathub org.protonforge.ProtonForge
 ```
 
+### From AppImage (one file, any distribution)
+
+One file, no package manager, no sandbox. Built against Debian bookworm's glibc
+2.36, so it runs on anything at least that new:
+
+```bash
+# Download from GitHub releases
+https://github.com/theinvisible/proton-forge/releases/
+
+chmod +x ProtonForge-*-x86_64.AppImage
+./ProtonForge-*-x86_64.AppImage
+```
+
+> On Ubuntu 24.04 and newer, AppImages need FUSE 2, which is no longer installed
+> by default: `sudo apt install libfuse2t64`. Without it, run the file with
+> `--appimage-extract-and-run` instead — it unpacks to a temporary directory and
+> needs nothing installed at all.
+
+Games launched from the AppImage get your system's libraries, not the bundle's:
+the bundled paths are stripped from every process ProtonForge starts, so a game
+does not end up loading the AppImage's Qt and then losing it when ProtonForge
+exits.
+
 ### From .deb Package (Debian/Ubuntu)
 
 Every release ships one package per supported Ubuntu LTS, named after the
@@ -192,6 +215,21 @@ cd ..
 # Create .deb package
 bash build-deb.sh
 ```
+
+### Build AppImage
+
+```bash
+bash build-appimage.sh . dist        # artifact lands in dist/
+```
+
+This one always builds in a container, and that is deliberate twice over: an
+AppImage only runs on glibc at least as new as the one it was built against, so
+the base distribution decides who can run the result — and the build wants
+`qt6-wayland`, `patchelf`, `libsecret` and a downloaded `linuxdeploy`, none of
+which belongs on your machine for the sake of a release artifact. The script
+builds `packaging/appimage/Dockerfile` (Debian bookworm) on first use and
+re-executes itself inside it, with no network and the source tree read-only. All
+your system gets is one Docker image.
 
 ## 🎮 Usage
 

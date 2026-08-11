@@ -51,6 +51,7 @@ set(CORE_SOURCES
     src/launchers/GogLauncher.cpp
     src/utils/EnvBuilder.cpp
     src/utils/ProcessRunner.cpp
+    src/utils/HostEnvironment.cpp
     src/utils/ProtonManager.cpp
     src/utils/LaunchOptionExtractor.cpp
     src/utils/GpuInfoCache.cpp
@@ -111,6 +112,7 @@ set(CORE_HEADERS
     src/launchers/GogLauncher.h
     src/utils/EnvBuilder.h
     src/utils/ProcessRunner.h
+    src/utils/HostEnvironment.h
     src/utils/ProtonManager.h
     src/utils/LaunchOptionExtractor.h
     src/utils/GpuInfoCache.h

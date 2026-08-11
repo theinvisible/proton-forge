@@ -17,6 +17,7 @@ set(UNIT_TESTS
     tst_cpudetector
     tst_kscreendoctor
     tst_processrunner
+    tst_hostenv
     tst_game
     tst_steamlauncher
     tst_launchermanager

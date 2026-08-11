@@ -1,0 +1,57 @@
+# What an AppImage build needs on top of packaging/build-depends.txt, one package
+# per line.
+#
+# A second list rather than more lines in the first one, because these are not the
+# application's build dependencies: nothing here is needed to compile ProtonForge,
+# and adding them to build-depends.txt would install them in every .deb container
+# and every CI job that has no use for them.
+#
+# The single list for this tier: packaging/appimage/Dockerfile bakes them into the
+# build image and .github/workflows/release.yml installs them in its container.
+#
+# Consume with:
+#     grep -vE '^\s*(#|$)' packaging/appimage/build-depends.txt | xargs apt-get install -y
+
+# The Wayland QPA plugin. Without it linuxdeploy has nothing to bundle and the app
+# falls back to XWayland on every Wayland session — on a tool whose HDR advice is
+# "use Wayland", that would be its own joke. build-appimage.sh still has to name
+# the plugin files explicitly; installing the package is only half of it.
+qt6-wayland
+
+# Qt 6 loads this at run time for cursor themes on xcb. Not a link-time
+# dependency, so nothing notices it missing until a user on X11 does.
+libxcb-cursor0
+
+# The SVG image-format plugin (plugins/imageformats/libqsvg.so). Every icon in
+# resources.qrc is an SVG, including the store badges in the Game Stores dialog,
+# and Qt renders exactly none of them without this plugin — QIcon comes back null
+# and the UI simply has blank spaces where the icons were. Nothing links Qt6Svg
+# (CMakeLists.txt does not even look for it), the plugin is loaded by name at run
+# time, and linuxdeploy bundles whatever it finds in imageformats/ — so leaving
+# this out of the *build* image is what makes the icons vanish from the bundle.
+# Found by looking at a running AppImage, which is the only place it shows.
+libqt6svg6
+
+# The keyring backend, bundled into the AppImage by build-appimage.sh. It has to
+# be asked for by name: nothing depends on it, because QtKeychain resolves it
+# through QLibrary and dlsym rather than linking it (TESTS.md §7, finding 9).
+# Installing qtkeychain-qt6-dev does not bring it in — the first build here failed
+# on exactly that.
+libsecret-1-0
+
+# linuxdeploy rewrites RPATHs with patchelf, identifies files with file, and
+# strips the bundled libraries with binutils' strip.
+patchelf
+file
+binutils
+
+# Validates the .desktop file the whole AppImage is built around.
+desktop-file-utils
+
+# Fetches the pinned tools (packaging/appimage/install-tools.sh).
+wget
+ca-certificates
+
+# Lets appimagetool emit a .zsync file. Unused so far — two megabytes now against
+# a rebuilt image later if delta updates ever get switched on.
+zsync

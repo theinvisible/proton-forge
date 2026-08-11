@@ -3,7 +3,7 @@ Version: @VERSION@
 Section: games
 Priority: optional
 Architecture: amd64
-Depends: libqt6core6 (>= 6.0.0), libqt6gui6 (>= 6.0.0), libqt6widgets6 (>= 6.0.0), libqt6network6 (>= 6.0.0), libc6 (>= 2.34), zlib1g, libqt6keychain1
+Depends: libqt6core6 (>= 6.0.0), libqt6gui6 (>= 6.0.0), libqt6widgets6 (>= 6.0.0), libqt6network6 (>= 6.0.0), libc6 (>= 2.34), zlib1g, libqt6keychain1, libqt6svg6
 Maintainer: ProtonForge <noreply@protonforge.dev>
 Description: DLSS & Proton Manager for Steam and GOG games
  ProtonForge is a Qt6 application for managing NVIDIA DLSS settings

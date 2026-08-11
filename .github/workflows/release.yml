@@ -134,17 +134,90 @@ jobs:
           path: ${{ steps.package.outputs.deb }}
           retention-days: 30
 
+  # One AppImage for everybody, built on the oldest distribution we support.
+  #
+  # Not part of the matrix above, and not because it would be inconvenient: an
+  # AppImage runs on every glibc at least as new as the one it was built against,
+  # so building it per target would produce four files of which three are strictly
+  # worse. bookworm has the oldest glibc of the four, and one file covers the rest.
+  #
+  # Already inside a container, so build-appimage.sh is told not to start one of
+  # its own — it is the same script a developer runs, and there it does the
+  # containerising itself (see the note at the top of it).
+  appimage:
+    name: appimage (debian:bookworm)
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+
+    steps:
+      - name: Install Git (required for checkout)
+        run: |
+          apt-get update
+          apt-get install -y git
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Both lists, exactly as packaging/appimage/Dockerfile installs them: the
+      # application's build dependencies and the extras only an AppImage needs.
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          grep -hvE '^\s*(#|$)' packaging/build-depends.txt packaging/appimage/build-depends.txt \
+            | xargs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+
+      # The same script the build image runs, so a release is built with the tools
+      # that were tested rather than whatever is newest today.
+      - name: Install linuxdeploy and the AppImage runtime
+        run: bash packaging/appimage/install-tools.sh
+
+      - name: Update CMakeLists.txt version
+        run: |
+          sed -i "s/project(ProtonForge VERSION [0-9.]\+/project(ProtonForge VERSION ${{ needs.prepare.outputs.version }}/" CMakeLists.txt
+          grep "project(ProtonForge" CMakeLists.txt
+
+      - name: Build the AppImage
+        id: package
+        env:
+          PROTONFORGE_APPIMAGE_IN_CONTAINER: "1"
+        run: |
+          img="$(bash build-appimage.sh . dist | tail -n1)"
+          [ -f "$img" ] || { echo "build-appimage.sh did not report an artifact: $img" >&2; exit 1; }
+          echo "appimage=${img}" >> "$GITHUB_OUTPUT"
+
+      # It has to start, and this is the only place it is tried before a user does
+      # — the runner has Qt installed, so this proves less than the lab's bare
+      # container does, but a bundle that cannot even run here is not shippable.
+      - name: Verify the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          ls -lh "${{ steps.package.outputs.appimage }}"
+          "${{ steps.package.outputs.appimage }}" --version
+
+      - name: Upload the AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: protonforge-appimage
+          path: ${{ steps.package.outputs.appimage }}
+          retention-days: 30
+
   # The release is created once, here, with every package attached. Doing it in
   # the matrix would have the legs race to create it and each re-send the body.
   publish:
     name: publish the release
-    needs: [prepare, build]
+    needs: [prepare, build, appimage]
     runs-on: ubuntu-latest
     steps:
+      # Every artifact this run produced, not just the .debs — the pattern used to
+      # name them and an AppImage would have been built and then quietly left in
+      # the workflow run instead of the release.
       - name: Collect the packages
         uses: actions/download-artifact@v4
         with:
-          pattern: protonforge-deb-*
+          pattern: protonforge-*
           merge-multiple: true
           path: packages
 
@@ -154,7 +227,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: packages/*.deb
+          files: |
+            packages/*.deb
+            packages/*.AppImage
           generate_release_notes: true
           draft: false
           prerelease: false

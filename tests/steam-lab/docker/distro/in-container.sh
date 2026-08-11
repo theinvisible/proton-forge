@@ -217,6 +217,17 @@ if [[ -x "$BIN" ]]; then
     result links_dbus "$(ldd "$BIN" 2>/dev/null | grep -qi libQt6DBus && echo yes || echo no)"
     result dbus_declared "$(dpkg-deb -f "$DEB" Depends | grep -qi 'libqt6dbus' && echo yes || echo no)"
     result links_concurrent "$(ldd "$BIN" 2>/dev/null | grep -qi libQt6Concurrent && echo yes || echo no)"
+
+    # The SVG image-format plugin, which `ldd` above can say nothing about: it is
+    # loaded by name at run time, nothing links Qt6Svg, and every icon in
+    # resources.qrc is an SVG. Without it QIcon comes back null and the UI has
+    # blank spaces where the icons were — which is exactly how it was found, in a
+    # running AppImage. So what matters here is whether *installing this package*
+    # brought the plugin along, i.e. whether the dependency is declared at all.
+    result svg_plugin_present "$(
+        find /usr/lib -name 'libqsvg.so' -print -quit 2>/dev/null | grep -q . \
+            && echo yes || echo no)"
+    result svg_declared "$(dpkg-deb -f "$DEB" Depends | grep -qi 'libqt6svg' && echo yes || echo no)"
 else
     result ldd_unresolved skipped
 fi

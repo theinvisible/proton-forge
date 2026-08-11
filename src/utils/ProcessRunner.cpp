@@ -1,4 +1,5 @@
 #include "utils/ProcessRunner.h"
+#include "utils/HostEnvironment.h"
 
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -9,8 +10,11 @@ QString run(const QString& program, const QStringList& args, int timeoutMs,
             const QProcessEnvironment* env)
 {
     QProcess process;
-    if (env)
-        process.setProcessEnvironment(*env);
+    // Every program run through here is the host's — kscreen-doctor, gsettings,
+    // flatpak, tar — so it gets the host's environment, not an AppImage bundle's
+    // library paths. Outside an AppImage this is what it would have inherited
+    // anyway (see HostEnvironment).
+    process.setProcessEnvironment(env ? *env : HostEnvironment::forChildProcess());
 
     process.start(program, args);
 

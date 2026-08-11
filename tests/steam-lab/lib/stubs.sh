@@ -330,6 +330,12 @@ LAB_RUNTIME_RECORD="$LAB_RUN_DIR/runtime-invocation.txt"
 # That recording is the assertion surface for the whole launch path — it is what
 # lets a test state exactly what Steam's compat tool chain was composed into,
 # without a game existing.
+#
+# The loader variables (LD_LIBRARY_PATH, QT_PLUGIN_PATH, XDG_DATA_DIRS) are
+# recorded for 76_appimage, which is the only case that asserts on them: inside an
+# AppImage they point into the bundle, and a game that inherits them loads the
+# bundle's libstdc++ from a mount that is gone once ProtonForge exits. Everywhere
+# else they are diagnosis, not a claim.
 stub_proton() {
     local root="$1" name="$2" requireToolAppId="${3:-}"
     local dir="$root/compatibilitytools.d/$name"
@@ -341,7 +347,7 @@ stub_proton() {
     printf 'PROGRAM\t%s\n' "\$0"
     for arg in "\$@"; do printf 'ARG\t%s\n' "\$arg"; done
     printf 'CWD\t%s\n' "\$PWD"
-    env | grep -E '^(STEAM_|Steam|LD_PRELOAD=|DISPLAY=|PROTON_|DXVK_|VKD3D_|NGX_|NVPRESENT_|MANGOHUD=|__NV_|__GLX_|__VK_)' \\
+    env | grep -E '^(STEAM_|Steam|LD_PRELOAD=|LD_LIBRARY_PATH=|QT_PLUGIN_PATH=|XDG_DATA_DIRS=|DISPLAY=|PROTON_|DXVK_|VKD3D_|NGX_|NVPRESENT_|MANGOHUD=|__NV_|__GLX_|__VK_)' \\
         | sed 's/^/ENV\t/'
 } >>"$LAB_PROTON_RECORD"
 exit 0

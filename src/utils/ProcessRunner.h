@@ -29,7 +29,9 @@ namespace ProcessRunner {
 //     if (out.isNull())
 //         return;            // could not ask; say nothing rather than guess
 //
-// `env` is passed to the child when non-null; otherwise it inherits ours.
+// `env` is passed to the child when non-null; otherwise the child gets
+// HostEnvironment::forChildProcess() — ours outside an AppImage, and ours with
+// the bundle's library paths undone inside one.
 QString run(const QString& program, const QStringList& args, int timeoutMs = 3000,
             const QProcessEnvironment* env = nullptr);
 

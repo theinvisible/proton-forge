@@ -111,6 +111,14 @@ while IFS='|' read -r IMAGE EXP_QT_PKG EXP_STEAM; do
             "$(r links_dbus)" "$(r dbus_declared)"
     fi
 
+    # Every icon the UI draws is an SVG in resources.qrc, and Qt renders none of
+    # them without plugins/imageformats/libqsvg.so — QIcon returns null and the
+    # dialogs simply have gaps. Nothing links Qt6Svg, so the linkage check above
+    # is blind to it and the declaration is the only thing that brings it in.
+    assert_eq "$IMAGE: libqt6svg6 is declared" "yes" "$(r svg_declared)"
+    assert_eq "$IMAGE: and installing the package brought the SVG plugin along" \
+        "yes" "$(r svg_plugin_present)"
+
     # -- it actually runs -------------------------------------------------
     assert_eq "$IMAGE: the installed binary reports its version" \
         "ProtonForge $CMAKE_VERSION" "$(r cli_version)"

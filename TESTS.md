@@ -40,6 +40,7 @@ without docker.
 | `gui` cases | a virtual screen | `sudo apt install xvfb openbox xdotool x11-utils x11-apps` |
 | `flatpak` cases | flatpak and a manifest reader | `sudo apt install flatpak flatpak-builder python3-yaml` |
 | `flatpak` cases, in a container | docker and a manifest reader | `LAB_FLATPAK_DOCKER=1`, and nothing else on the host |
+| `76_appimage` | docker, and nothing else on the host | `build-appimage.sh` builds in a container by design — see §4 |
 | `55_steamclient` part f | a D-Bus name to register | `sudo apt install python3-dbus python3-gi dbus` |
 
 `steamlab preflight` prints all of it in green and red and names the exact
@@ -83,11 +84,12 @@ worth knowing where the time goes before assuming something has hung:
 
 | | Cost |
 |---|---|
-| everything except `20_deb_install` / `50_real_steam` / `70_flatpak` | ~30 s total |
+| everything except `20_deb_install` / `50_real_steam` / `70_flatpak` / `76_appimage` | ~30 s total |
 | a container image, first build | 1–4 min per distribution; the two Steam targets also fetch steamcmd and run an anonymous login |
 | `20_deb_install`, per target | ~50 s: about 12 s compiling ProtonForge, the rest `apt` installing the Qt 6 runtime |
 | `20_deb_install`, per target, cached | ~40 s — the package is reused, the `apt` install is not |
 | `70_flatpak`, first run | plus a ~1.5 GB runtime download |
+| `76_appimage`, first run | ~4 min: an apt image plus a release build from scratch. ~30 s afterwards |
 
 Each target compiles its own package on purpose. A binary carries the Qt version
 it was linked against as a symbol requirement, so one built elsewhere installs and
@@ -114,6 +116,7 @@ $PF_LAB_DIR/
 ├── out/<case>/proton-invocation.txt  what the fake Proton was asked to do
 ├── deb/<distro>/*.deb              cached packages
 ├── apphome/                        the fake $HOME the app runs in
+├── run/appimage/                   the built AppImage and its extraction
 └── flatpak/                        the lab's own flatpak installation
 ```
 
@@ -216,6 +219,7 @@ counts as `docker`, so nothing runs unguarded by accident.
 | `55_steamclient` | `build` | the client state machine, and deferred launches |
 | `60_gui` | `gui build` | the real window on Xvfb |
 | `70_flatpak` | `flatpak build` | the Flatpak built from the working tree, and its sandbox. `LAB_FLATPAK_DOCKER=1` runs the identical case in a privileged container instead — a machine that has never built the manifest, which is the state the tag workflow builds in |
+| `76_appimage` | `docker` | the AppImage: built by `build-appimage.sh` (which containerises itself), then run in a distribution that has only what an AppImage may expect from a host — no Qt — and asked to launch a game, to prove the bundle's library paths do not reach it |
 | `80_proton_mgr` | `build`, opt-in | installing Proton from GitHub for real |
 | `90_gog` | `build` | GOG discovery from the install registry, update state, and the CLI's session commands |
 | `91_stores` | `build` | the store layer: how a configured, unconfigured and unknown store each answer |

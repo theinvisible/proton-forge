@@ -1,4 +1,5 @@
 #include "EnvBuilder.h"
+#include "utils/HostEnvironment.h"
 #include <QHash>
 #include <QRegularExpression>
 
@@ -399,7 +400,10 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
 
 QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
 {
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    // Not systemEnvironment(): inside an AppImage ours points at the bundle, and
+    // a game that inherits that loads the bundle's libstdc++ over its own — from
+    // a mount that disappears when we exit. Identity function everywhere else.
+    QProcessEnvironment env = HostEnvironment::forChildProcess();
 
     // PRIME render offload for hybrid iGPU+dGPU systems
     if (settings.enablePrimeRenderOffload) {

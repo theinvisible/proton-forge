@@ -67,6 +67,11 @@ The automation creates:
   `protonforge_X.Y.Z~noble_amd64.deb` (24.04) and
   `protonforge_X.Y.Z~resolute_amd64.deb` (26.04). The targets come from
   `packaging/distros.txt`, whose fourth column marks the ones a release ships.
+- **AppImage:** one file for every distribution,
+  `ProtonForge-X.Y.Z-x86_64.AppImage`, built in Debian bookworm — the oldest
+  target, because an AppImage runs on every glibc at least as new as the one it
+  was built against. Building it per target would produce four files of which
+  three are strictly worse.
 - **Release:** GitHub release with installation instructions
 
 ## 🔧 Manual Release (Fallback)
@@ -82,6 +87,9 @@ cd ..
 
 # 2. Create .deb package
 bash build-deb.sh
+
+# 2b. Create the AppImage (builds itself in a container, needs docker)
+bash build-appimage.sh . dist
 
 # 3. Create GitHub release manually
 # Go to: https://github.com/theinvisible/proton-forge/releases/new
@@ -111,11 +119,13 @@ ProtonForge has three GitHub Actions workflows:
 ### 2. Release Build (`release.yml`)
 - **Triggers:** Version tags (v*.*.*), or `workflow_dispatch` **on a tag ref**
 - **Purpose:** Create official releases
-- **Outputs:** GitHub release with one .deb per Ubuntu LTS
+- **Outputs:** GitHub release with one .deb per Ubuntu LTS and one AppImage
 - **Shape:** `prepare` reads the targets from `packaging/distros.txt` → `build`
-  runs once per target in that distribution's container → `publish` creates the
-  release once with every package attached. Splitting `publish` out is what keeps
-  the matrix legs from racing to create the release.
+  runs once per target in that distribution's container, `appimage` runs once in
+  Debian bookworm → `publish` creates the release once with every artifact
+  attached. Splitting `publish` out is what keeps the legs from racing to create
+  the release; it collects `protonforge-*`, so a new kind of artifact only has to
+  be named accordingly to end up in the release.
 
 ### 3. Build Flatpak (`flatpak-release.yml`)
 - **Triggers:** Version tags (v*.*.*)
