@@ -87,6 +87,44 @@ DLSSSettingsWidget QLabel {
     color: #d0d0d0;
 }
 
+/* ── Disabled controls ──────────────────────────────────────────────────────
+   Every rule above sets an explicit `color`, and an explicit colour in a
+   stylesheet overrides the palette's Disabled colour group outright — so
+   without these counterparts a switched-off control is pixel-identical to a
+   live one. The panel relies on that distinction: for a native Linux game most
+   of it is disabled on purpose, because the variables behind those controls
+   are read by Proton/DXVK/DXVK-NVAPI and a native binary loads none of them
+   (see DLSSSettingsWidget::applyPlatformGating). */
+DLSSSettingsWidget QGroupBox:disabled,
+DLSSSettingsWidget QGroupBox::title:disabled,
+DLSSSettingsWidget QCheckBox:disabled,
+DLSSSettingsWidget QLabel:disabled {
+    color: #6a6a6a;
+}
+
+DLSSSettingsWidget QGroupBox:disabled {
+    border-color: #3a3a3a;
+}
+
+DLSSSettingsWidget QCheckBox::indicator:disabled {
+    border-color: #3a3a3a;
+    background-color: #1a1a1a;
+}
+
+/* A ticked box that cannot act still reads as "on" — keep the tick legible so
+   the stored setting stays visible, but drain the accent colour out of it. */
+DLSSSettingsWidget QCheckBox::indicator:checked:disabled {
+    background-color: #3d4f24;
+    border-color: #3d4f24;
+}
+
+DLSSSettingsWidget QComboBox:disabled,
+DLSSSettingsWidget QSpinBox:disabled {
+    color: #6a6a6a;
+    background-color: #1a1a1a;
+    border-color: #3a3a3a;
+}
+
 DLSSSettingsWidget QScrollArea {
     border: none;
     background: transparent;

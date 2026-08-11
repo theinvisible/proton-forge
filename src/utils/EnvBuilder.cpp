@@ -1,7 +1,59 @@
 #include "EnvBuilder.h"
+#include <QHash>
 #include <QRegularExpression>
 
 namespace {
+
+// Which layer reads each variable ProtonForge emits — see EnvBuilder::VarScope
+// for what the two values mean and why the distinction matters.
+//
+// The judgement calls are the four Any entries that are not the PRIME trio:
+//   NVPRESENT_ENABLE_SMOOTH_MOTION  the driver's own present-time interpolation,
+//                                   below the API a game uses, so not Wine-bound
+//   ENABLE_HDR_WSI                  a Vulkan implicit layer, loaded by the loader
+//                                   for any Vulkan client, native included
+//   MANGOHUD                        likewise an implicit layer (plus a wrapper)
+// Everything else names a component that only exists inside a Proton prefix:
+// the Proton script itself (PROTON_*), DXVK (DXVK_*), vkd3d-proton (VKD3D_*)
+// and DXVK-NVAPI (DXVK_NVAPI_*), which is what carries the DLSS overrides.
+const QHash<QString, EnvBuilder::VarScope>& varScopeTable()
+{
+    static const QHash<QString, EnvBuilder::VarScope> table = {
+        // Driver / Vulkan layer / wrapper — reaches a native game too.
+        {"__NV_PRIME_RENDER_OFFLOAD",      EnvBuilder::VarScope::Any},
+        {"__GLX_VENDOR_LIBRARY_NAME",      EnvBuilder::VarScope::Any},
+        {"__VK_LAYER_NV_optimus",          EnvBuilder::VarScope::Any},
+        {"NVPRESENT_ENABLE_SMOOTH_MOTION", EnvBuilder::VarScope::Any},
+        {"ENABLE_HDR_WSI",                 EnvBuilder::VarScope::Any},
+        {"MANGOHUD",                       EnvBuilder::VarScope::Any},
+
+        // Proton wrapper script.
+        {"PROTON_ENABLE_NVAPI",            EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_ENABLE_NGX_UPDATER",      EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_VKD3D_LOWLATENCY",        EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_DLSS_UPGRADE",            EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_DLSS_INDICATOR",          EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_ENABLE_WAYLAND",          EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_ENABLE_HDR",              EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_PRIORITY_HIGH",           EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_USE_NTSYNC",              EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_USE_D7VK",                EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_LOG",                     EnvBuilder::VarScope::ProtonOnly},
+
+        // DXVK-NVAPI — the NVAPI stand-in that exists only inside Wine. Every
+        // DLSS SR/RR/FG override travels in DXVK_NVAPI_DRS_SETTINGS.
+        {"DXVK_NVAPI_DRS_SETTINGS",        EnvBuilder::VarScope::ProtonOnly},
+        {"DXVK_NVAPI_VKREFLEX",            EnvBuilder::VarScope::ProtonOnly},
+
+        // DXVK / vkd3d-proton.
+        {"DXVK_NO_HDR",                    EnvBuilder::VarScope::ProtonOnly},
+        {"DXVK_FRAME_RATE",                EnvBuilder::VarScope::ProtonOnly},
+        {"VKD3D_FRAME_RATE",               EnvBuilder::VarScope::ProtonOnly},
+        {"VKD3D_CONFIG",                   EnvBuilder::VarScope::ProtonOnly},
+    };
+    return table;
+}
+
 // Splits a launch-options string into whitespace-separated tokens. The
 // DXVK_NVAPI_DRS_SETTINGS value is comma-joined (no spaces), so plain
 // whitespace splitting is safe. Quoted values containing spaces are not
@@ -156,6 +208,18 @@ void EnvBuilder::addEnvVar(QStringList& vars, const QString& key, int value)
 void EnvBuilder::addEnvVar(QStringList& vars, const QString& key, bool value)
 {
     vars << QString("%1=%2").arg(key).arg(value ? "1" : "0");
+}
+
+EnvBuilder::VarScope EnvBuilder::scopeOf(const QString& key)
+{
+    return varScopeTable().value(key, VarScope::Any);
+}
+
+QStringList EnvBuilder::managedVars()
+{
+    QStringList keys = varScopeTable().keys();
+    keys.sort();
+    return keys;
 }
 
 QString EnvBuilder::buildDRSSettings(const DLSSSettings& settings)

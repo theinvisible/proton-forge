@@ -14,6 +14,32 @@ public:
         QString customParams;    // leftover (unknown env vars, %command% + trailing args)
     };
 
+    // Whether a variable ProtonForge emits can reach a *native* Linux game.
+    //
+    //   ProtonOnly — read by the Proton script, Wine, DXVK, vkd3d-proton or
+    //                DXVK-NVAPI. A native ELF binary loads none of those, so
+    //                the variable is inert no matter what it is set to. This
+    //                is where all the DLSS overrides live: they travel in
+    //                DXVK_NVAPI_DRS_SETTINGS, which only DXVK-NVAPI reads, and
+    //                NVIDIA state outright that overriding presets is not
+    //                supported on Linux outside Proton — there is no NVAPI and
+    //                hence no driver-settings layer for a native title.
+    //   Any        — read by the NVIDIA driver, a Vulkan implicit layer or a
+    //                wrapper, so it reaches the process whether or not Proton
+    //                is in the picture.
+    //
+    // This is the one place that answers the question; the UI greys its
+    // controls out from it (DLSSSettingsWidget::applyPlatformGating). An
+    // unknown key is reported as Any — the lenient answer, matching
+    // FeatureGate's policy of never warning about something we do not know.
+    enum class VarScope { Any, ProtonOnly };
+    static VarScope scopeOf(const QString& key);
+
+    // Every variable buildLaunchOptions()/buildEnvironment() may emit, i.e.
+    // exactly the keys scopeOf() classifies. Exists so a test can assert the
+    // two never drift apart when a new option is added.
+    static QStringList managedVars();
+
     // Build launch options string for Steam (e.g., "PROTON_ENABLE_NVAPI=1 %command%")
     static QString buildLaunchOptions(const DLSSSettings& settings);
 

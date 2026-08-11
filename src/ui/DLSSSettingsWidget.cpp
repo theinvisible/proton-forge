@@ -402,7 +402,12 @@ QGroupBox* DLSSSettingsWidget::createHDRGroup()
     QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_enableAllHDR = new QCheckBox("Enable All HDR Options (Quick Toggle)", this);
-    m_enableAllHDR->setStyleSheet("font-weight: bold; color: #76B900;");
+    // An inline stylesheet beats the one in style.qss, so this has to carry its
+    // own disabled colour — otherwise the quick toggle keeps its accent green
+    // while the options it drives are greyed out (native Linux games).
+    m_enableAllHDR->setStyleSheet(
+        "QCheckBox { font-weight: bold; color: #76B900; }"
+        "QCheckBox:disabled { color: #4a5f28; }");
     m_enableAllHDR->setToolTip(
         "Quick toggle to enable/disable all HDR options at once.\n\n"
         "This is a convenience checkbox that controls all three HDR settings below. "
@@ -458,7 +463,8 @@ QGroupBox* DLSSSettingsWidget::createHDRGroup()
 
 QGroupBox* DLSSSettingsWidget::createProtonTweaksGroup()
 {
-    QGroupBox* group = new QGroupBox("Proton Tweaks", this);
+    m_protonTweaksGroup = new QGroupBox("Proton Tweaks", this);
+    QGroupBox* group = m_protonTweaksGroup;
     QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_protonPriorityHigh = new QCheckBox("High Priority (PROTON_PRIORITY_HIGH)", this);
@@ -504,7 +510,8 @@ QGroupBox* DLSSSettingsWidget::createProtonTweaksGroup()
 
 QGroupBox* DLSSSettingsWidget::createSuperResolutionGroup()
 {
-    QGroupBox* group = new QGroupBox("Super Resolution (DLSS SR)", this);
+    m_srGroup = new QGroupBox("Super Resolution (DLSS SR)", this);
+    QGroupBox* group = m_srGroup;
     QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_srOverride = new QCheckBox("Override SR Settings", this);
@@ -595,7 +602,8 @@ QGroupBox* DLSSSettingsWidget::createSuperResolutionGroup()
 
 QGroupBox* DLSSSettingsWidget::createRayReconstructionGroup()
 {
-    QGroupBox* group = new QGroupBox("Ray Reconstruction (DLSS RR)", this);
+    m_rrGroup = new QGroupBox("Ray Reconstruction (DLSS RR)", this);
+    QGroupBox* group = m_rrGroup;
     QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_rrOverride = new QCheckBox("Override RR Settings", this);
@@ -670,7 +678,8 @@ QGroupBox* DLSSSettingsWidget::createRayReconstructionGroup()
 
 QGroupBox* DLSSSettingsWidget::createFrameGenerationGroup()
 {
-    QGroupBox* group = new QGroupBox("Frame Generation (DLSS FG)", this);
+    m_fgGroup = new QGroupBox("Frame Generation (DLSS FG)", this);
+    QGroupBox* group = m_fgGroup;
     QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_fgOverride = new QCheckBox("Override FG Settings", this);
@@ -758,7 +767,8 @@ QGroupBox* DLSSSettingsWidget::createFrameGenerationGroup()
 
 QGroupBox* DLSSSettingsWidget::createUpgradeGroup()
 {
-    QGroupBox* group = new QGroupBox("DLSS Upgrade", this);
+    m_upgradeGroup = new QGroupBox("DLSS Upgrade", this);
+    QGroupBox* group = m_upgradeGroup;
     QVBoxLayout* layout = new QVBoxLayout(group);
 
     m_dlssUpgrade = new QCheckBox("Enable DLSS Upgrade (PROTON_DLSS_UPGRADE)", this);
@@ -803,8 +813,8 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
     layout->addWidget(m_enableFrameRateLimit);
 
     QHBoxLayout* fpsLayout = new QHBoxLayout();
-    QLabel* fpsLabel = new QLabel("Target FPS:", this);
-    fpsLayout->addWidget(fpsLabel);
+    m_targetFrameRateLabel = new QLabel("Target FPS:", this);
+    fpsLayout->addWidget(m_targetFrameRateLabel);
 
     m_targetFrameRate = new QSpinBox(this);
     m_targetFrameRate->setRange(30, 500);
@@ -826,7 +836,9 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
 
     // Enable/disable FPS control based on checkbox
     auto updateFpsEnabled = [this]() {
-        m_targetFrameRate->setEnabled(m_enableFrameRateLimit->isChecked());
+        const bool on = m_enableFrameRateLimit->isChecked();
+        m_targetFrameRate->setEnabled(on);
+        m_targetFrameRateLabel->setEnabled(on);
     };
 
     connect(m_enableSmoothMotion, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
@@ -1004,6 +1016,10 @@ void DLSSSettingsWidget::setGame(const Game& game)
         m_protonSelectorContainer->show();
         populateProtonVersionSelector();
     }
+
+    // Grey out whatever cannot reach this game before its settings are loaded,
+    // so the panel is never briefly shown offering options that do nothing.
+    applyPlatformGating(game);
 
     // Populate executable selector
     populateExecutableSelector(game);
@@ -1349,6 +1365,75 @@ void DLSSSettingsWidget::updateProtonDbBadge(const ProtonDBClient::Summary& summ
     m_protonDbBadge->setStyleSheet(protonDbBadgeTierStyle(color));
 }
 
+void DLSSSettingsWidget::applyPlatformGating(const Game& game)
+{
+    const bool native = game.isNativeLinux();
+
+    // A native ELF binary loads no Proton, no DXVK, no vkd3d-proton and no
+    // DXVK-NVAPI, so every variable those layers read is inert. For the DLSS
+    // overrides in particular there is no workaround: they travel in
+    // DXVK_NVAPI_DRS_SETTINGS, and NVIDIA's driver documentation states plainly
+    // that overriding presets is not supported on Linux — the NVAPI driver-
+    // settings layer that carries them simply has no native counterpart. A
+    // native title picks its own DLSS preset through NGX and nothing outside
+    // the game can talk it out of that.
+    //
+    // So the controls are greyed rather than left to look effective. Their
+    // *values* are deliberately untouched: settings() reads isChecked(), which
+    // setEnabled(false) does not alter, so the profile survives switching to
+    // another game, and "Write to Steam" still emits the full string — which
+    // matters, because a user who forces a compatibility tool on a native
+    // title in Steam does get the Windows build, and then the options apply
+    // after all.
+    struct Gated { QWidget* widget; const char* var; };
+    const Gated gated[] = {
+        // Whole groups — every control inside is Proton-only.
+        { m_srGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
+        { m_rrGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
+        { m_fgGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
+        { m_upgradeGroup,             "PROTON_DLSS_UPGRADE" },
+        { m_protonTweaksGroup,        "PROTON_USE_NTSYNC" },
+
+        // General — mixed, so gated per control. PRIME offload is a driver
+        // setting and stays live.
+        { m_enableNVAPI,              "PROTON_ENABLE_NVAPI" },
+        { m_enableNGXUpdater,         "PROTON_ENABLE_NGX_UPDATER" },
+        { m_enableReflex,             "DXVK_NVAPI_VKREFLEX" },
+        { m_enableVkd3dLowLatency,    "PROTON_VKD3D_LOWLATENCY" },
+        { m_enableVkd3dDescriptorHeap,"VKD3D_CONFIG" },
+        { m_showIndicator,            "PROTON_DLSS_INDICATOR" },
+
+        // HDR — mixed. ENABLE_HDR_WSI is a Vulkan implicit layer and works
+        // natively; the two PROTON_* switches and the DXVK one do not. The
+        // master toggle drives two of those three, so it goes with them.
+        { m_enableAllHDR,             "PROTON_ENABLE_HDR" },
+        { m_enableProtonWayland,      "PROTON_ENABLE_WAYLAND" },
+        { m_enableProtonHDR,          "PROTON_ENABLE_HDR" },
+        { m_disableAutoHDR,           "DXVK_NO_HDR" },
+
+        // Smooth Motion group — mixed. Smooth Motion itself is driver-level
+        // and stays live; the frame-rate limit is DXVK/VKD3D only.
+        { m_enableFrameRateLimit,     "DXVK_FRAME_RATE" },
+        { m_targetFrameRate,          "DXVK_FRAME_RATE" },
+        { m_targetFrameRateLabel,     "DXVK_FRAME_RATE" },
+    };
+
+    for (const Gated& g : gated) {
+        const bool inert = native &&
+            EnvBuilder::scopeOf(QLatin1String(g.var)) == EnvBuilder::VarScope::ProtonOnly;
+        g.widget->setEnabled(!inert);
+    }
+
+    // Re-enabling a group box hands its children back their own state, but the
+    // frame-rate row has no group of its own to restore it — it is only ever
+    // live together with its checkbox.
+    if (!native) {
+        const bool on = m_enableFrameRateLimit->isChecked();
+        m_targetFrameRate->setEnabled(on);
+        m_targetFrameRateLabel->setEnabled(on);
+    }
+}
+
 void DLSSSettingsWidget::updateFeatureWarnings()
 {
     using namespace FeatureGate;
@@ -1363,8 +1448,23 @@ void DLSSSettingsWidget::updateFeatureWarnings()
              : (rp.type == ProtonManager::ProtonGE ? Fork::GE : Fork::CachyOS);
 
     QStringList lines;
-    auto check = [&](bool active, Feature f, const QString& label) {
-        if (!active)
+
+    // Say once, up front, why half the panel is greyed — a disabled control
+    // with no explanation reads as a bug. Everything below is then reported
+    // only for controls that are actually live: telling someone their driver
+    // is too old for a variable that will never be read is worse than silence.
+    if (m_currentGame.isNativeLinux()) {
+        lines << QStringLiteral(
+            "⚠ Native Linux build: the DLSS overrides, the DXVK/VKD3D options and the "
+            "Proton tweaks are greyed out because the game loads no Proton, no DXVK and "
+            "no DXVK-NVAPI — there is nothing to read them. NVIDIA does not support DLSS "
+            "preset overrides for native Linux titles; use the game's own graphics "
+            "options, or force a Proton compatibility tool in Steam to configure the "
+            "Windows build instead. Your settings are kept either way.");
+    }
+
+    auto check = [&](QWidget* control, bool active, Feature f, const QString& label) {
+        if (!active || !control->isEnabled())
             return;
         Result r = evaluate(requirementFor(f), ctx);
         if (r.status != Status::Supported)
@@ -1372,19 +1472,19 @@ void DLSSSettingsWidget::updateFeatureWarnings()
     };
 
     const bool fgOn = m_fgOverride->isChecked();
-    check(m_enableSmoothMotion->isChecked(), Feature::SmoothMotion, "Smooth Motion");
-    check(fgOn && m_fgMultiFrameCount->currentData().toInt() >= 2,
+    check(m_enableSmoothMotion, m_enableSmoothMotion->isChecked(), Feature::SmoothMotion, "Smooth Motion");
+    check(m_fgMultiFrameCount, fgOn && m_fgMultiFrameCount->currentData().toInt() >= 2,
           Feature::MultiFrameGen, "Multi-Frame Generation (3x/4x)");
-    check(m_rrOverride->isChecked(), Feature::RayReconstruction, "Ray Reconstruction");
-    check(fgOn && !m_fgMode->currentData().toString().isEmpty(),
+    check(m_rrOverride, m_rrOverride->isChecked(), Feature::RayReconstruction, "Ray Reconstruction");
+    check(m_fgMode, fgOn && !m_fgMode->currentData().toString().isEmpty(),
           Feature::DlssgMode, "FG Mode");
-    check(fgOn && !m_fgPreset->currentData().toString().isEmpty(),
+    check(m_fgPreset, fgOn && !m_fgPreset->currentData().toString().isEmpty(),
           Feature::FgPreset, "FG Render Preset");
-    check(m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
-    check(m_enableVkd3dLowLatency->isChecked(), Feature::Vkd3dLowLatency, "VKD3D Low Latency");
-    check(m_enableVkd3dDescriptorHeap->isChecked(), Feature::Vkd3dDescriptorHeap, "VKD3D Descriptor Heap");
-    check(m_protonUseD7VK->isChecked(), Feature::D7vk, "D7VK");
-    check(m_disableAutoHDR->isChecked(), Feature::DisableAutoHdr, "Disable auto-HDR");
+    check(m_enableReflex, m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
+    check(m_enableVkd3dLowLatency, m_enableVkd3dLowLatency->isChecked(), Feature::Vkd3dLowLatency, "VKD3D Low Latency");
+    check(m_enableVkd3dDescriptorHeap, m_enableVkd3dDescriptorHeap->isChecked(), Feature::Vkd3dDescriptorHeap, "VKD3D Descriptor Heap");
+    check(m_protonUseD7VK, m_protonUseD7VK->isChecked(), Feature::D7vk, "D7VK");
+    check(m_disableAutoHDR, m_disableAutoHDR->isChecked(), Feature::DisableAutoHdr, "Disable auto-HDR");
 
     // PRIME offload is gated by hardware, not driver/Proton versions: warn only
     // when the probe positively found a non-hybrid system (Unknown stays silent).
