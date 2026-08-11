@@ -48,6 +48,34 @@ finish-args:
   - --socket=pulseaudio
 
 modules:
+  # org.kde.Sdk ships libsecret-1.pc and the shared library but *not* the
+  # headers, so qtkeychain's pkg-config check succeeds and the compile then
+  # fails on <libsecret/secret.h>. Building it here puts headers and .pc under
+  # /app, which comes first in PKG_CONFIG_PATH, so qtkeychain picks this one up.
+  # Without libsecret, qtkeychain is left with KWallet over D-Bus only and every
+  # non-KDE desktop silently falls through to SecretStore's 0600 file.
+  - name: libsecret
+    buildsystem: meson
+    config-opts:
+      # crypto=disabled: the transport encryption wants libgcrypt or gnutls
+      # headers, which the SDK is missing for the same reason. Secrets then
+      # travel the session bus unencrypted — a bus only this user can talk to.
+      - -Dcrypto=disabled
+      - -Dmanpage=false
+      - -Dgtk_doc=false
+      - -Dvapi=false
+      - -Dintrospection=false
+      - -Dbash_completion=disabled
+    cleanup:
+      - /bin
+      - /include
+      - /lib/pkgconfig
+      - /share/gtk-doc
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/libsecret/0.21/libsecret-0.21.7.tar.xz
+        sha256: 6b452e4750590a2b5617adc40026f28d2f4903de15f1250e1d1c40bfd68ed55e
+
   # Not in org.kde.Platform, and small enough to build here. Without it the app
   # still works — SecretStore falls back to its own 0600 file — but credentials
   # would never reach the desktop's keyring.

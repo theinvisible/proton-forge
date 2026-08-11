@@ -39,6 +39,7 @@ without docker.
 | `docker` cases | a usable docker daemon | `sudo apt install docker.io` and be in the `docker` group |
 | `gui` cases | a virtual screen | `sudo apt install xvfb openbox xdotool x11-utils x11-apps` |
 | `flatpak` cases | flatpak and a manifest reader | `sudo apt install flatpak flatpak-builder python3-yaml` |
+| `flatpak` cases, in a container | docker and a manifest reader | `LAB_FLATPAK_DOCKER=1`, and nothing else on the host |
 | `55_steamclient` part f | a D-Bus name to register | `sudo apt install python3-dbus python3-gi dbus` |
 
 `steamlab preflight` prints all of it in green and red and names the exact
@@ -214,7 +215,7 @@ counts as `docker`, so nothing runs unguarded by accident.
 | `50_real_steam` | `docker` | real Steam-written files vs what `SteamPaths` looks for |
 | `55_steamclient` | `build` | the client state machine, and deferred launches |
 | `60_gui` | `gui build` | the real window on Xvfb |
-| `70_flatpak` | `flatpak build` | the Flatpak built from the working tree, and its sandbox |
+| `70_flatpak` | `flatpak build` | the Flatpak built from the working tree, and its sandbox. `LAB_FLATPAK_DOCKER=1` runs the identical case in a privileged container instead — a machine that has never built the manifest, which is the state the tag workflow builds in |
 | `80_proton_mgr` | `build`, opt-in | installing Proton from GitHub for real |
 | `90_gog` | `build` | GOG discovery from the install registry, update state, and the CLI's session commands |
 | `91_stores` | `build` | the store layer: how a configured, unconfigured and unknown store each answer |
@@ -650,8 +651,67 @@ Verified end to end against the real account: both installed GOG games resolved,
 persisted into `gog-installs.json`, and their banners fetched into `ImageCache`
 — `--list-games` reports the URLs on the next start with no network involved.
 
+### 9. The Flatpak stopped building the moment credentials went to the keyring — fixed
+
+`70_flatpak`
+
+Found by CI on the first tag after `SecretStore` landed, which is exactly the
+place it should not have been found: the Flatpak manifest is only built by the
+tag workflow, so the break sat in `master` from the merge until the release.
+
+`org.kde.Sdk//6.8` ships `libsecret-1.pc` **and** `libsecret-1.so`, but not
+`libsecret/secret.h`. So QtKeychain's `pkg_check_modules` succeeded, the build
+was configured with `-DHAVE_LIBSECRET=1 -I/usr/include/libsecret-1`, and the
+compile then died on the include. A pkg-config hit is not evidence that headers
+exist, and nothing in the manifest had reason to suspect otherwise.
+
+The manifest now builds libsecret itself, ahead of qtkeychain, so headers and
+`.pc` land in `/app` — which comes first in `PKG_CONFIG_PATH`. Its transport
+encryption is off (`-Dcrypto=disabled`): libgcrypt and gnutls are missing their
+headers in the SDK for the same reason, and the secrets then travel a session bus
+only this user can talk to. The alternative was `LIBSECRET_SUPPORT=OFF`, which
+builds but leaves QtKeychain with KWallet over D-Bus only — every non-KDE desktop
+would fall through to `SecretStore`'s 0600 file with nothing saying so.
+
+Three things came out of it:
+
+* **The lab derived an unbuildable manifest.** `fp_devel_manifest` swapped the
+  source of `modules[0]` for the checkout, which was the app module right up
+  until the app gained dependencies that have to be built before it. It selects
+  by name now, and `70_flatpak` asserts the module *list* is unchanged — the
+  dependencies are part of what is being tested, not scaffolding around it.
+* **QtKeychain does not link libsecret at all.** The obvious assertion — is
+  `libsecret` in `DT_NEEDED` of `/app/lib/libqt6keychain.so.1` — passes and fails
+  in the wrong places: 0.15 resolves the library by name through `QLibrary` and
+  every entry point by `dlsym`, so its `DT_NEEDED` names only glib and Qt.
+  Ubuntu's own `libqt6keychain.so.1`, built with libsecret, has exactly the same
+  list. What does disappear when `LIBSECRET_SUPPORT` is off are the symbol names
+  it looks up, so `70_flatpak` asserts `secret_password_store` /
+  `LibSecretKeyring` are in the shipped library, plus that
+  `/app/lib/libsecret-1.so.0` is there for `QLibrary` to find. A bundle missing
+  either still builds, still starts and still passes every other check in the
+  case, because the fallback is silent by design.
+* **`LAB_FLATPAK_DOCKER=1` was documented but never implemented** — `lib/flatpak.sh`
+  described the privileged-container mode and `docker/flatpak/` was an empty
+  directory. It exists now, and it is what reproduced this failure locally.
+  Three things it needs that are easy to miss, each of which fails *after* the
+  build and so looks like a manifest fault: `elfutils`, because flatpak-builder
+  shells out to `eu-strip` for every module and it is only a `Recommends`; a
+  **system** bus, because `flatpak install` asks malcontent for parental-controls
+  details of the ref (nothing has to answer, the bus merely has to exist); and a
+  home directory at the *host's* home path, because `--filesystem=home` is one of
+  the grants under test and would otherwise grant a directory the fixtures are
+  not in.
+
 ### Also found, and fixed
 
+* **Two ZIP fixtures were never committed.** `.gitignore` has a blanket `*.zip`
+  for release artifacts, which silently swallowed
+  `tests/steam-lab/fixtures/gog/{zip64,multipart}.zip`. They existed in the
+  working tree, so `tst_gogzip` passed locally and failed in CI with "No such
+  file or directory" — the one place they were missing. The rule now carves out
+  that directory. `sfx-installer.sh` is the same kind of fixture and was
+  committed all along, purely because of its extension.
 * **`build-deb.sh` packaged a binary from the wrong environment.** It reused
   `cmake-build-release/ProtonForge` whenever the file existed, so building inside
   a trixie container packaged the host's Qt 6.10 binary. The result installed
@@ -752,7 +812,9 @@ Honest list of what these tests do **not** cover.
 * **behaviour** — the fixture-driven cases plus `60_gui` under Xvfb. This is the
   bulk of the coverage and it runs in well under two minutes.
 * **flatpak** — the Flatpak built from the working tree. No `container:`, because
-  bubblewrap needs privileges a normal container does not have.
+  bubblewrap needs privileges a normal container does not have; the runner itself
+  is privileged enough. `LAB_FLATPAK_DOCKER=1` is the local equivalent, and needs
+  `--privileged` for the same reason.
 
 Both test jobs upload `junit.xml` and their logs.
 

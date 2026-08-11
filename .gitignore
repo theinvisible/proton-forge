@@ -50,6 +50,10 @@ Makefile
 *.tar.gz
 *.tar.xz
 *.zip
+# …except the ZIP fixtures: they are test data the unit tests open by path, and
+# the blanket *.zip above is what kept them out of the repo and CI red while
+# they sat in the working tree looking committed.
+!tests/steam-lab/fixtures/gog/*.zip
 
 # Generated files
 generated/

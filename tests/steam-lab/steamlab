@@ -51,6 +51,7 @@ with no docker.
   docker    a usable docker daemon
   gui       a virtual screen: Xvfb, $LAB_GUI_WM, xdotool, xwininfo, xprop
   flatpak   flatpak, flatpak-builder and python3-yaml
+            (LAB_FLATPAK_DOCKER=1 instead brings its own in a container)
 
 config:     $LAB_SRC_DIR/lab.env   (see lab.env.example)
 work dir:   $PF_LAB_DIR
@@ -98,7 +99,13 @@ _have_requirement() {
         done
         ;;
     flatpak)
-        have flatpak && have flatpak-builder && python3 -c 'import yaml' 2>/dev/null
+        # With LAB_FLATPAK_DOCKER=1 the tier brings its own flatpak in a
+        # container, so what the host needs is docker instead.
+        if [[ "${LAB_FLATPAK_DOCKER:-0}" == "1" ]]; then
+            _have_requirement docker && python3 -c 'import yaml' 2>/dev/null
+        else
+            have flatpak && have flatpak-builder && python3 -c 'import yaml' 2>/dev/null
+        fi
         ;;
     *)  return 1 ;;
     esac
