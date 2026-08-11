@@ -74,6 +74,7 @@ void MangoHudDialog::setupUI()
     leftColumn->addWidget(createPerformanceGroup());
     leftColumn->addWidget(createCpuGroup());
     leftColumn->addWidget(createGpuGroup());
+    leftColumn->addWidget(createKeybindsGroup());
     leftColumn->addStretch();
 
     // Right column
@@ -141,6 +142,40 @@ static void addRow(QVBoxLayout* layout, const QString& label, QWidget* widget)
     row->addWidget(lbl);
     row->addWidget(widget, 1);
     layout->addLayout(row);
+}
+
+// One keybind row: the checkbox is the label, and the field beside it is only
+// editable while it is ticked. The field still shows MangoHud's built-in binding
+// when unticked, greyed out — that is the whole point of the row, since an absent
+// line does not mean "no key", it means "MangoHud's default key".
+//
+// MangoHud wants X11 keysym names joined with '+', which is not guessable, hence
+// the tooltip. Returns the field and hands back the checkbox through `box`.
+static QLineEdit* addKeybindRow(QVBoxLayout* layout, const QString& label,
+                                const QString& mangoHudDefault, QCheckBox** box)
+{
+    auto* check = new QCheckBox(label);
+    check->setMinimumWidth(140);
+
+    auto* edit = makeLineEdit(mangoHudDefault);
+    edit->setText(mangoHudDefault);
+    edit->setEnabled(false);
+
+    const QString hint =
+        QString("X11 keysym names joined with '+', e.g. %1.\n"
+                "Unticked, MangoHud's own default applies.").arg(mangoHudDefault);
+    check->setToolTip(hint);
+    edit->setToolTip(hint);
+
+    auto* row = new QHBoxLayout;
+    row->addWidget(check);
+    row->addWidget(edit, 1);
+    layout->addLayout(row);
+
+    QObject::connect(check, &QCheckBox::toggled, edit, &QWidget::setEnabled);
+
+    *box = check;
+    return edit;
 }
 
 static QPushButton* makeDetectButton()
@@ -417,6 +452,24 @@ QGroupBox* MangoHudDialog::createLoggingGroup()
     return group;
 }
 
+// The defaults MangoHud itself uses when the key is absent — from its shipped
+// MangoHud.conf.example, INTERACTION section. They are also what the fields show
+// while unticked, so they have to be right rather than merely plausible.
+QGroupBox* MangoHudDialog::createKeybindsGroup()
+{
+    auto* group = makeGroup("Keybinds");
+    auto* layout = new QVBoxLayout(group);
+
+    m_keyToggleHud = addKeybindRow(layout, "Toggle HUD:", "Shift_R+F12",
+                                   &m_keyToggleHudEnabled);
+    m_keyToggleFpsLimit = addKeybindRow(layout, "Toggle FPS Limit:", "Shift_L+F1",
+                                        &m_keyToggleFpsLimitEnabled);
+    m_keyToggleLogging = addKeybindRow(layout, "Toggle Logging:", "Shift_L+F2",
+                                       &m_keyToggleLoggingEnabled);
+
+    return group;
+}
+
 // ── Config file parsing ────────────────────────────────────────────────────
 
 void MangoHudDialog::loadConfig()
@@ -534,6 +587,27 @@ void MangoHudDialog::parseConfigFile(const QString& path)
     m_logDuration->setValue(getValue("log_duration", "0").toInt());
     m_outputFolderEnabled->setChecked(isActive("output_folder"));
     m_outputFolder->setText(getValue("output_folder"));
+
+    // Keybinds. MangoHud ships these commented out, which is exactly the state
+    // getValue/isActive already distinguishes: the value fills the field, the
+    // missing tick says the default is in force.
+    //
+    // A keysym name never contains '#', so a trailing one on these lines is a
+    // comment. Cut here rather than in the shared parser, where custom_text_center
+    // may legitimately hold a '#'. The field keeps its constructed default when
+    // the file has nothing to say.
+    auto keybind = [&](const QString& key, QLineEdit* field) {
+        const QString value = getValue(key).section('#', 0, 0).trimmed();
+        if (!value.isEmpty())
+            field->setText(value);
+    };
+
+    m_keyToggleHudEnabled->setChecked(isActive("toggle_hud"));
+    keybind("toggle_hud", m_keyToggleHud);
+    m_keyToggleFpsLimitEnabled->setChecked(isActive("toggle_fps_limit"));
+    keybind("toggle_fps_limit", m_keyToggleFpsLimit);
+    m_keyToggleLoggingEnabled->setChecked(isActive("toggle_logging"));
+    keybind("toggle_logging", m_keyToggleLogging);
 }
 
 void MangoHudDialog::saveConfig()
@@ -593,6 +667,11 @@ void MangoHudDialog::writeConfigFile(const QString& path)
         {"autostart_log",      QString::number(m_autostartLog->value()),  false, m_autostartLogEnabled->isChecked()},
         {"log_duration",       QString::number(m_logDuration->value()),  false, m_logDurationEnabled->isChecked()},
         {"output_folder",      m_outputFolder->text().trimmed(),         false, m_outputFolderEnabled->isChecked()},
+        // onlyIfNonEmpty: a bare "toggle_hud=" would read as a binding to nothing,
+        // so a field cleared while ticked comments the line out instead.
+        {"toggle_hud",         m_keyToggleHud->text().trimmed(),         true,  m_keyToggleHudEnabled->isChecked()},
+        {"toggle_fps_limit",   m_keyToggleFpsLimit->text().trimmed(),    true,  m_keyToggleFpsLimitEnabled->isChecked()},
+        {"toggle_logging",     m_keyToggleLogging->text().trimmed(),     true,  m_keyToggleLoggingEnabled->isChecked()},
     };
 
     // Build sets of all managed keys

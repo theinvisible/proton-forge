@@ -70,7 +70,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 ### Overlay
 - **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues. Never injected into a non-Steam game, which could not talk to Steam anyway
 - **MangoHud**: Enable the MangoHud performance overlay for real-time FPS, CPU/GPU usage, temperatures, and frame time metrics
-- **MangoHud Configuration**: Built-in GUI editor for `~/.config/MangoHud/MangoHud.conf` — configure display metrics, appearance, position, logging, and more without editing config files manually (accessible per-game via Configure button or globally via Tools menu)
+- **MangoHud Configuration**: Built-in GUI editor for `~/.config/MangoHud/MangoHud.conf` — configure display metrics, appearance, position, logging, the HUD/FPS-limit/logging keybinds, and more without editing config files manually (accessible per-game via Configure button or globally via Tools menu)
 - **Installation Detection**: Automatically detects whether MangoHud is installed and disables the option with a helpful message if not
 
 ### Performance Tuning

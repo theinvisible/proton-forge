@@ -36,6 +36,7 @@ private:
     QGroupBox* createSystemGroup();
     QGroupBox* createAppearanceGroup();
     QGroupBox* createLoggingGroup();
+    QGroupBox* createKeybindsGroup();
 
     // Performance
     QCheckBox*      m_fpsLimitEnabled;
@@ -91,6 +92,15 @@ private:
     QSpinBox*       m_logDuration;
     QCheckBox*      m_outputFolderEnabled;
     QLineEdit*      m_outputFolder;
+
+    // Keybinds. The m_key prefix keeps m_keyToggleFpsLimit — the key that turns
+    // the limit on and off — apart from m_fpsLimit, which is the limit itself.
+    QCheckBox*      m_keyToggleHudEnabled;
+    QLineEdit*      m_keyToggleHud;
+    QCheckBox*      m_keyToggleFpsLimitEnabled;
+    QLineEdit*      m_keyToggleFpsLimit;
+    QCheckBox*      m_keyToggleLoggingEnabled;
+    QLineEdit*      m_keyToggleLogging;
 
     // Raw file lines for preserving structure on save
     QStringList     m_originalLines;
