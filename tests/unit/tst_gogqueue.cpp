@@ -42,6 +42,7 @@ private slots:
     void keepsWhatIsStillQueuedBehindIt();
     void announcesInTheOrderTheJobsRan();
     void announcesACancellationItNeverStarted();
+    void failsCleanlyWhenEveryManifestComesFromCache();
 
 private:
     // A build listing with nothing generation-2 in it, which is what makes the
@@ -52,6 +53,11 @@ private:
     // going through the event loop: a real generation-2 build whose metadata is
     // cached too, and lists no depots.
     void seedDepotlessBuildFor(const QString& productId);
+
+    // A build with two depots whose manifests are both cached and list nothing:
+    // the second cache hit completes the plan, and the plan fails, from inside
+    // the loop that is still fetching manifests.
+    void seedEmptyCachedDepotsFor(const QString& productId);
 
     QTemporaryDir m_home;
 };
@@ -139,6 +145,58 @@ void TstGogQueue::seedDepotlessBuildFor(const QString& productId)
 
     JsonDiskCache::save(
         JsonDiskCache::filePath(QStringLiteral("gog"), QStringLiteral("meta-") + hash), meta);
+}
+
+void TstGogQueue::seedEmptyCachedDepotsFor(const QString& productId)
+{
+    const QString hash = QStringLiteral("11111111111111111111111111111%1").arg(productId.right(3));
+    const QString link =
+        QStringLiteral("https://cdn.gog.com/content-system/v2/meta/11/11/%1").arg(hash);
+
+    const QByteArray builds = QStringLiteral(R"({
+      "items": [
+        {
+          "build_id": "48000000000000002",
+          "product_id": "%1",
+          "os": "linux",
+          "branch": null,
+          "version_name": "1.0",
+          "public": true,
+          "date_published": "2021-05-19T13:32:22+0000",
+          "generation": 2,
+          "link": "%2"
+        }
+      ]
+    })").arg(productId, link).toUtf8();
+    JsonDiskCache::save(
+        JsonDiskCache::filePath(QStringLiteral("gog"),
+                                QStringLiteral("builds-%1-linux").arg(productId)),
+        builds);
+
+    const QStringList depotHashes = {
+        QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaa%1").arg(productId.right(3)),
+        QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbbbbb%1").arg(productId.right(3)),
+    };
+    const QByteArray meta = QStringLiteral(R"({
+      "baseProductId": "%1",
+      "buildId": "48000000000000002",
+      "installDirectory": "Test Game",
+      "platform": "linux",
+      "depots": [
+        { "productId": "%1", "languages": ["*"], "manifest": "%2", "size": 1, "compressedSize": 1 },
+        { "productId": "%1", "languages": ["*"], "manifest": "%3", "size": 1, "compressedSize": 1 }
+      ]
+    })").arg(productId, depotHashes.at(0), depotHashes.at(1)).toUtf8();
+    JsonDiskCache::save(
+        JsonDiskCache::filePath(QStringLiteral("gog"), QStringLiteral("meta-") + hash), meta);
+
+    const QByteArray emptyDepot = QStringLiteral(R"({ "depot": { "productId": "%1", "items": [] } })")
+                                      .arg(productId).toUtf8();
+    for (const QString& depotHash : depotHashes) {
+        JsonDiskCache::save(
+            JsonDiskCache::filePath(QStringLiteral("gog"), QStringLiteral("depot-") + depotHash),
+            emptyDepot);
+    }
 }
 
 void TstGogQueue::isNoLongerInstallingWhenItSaysItFailed()
@@ -277,6 +335,26 @@ void TstGogQueue::announcesACancellationItNeverStarted()
     QVERIFY(service.isInstalling(running));
     QTRY_VERIFY_WITH_TIMEOUT(failed.size() == 2, 10000);
     QCOMPARE(failed.at(1).at(0).toString(), running);
+}
+
+void TstGogQueue::failsCleanlyWhenEveryManifestComesFromCache()
+{
+    // The manifest loop used to keep walking the job's depot list after the job
+    // had been deleted under it. Built with ASan, that is a use-after-free.
+    const QString id = QStringLiteral("1207658937");
+    seedEmptyCachedDepotsFor(id);
+
+    GogDownloader& downloader = GogDownloader::instance();
+    QSignalSpy failed(&downloader, &GogDownloader::installFailed);
+    GogDownloader::Request request;
+    request.productId = id;
+    downloader.enqueue(request);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!failed.isEmpty(), 10000);
+    QCOMPARE(failed.first().at(0).toString(), id);
+    QVERIFY2(failed.first().at(1).toString().contains("no files"),
+             qPrintable(failed.first().at(1).toString()));
+    QVERIFY(!downloader.isActive(id));
 }
 
 QTEST_MAIN(TstGogQueue)

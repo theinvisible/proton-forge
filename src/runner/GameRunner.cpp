@@ -435,6 +435,12 @@ bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
         return false;
     }
 
+    if (isAnyGameRunning()) {
+        emit launchError(game, QString("%1 is still running. Quit it before starting "
+                                       "another game.").arg(m_runningGame.name()));
+        return false;
+    }
+
     if (m_launchPending) {
         emit launchError(game, "A launch is already in progress");
         return false;
@@ -512,6 +518,11 @@ bool GameRunner::continueLaunch(const Game& game, const DLSSSettings& settings)
 
     // Windows games need Proton
     return launchWithProton(game, settings);
+}
+
+bool GameRunner::isAnyGameRunning() const
+{
+    return m_process && m_process->state() != QProcess::NotRunning;
 }
 
 bool GameRunner::isGameRunning(const Game& game) const
@@ -718,23 +729,29 @@ bool GameRunner::launchWithProton(const Game& game, const DLSSSettings& settings
         QDir().mkpath(plan.shaderPath);
     }
 
-    // Clean up previous process
+    // Clean up previous process. launch() refuses while one is running, and
+    // deleting a running QProcess would kill the game it belongs to.
     if (m_process) {
         m_process->deleteLater();
     }
 
     m_process = new QProcess(this);
+    QProcess* const process = m_process;
     m_process->setProcessEnvironment(plan.env);
     m_process->setWorkingDirectory(plan.workingDirectory);
 
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, game](int exitCode, QProcess::ExitStatus) {
-        m_runningGame = Game();  // Clear running game
+            this, [this, game, process](int exitCode, QProcess::ExitStatus) {
+        if (process == m_process) {
+            m_runningGame = Game();  // Clear running game
+        }
         emit gameFinished(game, exitCode);
     });
 
-    connect(m_process, &QProcess::errorOccurred, this, [this, game](QProcess::ProcessError error) {
-        m_runningGame = Game();  // Clear running game on error
+    connect(m_process, &QProcess::errorOccurred, this, [this, game, process](QProcess::ProcessError error) {
+        if (process == m_process) {
+            m_runningGame = Game();  // Clear running game on error
+        }
         QString errorMsg;
         switch (error) {
             case QProcess::FailedToStart:
@@ -894,18 +911,22 @@ bool GameRunner::launchNativeLinux(const Game& game, const DLSSSettings& setting
         emit launchWarning(game, plan.warning);
     }
 
-    // Clean up previous process
+    // Clean up previous process. launch() refuses while one is running, and
+    // deleting a running QProcess would kill the game it belongs to.
     if (m_process) {
         m_process->deleteLater();
     }
 
     m_process = new QProcess(this);
+    QProcess* const process = m_process;
     m_process->setProcessEnvironment(plan.env);
     m_process->setWorkingDirectory(plan.workingDirectory);
 
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, game](int exitCode, QProcess::ExitStatus) {
-        m_runningGame = Game();  // Clear running game
+            this, [this, game, process](int exitCode, QProcess::ExitStatus) {
+        if (process == m_process) {
+            m_runningGame = Game();  // Clear running game
+        }
         emit gameFinished(game, exitCode);
     });
 

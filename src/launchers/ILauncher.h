@@ -2,6 +2,7 @@
 #define ILAUNCHER_H
 
 #include <QString>
+#include <QStringList>
 #include <QList>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
@@ -47,6 +48,16 @@ public:
         Q_UNUSED(game);
         return false;
     }
+
+    // Anything the last discoverGames() could not do that the user should know
+    // about — a library folder the launcher's own config names but this process
+    // cannot read, say. Empty when discovery had nothing to report, which is
+    // the normal case and the default here.
+    //
+    // Not an error channel: discovery succeeded, it was simply incomplete, and
+    // the difference matters because the symptom is a short list rather than a
+    // failure. Read after discoverGames() on the thread that called it.
+    virtual QStringList discoveryWarnings() const { return {}; }
 
     // Get launch command string for clipboard/manual use
     virtual QString getLaunchCommand(const Game& game, const DLSSSettings& settings) = 0;

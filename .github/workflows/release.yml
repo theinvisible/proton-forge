@@ -3,7 +3,9 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on version tags like v1.0.3
+      # Plain vX.Y.Z only. 'v*.*.*' also matched v1.2.0-rc1, which is not a
+      # version CMake's project() accepts.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
   workflow_dispatch:  # Allow manual trigger
 
@@ -47,6 +49,18 @@ jobs:
             exit 1
           fi
           VERSION=${GITHUB_REF_NAME#v}
+
+          # The tag and CMakeLists.txt have to agree. This used to sed the tag's
+          # version into CMakeLists.txt, which fixed the .deb and the AppImage —
+          # and left the Flatpak and every source build at that tag reporting
+          # whatever the file still said. The file is the one source of truth.
+          CMAKE_VERSION="$(grep -oP 'project\(ProtonForge VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt || true)"
+          if [ "${VERSION}" != "${CMAKE_VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match CMakeLists.txt (${CMAKE_VERSION:-no version found})." >&2
+            echo "Bump project(ProtonForge VERSION ...) in CMakeLists.txt, commit, and tag that commit." >&2
+            exit 1
+          fi
+
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Building version: ${VERSION}"
 
@@ -94,15 +108,15 @@ jobs:
           echo "codename=${VERSION_CODENAME}" >> "$GITHUB_OUTPUT"
           echo "Target: ${PRETTY_NAME} (${VERSION_CODENAME})"
 
-      - name: Update CMakeLists.txt version
-        run: |
-          sed -i "s/project(ProtonForge VERSION [0-9.]\+/project(ProtonForge VERSION ${{ needs.prepare.outputs.version }}/" CMakeLists.txt
-          grep "project(ProtonForge" CMakeLists.txt
-
       - name: Build release version
         run: |
-          cmake -S . -B cmake-build-release -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B cmake-build-release -DCMAKE_BUILD_TYPE=Release -DPROTONFORGE_BUILD_TESTS=ON
           cmake --build cmake-build-release -j$(nproc)
+
+      # CI only builds on the newest target and the oldest Qt; this is the one
+      # place each published distribution runs the unit tests against its own Qt.
+      - name: Run unit tests
+        run: ctest --test-dir cmake-build-release --output-on-failure
 
       # The binary was just built in this container against this container's Qt,
       # so reusing it is correct here. Without the flag build-deb.sh rebuilds from
@@ -172,11 +186,6 @@ jobs:
       # that were tested rather than whatever is newest today.
       - name: Install linuxdeploy and the AppImage runtime
         run: bash packaging/appimage/install-tools.sh
-
-      - name: Update CMakeLists.txt version
-        run: |
-          sed -i "s/project(ProtonForge VERSION [0-9.]\+/project(ProtonForge VERSION ${{ needs.prepare.outputs.version }}/" CMakeLists.txt
-          grep "project(ProtonForge" CMakeLists.txt
 
       - name: Build the AppImage
         id: package
@@ -278,7 +287,7 @@ jobs:
 
             ---
 
-            **Qt Version:** 6.0+
+            **Qt Version:** 6.4+
             **GPU Focus:** NVIDIA (Proton management works on any GPU)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

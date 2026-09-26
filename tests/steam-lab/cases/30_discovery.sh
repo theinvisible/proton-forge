@@ -167,6 +167,56 @@ assert_json "the second library's game keeps its own library path" "$GAMES" \
     '[g["libraryPath"] for g in d if g["appId"]=="400"][0]' "$EXTRA/steamapps"
 
 # ---------------------------------------------------------------------------
+part "   g2) a library folder that is named but not there"
+
+# Issue #1's real shape. libraryfolders.vdf names a drive; the app cannot see it,
+# because it is unmounted, gone, or — the common one — on a mount the Flatpak was
+# never granted. This used to be dropped in silence, so the user was shown a
+# short list and told nothing.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" 1245620 name="ELDEN RING" >/dev/null
+fx_phantom_library "$NATIVE" /mnt/games/SteamLibrary >/dev/null
+
+INFO="$(app_cli --steam-info)"
+GAMES="$(app_cli --list-games)"
+
+assert_json "the readable library is still the one discovery walks" "$INFO" \
+    'd["libraries"]' "[\"$NATIVE/steamapps\"]"
+assert_json "and the unreachable one is reported rather than dropped" "$INFO" \
+    'd["unreadableLibraries"]' '["/mnt/games/SteamLibrary"]'
+assert_json "the warning names the path, which is the whole point" "$INFO" \
+    'len(d["libraryWarnings"])' "1"
+assert_json_contains "and says which library it is" "$INFO" \
+    'd["libraryWarnings"][0]' "/mnt/games/SteamLibrary"
+
+# Outside a Flatpak there is no override to suggest, so it must not suggest one.
+assert_json "no flatpak advice on a native install" "$INFO" \
+    '"flatpak override" in d["libraryWarnings"][0]' "false"
+
+# The games that *are* readable still come through: this is a warning, not a
+# failure, and discovery must not stop at the bad entry.
+assert_json "the games it can see are listed as usual" "$GAMES" 'len(d)' "1"
+assert_eq "and the command still succeeds" "0" "$(app_rc)"
+
+# Inside a Flatpak the message carries the exact remedy, scoped to that one path.
+INFO_FP="$(FLATPAK_ID=org.protonforge.ProtonForge app_cli --steam-info)"
+assert_json_contains "in a Flatpak it hands over the override that fixes it" "$INFO_FP" \
+    'd["libraryWarnings"][0]' \
+    'flatpak override --user --filesystem="/mnt/games/SteamLibrary" org.protonforge.ProtonForge'
+
+# And it goes away again once the library is reachable, so a Refresh clears it.
+mkdir -p "$PF_LAB_DIR/phantom-now-real/steamapps"
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" 1245620 name="ELDEN RING" >/dev/null
+fx_phantom_library "$NATIVE" "$PF_LAB_DIR/phantom-now-real" >/dev/null
+INFO="$(app_cli --steam-info)"
+assert_json "a library that exists produces no warning at all" "$INFO" \
+    'len(d["libraryWarnings"])' "0"
+rm -rf "$PF_LAB_DIR/phantom-now-real"
+
+# ---------------------------------------------------------------------------
 part "h) existing launch options are read back from Steam"
 
 fx_reset

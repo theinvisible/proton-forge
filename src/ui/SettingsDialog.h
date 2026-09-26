@@ -23,6 +23,9 @@ private slots:
 private:
     void setupUI();
     void loadSettings();
+    // The credential fields, filled only once SecretStore has loaded — before
+    // that they would read as empty, and saving empty is a delete.
+    void loadSecrets();
     QWidget* buildGithubPage();
     QWidget* buildSteamPage();
     QWidget* buildGogPage();
@@ -36,6 +39,10 @@ private:
     QLineEdit*      m_gogInstallRootEdit = nullptr;
     QComboBox*      m_gogLanguageBox = nullptr;
     QPushButton*    m_saveButton = nullptr;
+
+    // What the fields held when loaded, so Save writes only what the user changed.
+    QString         m_loadedGitHubToken;
+    QString         m_loadedSteamApiKey;
 };
 
 #endif // SETTINGSDIALOG_H

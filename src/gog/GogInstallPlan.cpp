@@ -111,6 +111,34 @@ QList<GogContentClient::DepotRef> selectDepots(const GogContentClient::BuildMeta
     return selected;
 }
 
+QString installFolderName(const QString& preferred, const QString& productId)
+{
+    QString name;
+    name.reserve(preferred.size());
+    for (const QChar c : preferred) {
+        if (c == QLatin1Char('/') || c == QLatin1Char('\\')) {
+            name += QLatin1Char('_');
+        } else if (c.category() != QChar::Other_Control) {
+            name += c;
+        }
+    }
+    name = name.trimmed();
+
+    // Nothing but dots is ".", ".." or a name no file manager will show.
+    bool onlyDots = true;
+    for (const QChar c : std::as_const(name)) {
+        if (c != QLatin1Char('.')) {
+            onlyDots = false;
+            break;
+        }
+    }
+    if (name.isEmpty() || onlyDots) {
+        // The product id goes through the same rules; it is only ever digits.
+        return productId.isEmpty() ? QStringLiteral("game") : installFolderName(productId, {});
+    }
+    return name;
+}
+
 Plan build(const GogContentClient::BuildMeta& meta,
            const QList<GogContentClient::DepotManifest>& manifestsInDepotOrder)
 {
@@ -119,7 +147,7 @@ Plan build(const GogContentClient::BuildMeta& meta,
         return plan;
     }
 
-    plan.installDirectory = meta.installDirectory;
+    plan.installDirectory = installFolderName(meta.installDirectory, meta.baseProductId);
 
     // Insertion-ordered by first sighting, value overwritten by later depots:
     // when two depots provide the same path the later one wins, which is how

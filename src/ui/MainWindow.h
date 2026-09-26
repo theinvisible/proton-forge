@@ -50,6 +50,13 @@ private:
     void loadGames();
     void checkProtonOnStartup();
     QWidget* createWelcomeWidget();
+    // Play reflects the runner: this game running, another one running, or free.
+    void updatePlayButton();
+
+    // The bar above the game list. Hidden unless discovery had something to
+    // say — see showDiscoveryWarnings().
+    QWidget* createDiscoveryBanner();
+    void showDiscoveryWarnings(const QStringList& warnings);
 
     QSplitter* m_splitter;
     GameListWidget* m_gameList;
@@ -57,6 +64,9 @@ private:
     QStackedWidget* m_rightStack;
     QWidget* m_welcomeWidget;
     QLabel* m_gameCountLabel;
+    QWidget* m_discoveryBanner = nullptr;
+    QLabel* m_discoveryBannerLabel = nullptr;
+    QStringList m_discoveryWarnings;   // the full text behind the banner's summary
     GameRunner* m_gameRunner;
 
     Game m_currentGame;

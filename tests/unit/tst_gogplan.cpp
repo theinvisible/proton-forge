@@ -40,6 +40,8 @@ private slots:
 
     void buildsAPlanFromAManifest();
     void refusesItemsThatEscapeTheInstallDirectory();
+    void installFolderIsOneSafeSegment_data();
+    void installFolderIsOneSafeSegment();
     void laterDepotsWinOnTheSamePath();
     void putsDepotsThatDisagreeOnCaseInOneDirectory();
     void keepsTheFirstSpellingEvenDeepInTheTree();
@@ -536,6 +538,33 @@ void TstGogPlan::detectsCaseCollisions()
     QVERIFY2(GogInstallPlan::wouldCollideCaseInsensitively(colliding, &which),
              "these cannot both exist on the NTFS drive a second game library usually is");
     QVERIFY(!which.isEmpty());
+}
+
+void TstGogPlan::installFolderIsOneSafeSegment_data()
+{
+    // installDirectory arrives from the network and the title from the store;
+    // either is joined straight onto the store directory.
+    QTest::addColumn<QString>("preferred");
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("normal")      << "The Witcher 3 Wild Hunt" << "The Witcher 3 Wild Hunt";
+    QTest::newRow("empty")       << "" << "1207664663";
+    QTest::newRow("blank")       << "   " << "1207664663";
+    QTest::newRow("dot")         << "." << "1207664663";
+    QTest::newRow("dot dot")     << ".." << "1207664663";
+    QTest::newRow("traversal")   << "../../Documents" << ".._.._Documents";
+    QTest::newRow("separator")   << "AC/DC Live" << "AC_DC Live";
+    QTest::newRow("backslash")   << "Foo\\Bar" << "Foo_Bar";
+    QTest::newRow("absolute")    << "/etc" << "_etc";
+    QTest::newRow("control")     << QString("Game\nName") << "GameName";
+    QTest::newRow("inner dots")  << "S.T.A.L.K.E.R." << "S.T.A.L.K.E.R.";
+}
+
+void TstGogPlan::installFolderIsOneSafeSegment()
+{
+    QFETCH(QString, preferred);
+    QFETCH(QString, expected);
+    QCOMPARE(GogInstallPlan::installFolderName(preferred, QStringLiteral("1207664663")), expected);
 }
 
 QTEST_MAIN(TstGogPlan)

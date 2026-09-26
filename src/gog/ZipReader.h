@@ -84,6 +84,12 @@ public:
     // when it escapes. Public so the caller can filter before extracting.
     static QString safeName(const QString& entryName);
 
+    // A symlink entry's target, checked the way the link will resolve it:
+    // relative to the directory the link sits in. Returns the cleaned target,
+    // or empty when it is absolute or lands outside the install directory.
+    // linkName is the link's own path, already passed through safeName().
+    static QString safeLinkTarget(const QString& linkName, const QString& target);
+
     // GOG splits large installers into <name>.sh plus <name>-1.bin, -2.bin, …
     // Detected from the archive's own disk numbers, not from the file names,
     // so a renamed part is still caught.

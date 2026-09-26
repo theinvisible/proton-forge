@@ -46,6 +46,8 @@ public:
     // Empty until ready(), and empty for anything never stored.
     QString value(Key key) const;
 
+    // Both refuse, and report writeFailed, until ready(): a write made from a
+    // value read too early would erase what is stored.
     void setValue(Key key, const QString& value);
     void clear(Key key);
 
@@ -79,6 +81,7 @@ private:
     void writeToKeychain(Key key, const QString& value);
     void finishLoad();
     void migrateGitHubTokenFromSettings();
+    bool refuseWriteBeforeReady(Key key);
 
     Backend m_backend;
     bool m_loadStarted = false;

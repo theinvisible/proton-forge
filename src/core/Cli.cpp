@@ -292,11 +292,29 @@ int cmdSteamInfo()
     o["pidFile"]                  = SteamPaths::steamPidFilePath();
     o["defaultInstallCompatPath"] = SteamPaths::defaultInstallCompatPath();
 
+    const SteamLauncher::LibraryScan scan = SteamLauncher::scanLibraries();
     QJsonArray libraries;
-    for (const QString& path : SteamLauncher::libraryPaths()) {
+    for (const QString& path : scan.paths) {
         libraries.append(path);
     }
-    o["libraries"]   = libraries;
+    o["libraries"] = libraries;
+
+    // The other half of the scan, which used to be dropped on the floor: a
+    // library folder Steam's config names and this process cannot read. An
+    // empty list here is the normal answer; a non-empty one is the difference
+    // between "no games installed" and "your games are somewhere I cannot see".
+    QJsonArray unreadable;
+    for (const QString& path : scan.unreadable) {
+        unreadable.append(path);
+    }
+    o["unreadableLibraries"] = unreadable;
+
+    QJsonArray libWarnings;
+    for (const QString& warning : SteamLauncher::libraryWarnings(scan.unreadable)) {
+        libWarnings.append(warning);
+    }
+    o["libraryWarnings"] = libWarnings;
+
     o["compatTools"] = compatToolList();
 
     ProtonManager& pm = ProtonManager::instance();
@@ -398,8 +416,12 @@ int cmdParseLaunchOptions(const QString& raw)
     o["customParams"] = parsed.customParams;
     // Feeding the parsed settings straight back through the builder makes the
     // round-trip contract (EnvBuilder.cpp: parseLaunchOptions is the documented
-    // inverse of buildLaunchOptions) checkable in a single call.
-    o["roundTrip"]    = EnvBuilder::buildLaunchOptions(parsed.settings);
+    // inverse of buildLaunchOptions) checkable in a single call. The custom
+    // params go back in the way MainWindow's import puts them, or everything
+    // unrecognised would silently drop out of the round trip.
+    DLSSSettings imported = parsed.settings;
+    imported.customLaunchParams = parsed.customParams;
+    o["roundTrip"]    = EnvBuilder::buildLaunchOptions(imported);
     printJson(o);
     return Cli::Ok;
 }

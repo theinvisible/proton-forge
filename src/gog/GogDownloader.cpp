@@ -159,9 +159,13 @@ bool GogDownloader::isSafeToDiscard(const QString& path, const QString& installR
     }
 
     // Our own journal is proof we created this directory, wherever it is —
-    // which covers an install the user pointed at a second drive.
+    // which covers an install the user pointed at a second drive. But only for
+    // a directory where an install can be: one level under some root's store
+    // directory. A journal anywhere else (the store directory itself, from an
+    // install whose folder name came out empty) must not make it deletable.
     if (QDir(clean + "/" + kJournalDir).exists()) {
-        return true;
+        const QString parent = QFileInfo(clean).path();
+        return parent == GogInstallRegistry::storeDirectory(QFileInfo(parent).path());
     }
 
     if (root.isEmpty() || !clean.startsWith(root + "/")) {
@@ -497,9 +501,17 @@ void GogDownloader::onBuildMeta(const GogContentClient::BuildMeta& meta)
     m_job->detail = QStringLiteral("Reading %1 depots…").arg(m_job->depots.size());
     emitProgress();
 
-    for (const GogContentClient::DepotRef& depot : std::as_const(m_job->depots)) {
-        GogContentClient::instance().fetchDepotManifest(m_job->request.productId,
-                                                        depot.manifestHash);
+    // A cached manifest, or a depot with no hash, is answered from inside
+    // fetchDepotManifest() — and that answer can end the job (failJob, or
+    // buildPlan failing) before the loop is done. So iterate over copies and
+    // stop as soon as there is no job left to fetch for.
+    const QString productId = m_job->request.productId;
+    const QList<GogContentClient::DepotRef> depots = m_job->depots;
+    for (const GogContentClient::DepotRef& depot : depots) {
+        GogContentClient::instance().fetchDepotManifest(productId, depot.manifestHash);
+        if (!m_job) {
+            return;
+        }
     }
 }
 
@@ -647,8 +659,8 @@ void GogDownloader::onOfflineInstallers(const QList<GogOfflineClient::Installer>
     // an offline installer has no equivalent, so the title is used and the
     // product id stands in when there is none (the CLI does not pass one).
     m_job->installPath = GogInstallRegistry::storeDirectory(root) + "/"
-                         + (m_job->request.title.isEmpty() ? m_job->request.productId
-                                                           : m_job->request.title);
+                         + GogInstallPlan::installFolderName(m_job->request.title,
+                                                             m_job->request.productId);
     m_job->offlinePath = journalPath() + "/installer.sh";
 
     if (!QDir().mkpath(journalPath())) {
@@ -725,6 +737,29 @@ void GogDownloader::unpackOfflineInstaller(const QString& path)
     m_job->filesTotal = total;
     m_job->filesDone = 0;
 
+    // Nothing may be written *through* a symlink: an archive that ships
+    // "x -> /home/you/.config" and then "x/autostart/evil.desktop" would
+    // otherwise write wherever it liked. So the archive's own links are
+    // created last, once every regular file is down, and a path that crosses a
+    // link already on disk (left by an earlier install into the same
+    // directory) is refused outright.
+    const QString installPath = m_job->installPath;
+    auto crossesALink = [&installPath](const QString& relative) {
+        const QStringList parts = relative.split(QLatin1Char('/'));
+        QString path = installPath;
+        for (int i = 0; i < parts.size() - 1; ++i) {
+            path += QLatin1Char('/') + parts.at(i);
+            if (QFileInfo(path).isSymLink()) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    struct PendingLink { QString relative; QString target; };
+    QList<PendingLink> links;
+    int refused = 0;
+
     int extracted = 0;
     qint64 written = 0;
     for (const ZipReader::Entry& entry : reader.entries()) {
@@ -736,19 +771,32 @@ void GogDownloader::unpackOfflineInstaller(const QString& path)
         if (relative.isEmpty()) {
             continue;   // refused by the path rules; see ZipReader::safeName
         }
+        if (crossesALink(relative)) {
+            ++refused;
+            continue;
+        }
 
-        const QString dest = m_job->installPath + "/" + relative;
+        const QString dest = installPath + "/" + relative;
         if (entry.isDirectory) {
             QDir().mkpath(dest);
             continue;
         }
 
         if (entry.isSymlink) {
-            const QByteArray target = reader.readEntry(entry);
-            QFile::remove(dest);
-            QDir().mkpath(QFileInfo(dest).absolutePath());
-            QFile::link(QString::fromUtf8(target), dest);
+            // An unreadable entry reads as empty, and an empty target is refused.
+            const QString target =
+                ZipReader::safeLinkTarget(relative, QString::fromUtf8(reader.readEntry(entry)));
+            if (target.isEmpty()) {
+                ++refused;
+            } else {
+                links.append({relative, target});
+            }
             continue;
+        }
+
+        // A link at the destination itself would be followed by the open.
+        if (QFileInfo(dest).isSymLink()) {
+            QFile::remove(dest);
         }
 
         QString error;
@@ -766,6 +814,21 @@ void GogDownloader::unpackOfflineInstaller(const QString& path)
     }
 
     reader.close();
+
+    for (const PendingLink& link : std::as_const(links)) {
+        // Checked again: a link made a moment ago may be the parent of this one.
+        if (crossesALink(link.relative)) {
+            ++refused;
+            continue;
+        }
+        const QString dest = installPath + "/" + link.relative;
+        QFile::remove(dest);
+        QDir().mkpath(QFileInfo(dest).absolutePath());
+        if (!QFile::link(link.target, dest)) {
+            qWarning("GogDownloader: could not create link %s -> %s",
+                     qPrintable(dest), qPrintable(link.target));
+        }
+    }
 
     if (extracted == 0) {
         failJob(QStringLiteral("The installer contained no game files under %1.").arg(prefix));
@@ -785,6 +848,14 @@ void GogDownloader::unpackOfflineInstaller(const QString& path)
     entry.languages   = {m_job->offlineInstaller.language};
     entry.size        = written;
     entry.complete    = true;
+    entry.warnings.clear();
+    if (refused > 0) {
+        qWarning("GogDownloader: %s: refused %d installer entries that pointed outside "
+                 "the install directory", qPrintable(m_job->request.productId), refused);
+        entry.warnings << QStringLiteral(
+            "%1 file(s) in this installer named a location outside the install "
+            "directory and were skipped.").arg(refused);
+    }
     if (entry.title.isEmpty()) {
         entry.title = m_job->request.title;
     }
@@ -1008,6 +1079,9 @@ void GogDownloader::pump()
 
     while (!m_job->paused && m_replies.size() < parallel && m_job->nextTask < m_job->tasks.size()) {
         startChunk(m_job->nextTask++);
+        if (!m_job) {
+            return;   // startChunk() failed the job
+        }
     }
 
     const bool queueDrained = m_job->nextTask >= m_job->tasks.size();

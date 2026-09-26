@@ -57,15 +57,17 @@ public:
     // dlssVersion, enableSteamOverlay) are preserved from `base`.
     static ParsedLaunchOptions parseLaunchOptions(const QString& raw, const DLSSSettings& base);
 
-    // Extra game arguments from customLaunchParams (tokens after "%command%"),
-    // for passing to the game process on a direct launch.
+    // Extra game arguments from customLaunchParams, for passing to the game
+    // process on a direct launch: the tokens after "%command%" — or, when there
+    // is none, everything from the first token that is not KEY=VALUE, because
+    // that is where Steam puts a string without "%command%".
     static QStringList customGameArgs(const DLSSSettings& settings);
 
     // The mirror image: tokens *before* "%command%" that are not KEY=VALUE, i.e.
     // a wrapper command and its arguments ("gamemoderun", "strangle 60", …).
     // Steam runs these; a direct launch has to prepend them itself or the user's
-    // wrapper silently does nothing. Empty when there is no "%command%" — by
-    // convention the custom params are then env vars only.
+    // wrapper silently does nothing. Empty when there is no "%command%": nothing
+    // can wrap a command whose position was never given.
     static QStringList customWrapper(const DLSSSettings& settings);
 
 private:

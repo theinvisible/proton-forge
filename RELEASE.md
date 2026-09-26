@@ -14,7 +14,7 @@ Update the version number in `CMakeLists.txt`:
 project(ProtonForge VERSION 1.0.3 LANGUAGES CXX)
 ```
 
-**Important:** The GitHub Action will automatically use the tag version, but keeping CMakeLists.txt in sync is good practice.
+**Required:** the tag has to match this version exactly. `release.yml` and `flatpak-release.yml` both refuse to build a tag `vX.Y.Z` whose commit does not say `project(ProtonForge VERSION X.Y.Z …)` — nothing rewrites the file during the release, so what it says is what every package and every source build at that tag reports. Only plain `vX.Y.Z` tags trigger a release; `v1.2.0-rc1` does not.
 
 ### Step 2: Commit Changes
 
@@ -105,7 +105,9 @@ You can also trigger the release workflow manually:
 1. Go to: https://github.com/theinvisible/proton-forge/actions
 2. Select "Build and Release" workflow
 3. Click "Run workflow"
-4. Select branch and run
+4. Pick the **tag** (not a branch) under "Use workflow from" and run — started on a branch, `prepare` stops, because there is no version to release
+
+Or from the shell: `gh workflow run release.yml --ref vX.Y.Z`.
 
 ## 📊 CI/CD Workflows
 
@@ -117,7 +119,7 @@ ProtonForge has three GitHub Actions workflows:
 - **Outputs:** Build artifacts (7 day retention)
 
 ### 2. Release Build (`release.yml`)
-- **Triggers:** Version tags (v*.*.*), or `workflow_dispatch` **on a tag ref**
+- **Triggers:** Version tags (`vX.Y.Z`, matching `CMakeLists.txt`), or `workflow_dispatch` **on a tag ref**
 - **Purpose:** Create official releases
 - **Outputs:** GitHub release with one .deb per Ubuntu LTS and one AppImage
 - **Shape:** `prepare` reads the targets from `packaging/distros.txt` → `build`

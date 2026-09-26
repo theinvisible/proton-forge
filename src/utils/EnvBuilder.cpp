@@ -77,6 +77,55 @@ QString stripQuotes(const QString& v)
     return v;
 }
 
+// The user's custom launch parameters, split the way Steam will run them.
+//
+// With "%command%": KEY=VALUE tokens in front of it are environment, any other
+// token in front is a wrapper command (gamemoderun, strangle 60, …), and
+// everything after it is a game argument.
+//
+// Without it, Steam appends the whole string to the game's command line — so
+// "-novid -console" is two game arguments, not something to run. ProtonForge
+// has always also accepted a bare "FOO=1" there as an environment variable,
+// and keeps doing so for the KEY=VALUE tokens at the start; from the first
+// token that is not one, the rest are game arguments.
+struct CustomParts {
+    QStringList env;
+    QStringList wrapper;
+    QStringList args;
+};
+
+bool isAssignment(const QString& token)
+{
+    return token.indexOf('=') > 0;
+}
+
+CustomParts splitCustom(const QString& custom)
+{
+    CustomParts parts;
+    const QStringList tokens = tokenize(custom);
+    const bool hasCommand = tokens.contains(QStringLiteral("%command%"));
+
+    bool afterCommand = false;
+    for (const QString& token : tokens) {
+        if (hasCommand) {
+            if (token == QLatin1String("%command%")) {
+                afterCommand = true;
+            } else if (afterCommand) {
+                parts.args << token;
+            } else if (isAssignment(token)) {
+                parts.env << token;
+            } else {
+                parts.wrapper << token;
+            }
+        } else if (parts.args.isEmpty() && isAssignment(token)) {
+            parts.env << token;
+        } else {
+            parts.args << token;
+        }
+    }
+    return parts;
+}
+
 // Joins the VKD3D_CONFIG flags ProtonForge manages (descriptor_heap) with any
 // foreign flags round-tripped through vkd3dConfigExtra, so both survive.
 QString vkd3dConfigValue(const DLSSSettings& s)
@@ -382,18 +431,11 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         tail << "mangohud";
     }
 
-    // Custom launch parameters. If they contain "%command%", the custom text
-    // controls placement of %command% and any trailing game arguments;
-    // otherwise it is treated as extra env vars before an appended %command%.
-    const QString custom = settings.customLaunchParams.trimmed();
-    if (custom.contains("%command%")) {
-        tail << custom;
-    } else {
-        if (!custom.isEmpty()) {
-            envVars << custom;   // pure env vars — they belong in front
-        }
-        tail << "%command%";
-    }
+    // Custom launch parameters, see splitCustom(). Their env vars join ours in
+    // front of every command token, mangohud included.
+    const CustomParts custom = splitCustom(settings.customLaunchParams);
+    envVars << custom.env;
+    tail << custom.wrapper << QStringLiteral("%command%") << custom.args;
 
     return (envVars + tail).join(" ");
 }
@@ -494,18 +536,12 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
         env.insert("MANGOHUD", "1");
     }
 
-    // Custom launch parameters: apply the env-var (KEY=VALUE) portion that
-    // precedes %command% to the process environment. Anything after %command%
-    // is a game argument, handled separately via customGameArgs().
-    QString custom = settings.customLaunchParams;
-    int cmdIdx = custom.indexOf("%command%");
-    const QString envPart = (cmdIdx >= 0) ? custom.left(cmdIdx) : custom;
-    const QStringList tokens = tokenize(envPart);
-    for (const QString& token : tokens) {
-        int eq = token.indexOf('=');
-        if (eq > 0) {
-            env.insert(token.left(eq), stripQuotes(token.mid(eq + 1)));
-        }
+    // Custom launch parameters: their KEY=VALUE portion goes into the process
+    // environment. Wrapper and game arguments are customWrapper() and
+    // customGameArgs().
+    for (const QString& token : splitCustom(settings.customLaunchParams).env) {
+        const int eq = token.indexOf('=');
+        env.insert(token.left(eq), stripQuotes(token.mid(eq + 1)));
     }
 
     return env;
@@ -595,38 +631,26 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     }
 
     result.customParams = leftover.join(" ");
+
+    // Without %command% Steam appends the string to the game's command line.
+    // Spelled out, "-novid -console" becomes "%command% -novid -console" — which
+    // is what it meant all along, and what the custom-params field then shows.
+    if (!seenCommand) {
+        const CustomParts parts = splitCustom(result.customParams);
+        if (!parts.args.isEmpty()) {
+            result.customParams =
+                (parts.env + QStringList{QStringLiteral("%command%")} + parts.args).join(" ");
+        }
+    }
     return result;
 }
 
 QStringList EnvBuilder::customGameArgs(const DLSSSettings& settings)
 {
-    const QString custom = settings.customLaunchParams;
-    int cmdIdx = custom.indexOf("%command%");
-    if (cmdIdx < 0) {
-        return {};
-    }
-    const QString argsPart = custom.mid(cmdIdx + QStringLiteral("%command%").length());
-    return tokenize(argsPart);
+    return splitCustom(settings.customLaunchParams).args;
 }
 
 QStringList EnvBuilder::customWrapper(const DLSSSettings& settings)
 {
-    const QString custom = settings.customLaunchParams;
-    int cmdIdx = custom.indexOf("%command%");
-    if (cmdIdx < 0) {
-        // No %command%: the whole string is env vars, nothing wraps the game.
-        return {};
-    }
-
-    QStringList wrapper;
-    for (const QString& token : tokenize(custom.left(cmdIdx))) {
-        // KEY=VALUE is an environment assignment, applied by buildEnvironment().
-        // Anything else in front of %command% is the wrapper command or one of
-        // its arguments.
-        if (token.indexOf('=') > 0) {
-            continue;
-        }
-        wrapper << token;
-    }
-    return wrapper;
+    return splitCustom(settings.customLaunchParams).wrapper;
 }

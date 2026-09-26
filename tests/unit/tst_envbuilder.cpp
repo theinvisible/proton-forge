@@ -37,6 +37,8 @@ private slots:
     void mangoHudIsAWrapperNotAVariable();
     void mangoHudFollowsEveryEnvVar();
     void mangoHudWrapsAUserWrapper();
+    void argumentsWithoutCommandFollowTheGame();
+    void mangoHudPrecedesAUserCommandsArguments();
     void legacyMangoHudVariableStillParses();
     void customWrapper_data();
     void customWrapper();
@@ -201,6 +203,20 @@ void TstEnvBuilder::roundTrips_data()
     DLSSSettings custom;
     custom.customLaunchParams = "MY_OWN_VAR=7 %command% -windowed -novid";
     QTest::newRow("custom params") << custom;
+
+    // No %command%: Steam appends the string to the game's command line.
+    DLSSSettings bareArgs;
+    bareArgs.customLaunchParams = "-novid -console";
+    QTest::newRow("game args without %command%") << bareArgs;
+
+    DLSSSettings envAndArgs;
+    envAndArgs.customLaunchParams = "FOO=1 -novid";
+    QTest::newRow("env and args without %command%") << envAndArgs;
+
+    DLSSSettings mangoCustom;
+    mangoCustom.enableMangoHud = true;
+    mangoCustom.customLaunchParams = "FOO=1 %command% -novid";
+    QTest::newRow("mangohud with custom env") << mangoCustom;
 
     DLSSSettings everything;
     everything.enableNGXUpdater = true;
@@ -372,6 +388,10 @@ void TstEnvBuilder::customGameArgs_data()
 
     QTest::newRow("empty")            << QString()                       << QStringList{};
     QTest::newRow("no %command%")     << "FOO=1"                         << QStringList{};
+    // Without %command%, Steam appends the string to the command line.
+    QTest::newRow("bare args")        << "-novid -console"               << QStringList{"-novid", "-console"};
+    QTest::newRow("env then args")    << "FOO=1 -novid"                  << QStringList{"-novid"};
+    QTest::newRow("assignment later") << "-novid BAR=2"                  << QStringList{"-novid", "BAR=2"};
     QTest::newRow("args after")       << "%command% -novid -windowed"    << QStringList{"-novid", "-windowed"};
     QTest::newRow("env before args")  << "FOO=1 %command% -novid"        << QStringList{"-novid"};
     QTest::newRow("nothing after")    << "FOO=1 %command%"               << QStringList{};
@@ -435,6 +455,45 @@ void TstEnvBuilder::mangoHudFollowsEveryEnvVar()
     QVERIFY2(built.endsWith("mangohud %command%"), qPrintable(built));
 }
 
+void TstEnvBuilder::argumentsWithoutCommandFollowTheGame()
+{
+    // "-novid -console" imported from Steam used to be written back as
+    // "-novid -console %command%" — Steam then tried to run "-novid", and the
+    // game did not start. A direct launch dropped both flags instead.
+    DLSSSettings settings;
+    settings.customLaunchParams = "-novid -console";
+    QString built = EnvBuilder::buildLaunchOptions(settings);
+    QVERIFY2(built.endsWith(" %command% -novid -console") || built == "%command% -novid -console",
+             qPrintable(built));
+    QVERIFY2(!built.contains("-novid -console %command%"), qPrintable(built));
+
+    settings.customLaunchParams = "FOO=1 -novid";
+    built = EnvBuilder::buildLaunchOptions(settings);
+    QVERIFY2(built.endsWith("FOO=1 %command% -novid"), qPrintable(built));
+    QCOMPARE(EnvBuilder::buildEnvironment(settings).value("FOO"), QStringLiteral("1"));
+
+    // Imported, the position is spelled out, so the field says what it means.
+    QCOMPARE(EnvBuilder::parseLaunchOptions("-novid -console", DLSSSettings()).customParams,
+             QStringLiteral("%command% -novid -console"));
+    QCOMPARE(EnvBuilder::parseLaunchOptions("FOO=1 -novid", DLSSSettings()).customParams,
+             QStringLiteral("FOO=1 %command% -novid"));
+    // Env vars alone keep the old, shorter form.
+    QCOMPARE(EnvBuilder::parseLaunchOptions("FOO=1", DLSSSettings()).customParams,
+             QStringLiteral("FOO=1"));
+}
+
+void TstEnvBuilder::mangoHudPrecedesAUserCommandsArguments()
+{
+    // The same ordering rule when the user did write %command%: their env vars
+    // go in front of mangohud, not behind it.
+    DLSSSettings settings;
+    settings.enableMangoHud = true;
+    settings.customLaunchParams = "FOO=1 %command% -novid";
+
+    const QString built = EnvBuilder::buildLaunchOptions(settings);
+    QVERIFY2(built.endsWith("FOO=1 mangohud %command% -novid"), qPrintable(built));
+}
+
 void TstEnvBuilder::mangoHudWrapsAUserWrapper()
 {
     // Two wrappers nest: mangohud outside, the user's own inside, and both in
@@ -473,7 +532,8 @@ void TstEnvBuilder::customWrapper_data()
     QTest::addColumn<QStringList>("expected");
 
     QTest::newRow("empty")           << QString()                     << QStringList{};
-    // No %command%: by convention the whole string is env vars, nothing wraps.
+    // No %command%: nothing wraps a command whose position was never given —
+    // "gamemoderun" here is a game argument, which is how Steam treats it.
     QTest::newRow("no %command%")    << "FOO=1 gamemoderun"           << QStringList{};
     QTest::newRow("bare wrapper")    << "gamemoderun %command%"       << QStringList{"gamemoderun"};
     QTest::newRow("env then wrapper")<< "FOO=1 gamemoderun %command%" << QStringList{"gamemoderun"};

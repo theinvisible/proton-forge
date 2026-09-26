@@ -371,4 +371,50 @@ else
         "$(tail -n 20 "$CASE_OUT_DIR/gui-stdout.log")"
 fi
 
+# ---------------------------------------------------------------------------
+part "i) an unreachable library folder says so on screen"
+
+# The counterpart to 30_discovery's g2, one layer up: the same unreadable
+# library, but asked of the window rather than the CLI. What can be checked here
+# is that the warning bar does not cost the app anything — it appears above the
+# splitter, so a mistake there is a window that no longer fits, a layout that
+# collapses, or a startup that dies. The text itself is asserted where text can
+# be read; xdotool cannot see into a QLabel, and a screenshot is kept for a human
+# who wants to look.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" installdir="ELDEN RING" >/dev/null
+fx_phantom_library "$NATIVE" /mnt/games/SteamLibrary >/dev/null
+
+# Same discovery the window is about to run, so the two cannot disagree.
+INFO="$(app_cli --steam-info)"
+assert_json "discovery has something to warn about" "$INFO" \
+    'len(d["libraryWarnings"])' "1"
+
+if gui_app_start; then
+    if WIN="$(gui_win '^ProtonForge')"; then
+        ok "the window still comes up with a warning to show"
+        if gui_fits_screen "$WIN"; then
+            ok "and still fits the screen with the bar above the splitter"
+        else
+            gui_screenshot fail-warning-banner >/dev/null
+            fail "the window no longer fits with the warning bar shown" \
+"$(gui_win_size "$WIN") on ${LAB_GUI_WIDTH}x${LAB_GUI_HEIGHT}.
+Screenshot: $CASE_OUT_DIR/fail-warning-banner.xwd"
+        fi
+        # Shrinking is where a banner that cannot wrap shows up.
+        gui_resize "$WIN" 900 600
+        assert_true "and survives being shrunk to 900x600" gui_app_running
+        gui_screenshot discovery-banner >/dev/null
+        info "screenshot of the warning bar: $CASE_OUT_DIR/discovery-banner.xwd"
+    else
+        fail "no main window with an unreachable library configured" "$(gui_list_windows)"
+    fi
+    gui_app_stop
+else
+    fail "the app did not start with an unreachable library configured" \
+"a warning bar must not be able to stop the window from appearing.
+$(tail -n 20 "$CASE_OUT_DIR/gui-stdout.log")"
+fi
+
 case_finish

@@ -29,7 +29,9 @@
 #include <QDir>
 #include <QSettings>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QLabel>
+#include "ui/AppStyle.h"
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -83,18 +85,12 @@ MainWindow::MainWindow(QWidget* parent)
     // Connect game runner signals
     connect(m_gameRunner, &GameRunner::gameStarted, this, [this](const Game& game) {
         statusBar()->showMessage(QString("Started: %1").arg(game.name()), 5000);
-        // Update UI to show game is running
-        if (m_currentGame == game) {
-            m_settingsWidget->setGameRunning(true);
-        }
+        updatePlayButton();
     });
 
     connect(m_gameRunner, &GameRunner::gameFinished, this, [this](const Game& game, int exitCode) {
         statusBar()->showMessage(QString("%1 exited with code %2").arg(game.name()).arg(exitCode), 5000);
-        // Update UI to show game is no longer running
-        if (m_currentGame == game) {
-            m_settingsWidget->setGameRunning(false);
-        }
+        updatePlayButton();
     });
 
     connect(m_gameRunner, &GameRunner::launchWarning, this, [this](const Game&, const QString& message) {
@@ -110,10 +106,7 @@ MainWindow::MainWindow(QWidget* parent)
     });
 
     connect(m_gameRunner, &GameRunner::launchError, this, [this](const Game& game, const QString& error) {
-        // Update UI on error
-        if (m_currentGame == game) {
-            m_settingsWidget->setGameRunning(false);
-        }
+        updatePlayButton();
         QMessageBox::warning(this, "Launch Error",
             QString("Failed to launch %1:\n%2").arg(game.name(), error));
     });
@@ -155,7 +148,19 @@ void MainWindow::setupUI()
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 1);
 
-    setCentralWidget(m_splitter);
+    // The splitter is no longer the central widget on its own: a discovery
+    // warning has to appear above it, spanning both panes, because what it
+    // reports is usually why the left pane is empty.
+    auto* central = new QWidget(this);
+    auto* centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(0);
+    m_discoveryBanner = createDiscoveryBanner();
+    m_discoveryBanner->hide();
+    centralLayout->addWidget(m_discoveryBanner);
+    centralLayout->addWidget(m_splitter, 1);
+
+    setCentralWidget(central);
 
     // Connections
     connect(m_gameList, &GameListWidget::gameSelected, this, &MainWindow::onGameSelected);
@@ -339,6 +344,78 @@ void MainWindow::loadGames()
     m_gameList->setGames(games);
     m_gameCountLabel->setText(QString::number(games.count()));
     statusBar()->showMessage(QString("Found %1 games").arg(games.count()), 3000);
+
+    // Asked after discovery, every time, so a Refresh that fixes the problem
+    // also clears the bar.
+    showDiscoveryWarnings(LauncherManager::instance().discoveryWarnings());
+}
+
+QWidget* MainWindow::createDiscoveryBanner()
+{
+    auto* bar = new QWidget(this);
+    bar->setStyleSheet(QString(
+        "background-color: %1; border-bottom: 1px solid %2;")
+        .arg(AppStyle::ColorWarningBg, AppStyle::ColorWarning));
+
+    auto* layout = new QHBoxLayout(bar);
+    layout->setContentsMargins(14, 10, 10, 10);
+    layout->setSpacing(10);
+
+    auto* icon = new QLabel(QString(
+        "<span style='color: %1; font-size: 15px;'>&#9888;</span>").arg(AppStyle::ColorWarning), bar);
+    icon->setStyleSheet("background: transparent; border: none;");
+
+    m_discoveryBannerLabel = new QLabel(bar);
+    m_discoveryBannerLabel->setWordWrap(true);
+    m_discoveryBannerLabel->setStyleSheet(QString(
+        "color: %1; font-size: 13px; background: transparent; border: none;")
+        .arg(AppStyle::ColorTextPrimary));
+
+    // The full text, with the flatpak override line, is behind a button rather
+    // than in the bar: it is several lines long and only one of them is news.
+    auto* details = new QPushButton("Details", bar);
+    details->setCursor(Qt::PointingHandCursor);
+    details->setStyleSheet(AppStyle::secondaryButtonStyle());
+    connect(details, &QPushButton::clicked, this, [this]() {
+        QMessageBox box(QMessageBox::Warning, "Unreachable Game Libraries",
+                        m_discoveryWarnings.join("\n\n"), QMessageBox::Ok, this);
+        // Selectable so the override command can be copied instead of retyped.
+        box.setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+        box.exec();
+    });
+
+    // Spelled out rather than a U+2715 glyph: the close cross is missing from
+    // the font on a bare Xvfb and on more than one minimal desktop image, and a
+    // blank button is worse than a wide one.
+    auto* dismiss = new QPushButton("Dismiss", bar);
+    dismiss->setToolTip("Hide until the next refresh");
+    dismiss->setCursor(Qt::PointingHandCursor);
+    dismiss->setStyleSheet(AppStyle::secondaryButtonStyle());
+    connect(dismiss, &QPushButton::clicked, this, [this]() { m_discoveryBanner->hide(); });
+
+    layout->addWidget(icon);
+    layout->addWidget(m_discoveryBannerLabel, 1);
+    layout->addWidget(details);
+    layout->addWidget(dismiss);
+
+    return bar;
+}
+
+void MainWindow::showDiscoveryWarnings(const QStringList& warnings)
+{
+    m_discoveryWarnings = warnings;
+    if (warnings.isEmpty()) {
+        m_discoveryBanner->hide();
+        return;
+    }
+
+    // One line in the bar, whatever the number of libraries: the first line of
+    // each warning is the path, which is the part that identifies the problem.
+    const QString first = warnings.first().section('\n', 0, 0);
+    m_discoveryBannerLabel->setText(warnings.count() == 1
+        ? first
+        : QString("%1  (+%2 more)").arg(first).arg(warnings.count() - 1));
+    m_discoveryBanner->show();
 }
 
 void MainWindow::refreshGameList()
@@ -385,10 +462,22 @@ void MainWindow::onGameSelected(const Game& game)
 
     m_settingsWidget->setSettings(settings);
 
-    // Update Play button state based on whether game is running
-    m_settingsWidget->setGameRunning(m_gameRunner->isGameRunning(game));
+    updatePlayButton();
 
     statusBar()->showMessage(QString("Selected: %1").arg(game.name()), 3000);
+}
+
+void MainWindow::updatePlayButton()
+{
+    if (m_gameRunner->isGameRunning(m_currentGame)) {
+        m_settingsWidget->setGameRunning(true);
+    } else if (m_gameRunner->isAnyGameRunning()) {
+        m_settingsWidget->setOtherGameRunning(m_gameRunner->runningGame().name());
+    } else if (m_gameRunner->isLaunchPending()) {
+        m_settingsWidget->setLaunchPending(true);
+    } else {
+        m_settingsWidget->setGameRunning(false);
+    }
 }
 
 void MainWindow::onSettingsChanged(const DLSSSettings& settings)
@@ -412,6 +501,12 @@ void MainWindow::onPlayClicked()
     if (m_gameRunner->isGameRunning(m_currentGame)) {
         QMessageBox::information(this, "Game Already Running",
             QString("%1 is already running.").arg(m_currentGame.name()));
+        return;
+    }
+    if (m_gameRunner->isAnyGameRunning()) {
+        QMessageBox::information(this, "Another Game Is Running",
+            QString("%1 is still running. Quit it before starting %2.")
+                .arg(m_gameRunner->runningGame().name(), m_currentGame.name()));
         return;
     }
 

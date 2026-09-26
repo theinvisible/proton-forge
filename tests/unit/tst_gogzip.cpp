@@ -43,6 +43,8 @@ private slots:
 
     void refusesNamesThatEscape_data();
     void refusesNamesThatEscape();
+    void refusesLinksThatEscape_data();
+    void refusesLinksThatEscape();
 
     void rejectsAnArchiveWhoseEntryIsTruncated();
     void rejectsDataThatUnpacksCleanlyButIsWrong();
@@ -227,6 +229,35 @@ void TstGogZip::refusesNamesThatEscape_data()
     QTest::newRow("absolute")   << "/etc/passwd" << false;
     QTest::newRow("drive")      << "C:\\Windows\\cmd.exe" << false;
     QTest::newRow("empty")      << "" << false;
+}
+
+void TstGogZip::refusesLinksThatEscape_data()
+{
+    // A link's target resolves from the link's own directory, and anything the
+    // offline installer extracts afterwards could be written through it.
+    QTest::addColumn<QString>("link");
+    QTest::addColumn<QString>("target");
+    QTest::addColumn<QString>("expected");   // empty: refused
+
+    QTest::newRow("sibling")       << "game/latest" << "bin/game" << "bin/game";
+    QTest::newRow("up one, inside") << "game/bin/run" << "../lib/libfoo.so" << "../lib/libfoo.so";
+    QTest::newRow("up to root dir") << "game/latest" << "../start.sh" << "../start.sh";
+    QTest::newRow("top level")     << "latest" << "game/bin" << "game/bin";
+    QTest::newRow("escapes")       << "game/latest" << "../../x" << "";
+    QTest::newRow("escapes deep")  << "a/b/c" << "../../../../home" << "";
+    QTest::newRow("absolute")      << "game/cfg" << "/home/user/.config" << "";
+    QTest::newRow("drive")         << "game/cfg" << "C:/Windows" << "";
+    QTest::newRow("backslash")     << "game/cfg" << "..\\..\\x" << "";
+    QTest::newRow("install root")  << "game/root" << ".." << "";
+    QTest::newRow("empty")         << "game/cfg" << "" << "";
+}
+
+void TstGogZip::refusesLinksThatEscape()
+{
+    QFETCH(QString, link);
+    QFETCH(QString, target);
+    QFETCH(QString, expected);
+    QCOMPARE(ZipReader::safeLinkTarget(link, target), expected);
 }
 
 void TstGogZip::refusesNamesThatEscape()

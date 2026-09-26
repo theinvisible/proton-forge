@@ -118,9 +118,11 @@ void SecretStore::finishLoad()
         return;
     }
     // Only once the store is actually up: a keychain that failed to answer must
-    // not be able to destroy a token that is still sitting in QSettings.
-    migrateGitHubTokenFromSettings();
+    // not be able to destroy a token that is still sitting in QSettings. Ready
+    // before migrating, because the migration is a write and writes are refused
+    // until then; ready() still goes out after it.
     m_ready = true;
+    migrateGitHubTokenFromSettings();
     emit ready();
 }
 
@@ -129,8 +131,25 @@ QString SecretStore::value(Key key) const
     return m_values.value(key);
 }
 
+bool SecretStore::refuseWriteBeforeReady(Key key)
+{
+    if (m_ready) {
+        return false;
+    }
+    // Before load() has finished, m_values holds nothing (or only part of what
+    // is stored). An empty value read then and written back is a delete, and
+    // the file backend rewrites the whole file from m_values — so one early
+    // write would take every other credential with it.
+    qWarning("SecretStore: refusing to write before the store has loaded");
+    emit writeFailed(key, QStringLiteral("The credential store has not finished loading yet."));
+    return true;
+}
+
 void SecretStore::setValue(Key key, const QString& value)
 {
+    if (refuseWriteBeforeReady(key)) {
+        return;
+    }
     if (value.isEmpty()) {
         clear(key);
         return;
@@ -149,6 +168,9 @@ void SecretStore::setValue(Key key, const QString& value)
 
 void SecretStore::clear(Key key)
 {
+    if (refuseWriteBeforeReady(key)) {
+        return;
+    }
     m_values.remove(key);
 
     if (m_backend == Backend::File) {

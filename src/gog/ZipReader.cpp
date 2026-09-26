@@ -3,6 +3,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 
 #include <zlib.h>
 
@@ -120,6 +121,26 @@ QString ZipReader::safeName(const QString& entryName)
     // The same rules a depot item gets, and for the same reason: this name came
     // out of a downloaded file, and "../../.bashrc" is a one-line exploit.
     return GogContentClient::sanitizeDepotPath(entryName);
+}
+
+QString ZipReader::safeLinkTarget(const QString& linkName, const QString& target)
+{
+    if (target.isEmpty() || target.startsWith(QLatin1Char('/'))
+        || target.contains(QLatin1Char('\\'))
+        || QRegularExpression(QStringLiteral("^[A-Za-z]:")).match(target).hasMatch()) {
+        return {};
+    }
+
+    // Where the link will actually point, relative to the install directory.
+    // sanitizeDepotPath refuses anything still climbing out after cleanPath,
+    // and anything that collapses to the install directory itself.
+    const QString resolved =
+        QDir::cleanPath(QFileInfo(linkName).path() + QLatin1Char('/') + target);
+    if (resolved == QLatin1String("..") || resolved.startsWith(QLatin1String("../"))
+        || GogContentClient::sanitizeDepotPath(resolved).isEmpty()) {
+        return {};
+    }
+    return QDir::cleanPath(target);
 }
 
 bool ZipReader::open(const QString& path)

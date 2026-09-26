@@ -51,6 +51,10 @@ public:
     // need the client to come up, the game starts later — watch gameStarted().
     bool launch(const Game& game, const DLSSSettings& settings);
     bool isGameRunning(const Game& game) const;
+    // One game at a time: m_process is the only slot, and replacing a running
+    // QProcess kills its child.
+    bool isAnyGameRunning() const;
+    Game runningGame() const { return isAnyGameRunning() ? m_runningGame : Game(); }
     bool isLaunchPending() const { return m_launchPending; }
 
     // Pure resolution: no process started, no directory created. Dispatches to

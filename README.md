@@ -11,7 +11,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 > **Note:** ProtonForge currently focuses on NVIDIA graphics cards for DLSS-related features. Proton management features work with any GPU.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Qt Version](https://img.shields.io/badge/Qt-6.0%2B-green.svg)](https://www.qt.io/)
+[![Qt Version](https://img.shields.io/badge/Qt-6.4%2B-green.svg)](https://www.qt.io/)
 [![Platform](https://img.shields.io/badge/Platform-Linux-blue.svg)](https://www.linux.org/)
 [![GPU](https://img.shields.io/badge/GPU-NVIDIA_Focused-76B900.svg)](https://www.nvidia.com/)
 
@@ -138,6 +138,20 @@ Or from Flathub (once published):
 ```bash
 flatpak install flathub org.protonforge.ProtonForge
 ```
+
+**Games on another drive.** The sandbox grants `~`, `/mnt`, `/media` and
+`/run/media`, which covers where Steam libraries normally live. A library
+somewhere else — or a mount point the sandbox does not reach — is invisible to
+ProtonForge, which then names the missing path and the command that grants it:
+
+```bash
+flatpak override --user --filesystem=/path/to/SteamLibrary org.protonforge.ProtonForge
+```
+
+Restart ProtonForge afterwards. Flatpak Steam
+(`~/.var/app/com.valvesoftware.Steam`) needs nothing extra — it is detected
+automatically, and new Proton versions are installed into its own
+`compatibilitytools.d`.
 
 ### From AppImage (one file, any distribution)
 

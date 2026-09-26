@@ -66,6 +66,40 @@ jobs:
             protonforge_*.deb
           retention-days: 7
 
+  # The oldest Qt any target ships. The build job above is Qt 6.10; bookworm,
+  # noble and the AppImage (built on bookworm) are all Qt 6.4. Without this, a
+  # commit using a newer Qt API stays green on master and is first compiled by
+  # the release — whose publish step needs every leg, so no release at all.
+  # Build and unit tests only: packaging for these targets is release.yml's.
+  oldest-qt:
+    name: build and unit tests (Qt 6.4, debian:bookworm)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+
+    steps:
+      - name: Install Git
+        run: |
+          apt-get update
+          apt-get install -y git
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          grep -vE '^\s*(#|$)' packaging/build-depends.txt \
+            | xargs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+
+      - name: Build debug version with tests
+        run: |
+          cmake -S . -B cmake-build-debug -DCMAKE_BUILD_TYPE=Debug -DPROTONFORGE_BUILD_TESTS=ON
+          cmake --build cmake-build-debug -j$(nproc)
+
+      - name: Unit tests
+        run: ctest --test-dir cmake-build-debug --output-on-failure
+
   # The distribution matrix (20_deb_install, 50_real_steam) is deliberately NOT
   # here. It builds ProtonForge from source once per target — four full release
   # builds plus an apt install of the Qt runtime each — which is minutes of CI for

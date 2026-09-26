@@ -32,6 +32,9 @@ inline constexpr const char* ColorDanger        = "#c0392b";
 inline constexpr const char* ColorDangerButton  = "#f44336";
 inline constexpr const char* ColorSuccessButton = "#4CAF50";
 inline constexpr const char* ColorWarning       = "#e0a030";
+// Behind ColorWarning text on a full-width bar. Dark enough to keep the
+// window's contrast, warm enough to read as a warning rather than a panel.
+inline constexpr const char* ColorWarningBg     = "#3a2f14";
 
 // ── Dynamic style builders ──────────────────────────────────────────────────
 

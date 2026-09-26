@@ -1074,6 +1074,14 @@ void DLSSSettingsWidget::setGameRunning(bool running)
     }
 }
 
+void DLSSSettingsWidget::setOtherGameRunning(const QString& gameName)
+{
+    m_playButton->setText(QString("%1 is running...").arg(gameName));
+    m_playButton->setStyleSheet(AppStyle::playButtonRunningStyle());
+    m_playButton->setEnabled(false);
+    m_playButton->setToolTip("Only one game can run at a time");
+}
+
 void DLSSSettingsWidget::setLaunchPending(bool pending)
 {
     if (pending) {
@@ -1109,6 +1117,10 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_fgPreset->blockSignals(block);
     m_dlssUpgrade->blockSignals(block);
     m_protonVersionSelector->blockSignals(block);
+    m_enableAllHDR->blockSignals(block);
+    m_enableProtonWayland->blockSignals(block);
+    m_enableProtonHDR->blockSignals(block);
+    m_enableHDRWSI->blockSignals(block);
     m_enableSmoothMotion->blockSignals(block);
     m_enableFrameRateLimit->blockSignals(block);
     m_targetFrameRate->blockSignals(block);
@@ -1124,6 +1136,12 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
 
 void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
 {
+    // Every widget below is written one at a time, so a handler that ran part
+    // way through would read the previous game's values from the widgets not
+    // yet written and MainWindow would save that mix under the new game. The
+    // blocked signals are the first line of defence; m_loading catches any
+    // widget that is ever added to this function and not to that list.
+    m_loading = true;
     blockSignalsForAll(true);
 
     // General
@@ -1233,6 +1251,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_protonVersionSelector->blockSignals(false);
 
     blockSignalsForAll(false);
+    m_loading = false;
 
     // Update launch command preview
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(settings));
@@ -1323,6 +1342,9 @@ void DLSSSettingsWidget::updateLaunchCommand(const QString& command)
 
 void DLSSSettingsWidget::onSettingChanged()
 {
+    if (m_loading) {
+        return;
+    }
     DLSSSettings s = settings();
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(s));
     updateFeatureWarnings();
@@ -1505,6 +1527,9 @@ void DLSSSettingsWidget::updateFeatureWarnings()
 
 void DLSSSettingsWidget::onEnableAllHDRToggled(bool checked)
 {
+    if (m_loading) {
+        return;   // loading a game's settings, not the user asking for HDR
+    }
     // If enabling HDR, check system HDR status first
     if (checked && !checkAndWarnHDRStatus()) {
         // User canceled or chose not to enable HDR
@@ -1535,6 +1560,9 @@ void DLSSSettingsWidget::onEnableAllHDRToggled(bool checked)
 
 void DLSSSettingsWidget::onHDRCheckboxChanged()
 {
+    if (m_loading) {
+        return;
+    }
     qDebug() << "onHDRCheckboxChanged() called";
 
     // Check if any HDR option is currently being enabled

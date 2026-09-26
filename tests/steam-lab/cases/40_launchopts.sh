@@ -90,6 +90,22 @@ assert_json_contains "an unknown env var is kept" "$PARSED" \
 assert_json_contains "a wrapper command is kept" "$PARSED" 'd["customParams"]' "gamemoderun"
 assert_json_contains "the game arguments are kept verbatim" "$PARSED" \
     'd["customParams"]' "-skipintro -width 2560"
+# And they come back out of the builder, not just out of the parser.
+assert_json_contains "the round trip keeps the wrapper and the arguments" "$PARSED" \
+    'd["roundTrip"]' "gamemoderun %command% -skipintro -width 2560"
+assert_json_contains "the round trip keeps the unknown env var" "$PARSED" \
+    'd["roundTrip"]' "SOME_FUTURE_FLAG=1"
+
+# Without %command% Steam appends the string to the game's command line. Written
+# back as "-novid -console %command%", Steam would try to run "-novid".
+PARSED="$(app_cli --parse-launch-options "-novid -console")"
+assert_json "bare game arguments are imported after %command%" "$PARSED" \
+    'd["customParams"]' "%command% -novid -console"
+ROUNDTRIP="$(json_get "$PARSED" 'd["roundTrip"]')"
+assert_contains_str "bare game arguments stay after %command%" \
+    "$ROUNDTRIP" "%command% -novid -console"
+assert_not_contains_str "bare game arguments never go in front of %command%" \
+    "$ROUNDTRIP" "-console %command%"
 
 # ---------------------------------------------------------------------------
 part "d) --apply writes into localconfig.vdf"

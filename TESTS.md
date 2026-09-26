@@ -40,6 +40,7 @@ without docker.
 | `gui` cases | a virtual screen | `sudo apt install xvfb openbox xdotool x11-utils x11-apps` |
 | `flatpak` cases | flatpak and a manifest reader | `sudo apt install flatpak flatpak-builder python3-yaml` |
 | `flatpak` cases, in a container | docker and a manifest reader | `LAB_FLATPAK_DOCKER=1`, and nothing else on the host |
+| `71_flatpak_steam` | docker, and `LAB_FLATPAK_DOCKER=1` | it writes into `$HOME/.var/app` and `/mnt`, so only a throwaway home will do |
 | `76_appimage` | docker, and nothing else on the host | `build-appimage.sh` builds in a container by design — see §4 |
 | `55_steamclient` part f | a D-Bus name to register | `sudo apt install python3-dbus python3-gi dbus` |
 
@@ -90,6 +91,7 @@ worth knowing where the time goes before assuming something has hung:
 | `20_deb_install`, per target, cached | ~40 s — the package is reused, the `apt` install is not |
 | `70_flatpak`, first run | plus a ~1.5 GB runtime download |
 | `76_appimage`, first run | ~4 min: an apt image plus a release build from scratch. ~30 s afterwards |
+| `71_flatpak_steam` | ~45 s once `70_flatpak`'s runtime is there — it rebuilds the bundle from the working tree every run |
 
 Each target compiles its own package on purpose. A binary carries the Qt version
 it was linked against as a symbol requirement, so one built elsewhere installs and
@@ -134,6 +136,9 @@ in Steam's own formats, so the real parsers do the real work. There are no mocks
 anywhere in this suite. `fx_steam_tree` produces the native layout, the Flatpak
 layout, both at once, neither, or the bootstrap-only state; `fx_add_game`,
 `fx_localconfig`, `fx_config_vdf` and `fx_compat_tool` fill it in.
+`fx_phantom_library` is the odd one out: it adds a library folder to
+`libraryfolders.vdf` and deliberately does *not* create it, which is what an
+unmounted drive and an ungranted Flatpak mount look like from the app's side.
 
 The one thing that gates everything: `SteamPaths::hasLibraryFolders()`
 (`SteamPaths.cpp:21`) requires `<root>/steamapps/libraryfolders.vdf` to exist as a
@@ -219,6 +224,7 @@ counts as `docker`, so nothing runs unguarded by accident.
 | `55_steamclient` | `build` | the client state machine, and deferred launches |
 | `60_gui` | `gui build` | the real window on Xvfb |
 | `70_flatpak` | `flatpak build` | the Flatpak built from the working tree, and its sandbox. `LAB_FLATPAK_DOCKER=1` runs the identical case in a privileged container instead — a machine that has never built the manifest, which is the state the tag workflow builds in |
+| `71_flatpak_steam` | `flatpak` | issue #1, rebuilt: Flatpak Steam under the *real* `~/.var/app`, a library on a second mount, one named through a `~/games` symlink, and native leftovers that must not win the tie-break. Container-only (`LAB_FLATPAK_DOCKER=1`), because a fixture in the developer's own `~/.var/app` is not something a test may write |
 | `76_appimage` | `docker` | the AppImage: built by `build-appimage.sh` (which containerises itself), then run in a distribution that has only what an AppImage may expect from a host — no Qt — and asked to launch a game, to prove the bundle's library paths do not reach it |
 | `80_proton_mgr` | `build`, opt-in | installing Proton from GitHub for real |
 | `90_gog` | `build` | GOG discovery from the install registry, update state, and the CLI's session commands |
@@ -257,7 +263,7 @@ invocation and Qt's own flags reach the GUI exactly as they did before it existe
 | Option | Output |
 |---|---|
 | `--version`, `--help` | — |
-| `--steam-info` | JSON: variant, root, every derived path, libraries, compat tools |
+| `--steam-info` | JSON: variant, root, every derived path, libraries, the libraries it cannot read (`unreadableLibraries`, `libraryWarnings`), compat tools |
 | `--list-games` | JSON array: app id, name, paths, native/Windows, update state, stored launch options |
 | `--steam-client` | JSON: state, and which check decided it |
 | `--print-launch-options <appid>` | the launch-options string |
@@ -735,6 +741,77 @@ Three things came out of it:
   Found along the way: the metainfo's `<screenshot>` carried a `<caption>` and no
   `<image>`, which any appstreamcli that gets that far rejects. Removed.
 
+### 10. Issue #1: the Flatpak saw no Steam library — gone on `master`, and it was a missing `/mnt` grant
+
+`71_flatpak_steam`
+
+[Issue #1](https://github.com/theinvisible/proton-forge/issues/1) reads as a
+detection bug — "Proton Forge could not detect any games when Steam was installed
+as a Flatpak", fixed by the reporter with a farm of symlinks from native Steam
+paths to `~/.var/app/com.valvesoftware.Steam/...`. Two more people confirmed it on
+**1.0.11**, which is the interesting part: `SteamPaths` landed in `67b618d`, one
+commit *before* the 1.0.11 bump, so the version they ran already probed
+`~/.var/app` and already had `--filesystem=~/.var/app/com.valvesoftware.Steam:rw`
+in its manifest. Whatever they hit was therefore not the path list.
+
+What all three reporters have in common is where the games are: `/mnt/games`.
+`--filesystem=/mnt`, `/media` and `/run/media` only arrived with `51d36e4`, four
+months after 1.0.11 and for GOG's sake rather than Steam's — and the original
+report's own workaround includes
+`flatpak override --filesystem=/mnt/games`, which is the grant, not the symlink.
+
+`71_flatpak_steam` rebuilds that machine rather than arguing about it: Flatpak
+Steam at the real `$HOME/.var/app/...`, one library on `/mnt/games/SteamLibrary`,
+one named through a `~/games -> /mnt/games` symlink, and a leftover
+`~/.steam/root/compatibilitytools.d` with no native library anywhere. Then it runs
+the sandboxed app with **no** `--env=HOME` and **no** extra `--filesystem`, so
+only the manifest's own `finish-args` decide. On `master` (1.1.0) all of it works:
+variant `flatpak`, both libraries listed, both games discovered, and Proton
+targeted at Flatpak Steam's own `compatibilitytools.d` — which is the second
+symptom in the report — with the sandbox able to write there.
+
+Part g) is the reason that green means anything. Revoking exactly one grant at run
+time — `--nofilesystem=/mnt` — reproduces the report against today's binary: **0
+of 2 games**, while `--steam-info` still reports a perfectly healthy Flatpak Steam
+install. That is the shape of the original complaint, and it is a permission, not
+a path.
+
+Two things worth keeping from it:
+
+* **An unreachable library folder used to be dropped without a word — fixed.**
+  `SteamLauncher::libraryPaths()` skipped any entry whose `steamapps` directory
+  failed `QDir::exists()`, so a drive the sandbox cannot see was
+  indistinguishable from one that was never configured. The user was told "no
+  games" and had nothing to go on, which is how a missing grant gets filed as
+  broken detection.
+
+  It is now `scanLibraries()`, which returns both halves — the directories to
+  walk and the ones Steam names but this process cannot read — and
+  `libraryWarnings()` turns the second half into a sentence naming the path.
+  Inside a Flatpak, where the cause is nearly always a grant rather than a
+  drive, the message carries the command that fixes it, scoped to that one path:
+
+  ```
+  flatpak override --user --filesystem="/mnt/games/SteamLibrary" org.protonforge.ProtonForge
+  ```
+
+  `ILauncher::discoveryWarnings()` is how it travels — a launcher-agnostic
+  channel for "discovery succeeded but was incomplete", which is not an error
+  and must not be reported as one. `MainWindow` shows it as a dismissible bar
+  above the splitter, since what it explains is usually why the left pane is
+  empty, and `--steam-info` gained `unreadableLibraries` and `libraryWarnings`
+  so the lab and any script can see the same thing. Covered by
+  `tst_steamlauncher` (both message variants, and that the warning clears when
+  the library comes back), `30_discovery` part g2, `60_gui` part i, and part g
+  here — which now asserts the sentence where it used to assert the silence.
+* **`--filesystem=home` covered `~/.var/app/com.valvesoftware.Steam` in this
+  container**, both grants revoked and all. The manifest's comment says Flatpak
+  protects other apps' data directories, and on the tested flatpak it did not —
+  so the explicit line is belt-and-braces, not the load-bearing grant it claims
+  to be. It stays: the probe is one flatpak version on one host, and the cost of
+  keeping it is nothing. The case reports what it measured either way instead of
+  asserting a belief.
+
 ### Also found, and fixed
 
 * **Two ZIP fixtures were never committed.** `.gitignore` has a blanket `*.zip`
@@ -838,9 +915,13 @@ Honest list of what these tests do **not** cover.
 
 ## 10. CI
 
-`.github/workflows/ci.yml` has three jobs:
+`.github/workflows/ci.yml` has four jobs:
 
-* **build** — debug with tests, `ctest`, release, and the `.deb`.
+* **build** — debug with tests, `ctest`, release, and the `.deb`, on the newest
+  target (Qt 6.10).
+* **oldest-qt** — debug with tests and `ctest` in `debian:bookworm`, Qt 6.4: the
+  oldest Qt any target ships (bookworm, noble, and the AppImage, which is built
+  there). Without it a newer-Qt API is first compiled by the release.
 * **behaviour** — the fixture-driven cases plus `60_gui` under Xvfb. This is the
   bulk of the coverage and it runs in well under two minutes.
 * **flatpak** — the Flatpak built from the working tree. No `container:`, because

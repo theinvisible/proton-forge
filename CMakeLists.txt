@@ -7,7 +7,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Concurrent DBus)
+# 6.4 is the oldest Qt a target ships (bookworm, noble, the AppImage); CI builds
+# against it, and anything older is not tested.
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Widgets Network Concurrent DBus)
 
 # zlib: GOG's content system serves every manifest and every chunk zlib-encoded
 # with no Content-Encoding header, so Qt will not inflate them and qUncompress()

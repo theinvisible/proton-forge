@@ -38,6 +38,11 @@ public:
 
     QList<Game> discoverAllGames();
 
+    // What the launchers have to say about the discovery that just ran, in
+    // registration order. Asked after discoverAllGames() rather than collected
+    // during it, so a caller that does not care pays nothing.
+    QStringList discoveryWarnings() const;
+
     // Re-evaluate ILauncher::isAvailable() across the registry and emit
     // availabilityChanged() only if the set actually moved. Called on refresh
     // and whenever a store's sign-in state changes.

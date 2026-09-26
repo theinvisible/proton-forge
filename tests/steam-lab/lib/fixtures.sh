@@ -59,6 +59,44 @@ _fx_write_libraryfolders() {
     printf '%s' "$file"
 }
 
+# fx_phantom_library <root> <path> -> the libraryfolders.vdf that was edited
+#
+# Adds a library folder to libraryfolders.vdf and deliberately does *not* create
+# it. From the app's side that is indistinguishable from an unmounted drive, a
+# deleted folder, or a Flatpak that was never granted the mount the games live
+# on — which is issue #1, and which SteamLauncher::scanLibraries() now reports as
+# unreadable instead of dropping. A fixture, therefore, rather than a mistake.
+fx_phantom_library() {
+    local root="$1" path="$2"
+    local file="$root/steamapps/libraryfolders.vdf"
+    [[ -f "$file" ]] || die "fx_phantom_library: no libraryfolders.vdf under $root"
+
+    python3 - "$file" "$path" <<'PY'
+import re, sys
+
+vdf, phantom = sys.argv[1], sys.argv[2]
+with open(vdf) as handle:
+    text = handle.read()
+
+# The next free numeric key, so the entry looks like one Steam wrote.
+index = max((int(m) for m in re.findall(r'^\t"(\d+)"', text, re.M)), default=-1) + 1
+entry = (
+    '\t"%d"\n\t{\n'
+    '\t\t"path"\t\t"%s"\n'
+    '\t\t"label"\t\t"phantom"\n'
+    '\t\t"apps"\n\t\t{\n\t\t}\n'
+    '\t}\n'
+) % (index, phantom)
+
+# Before the closing brace of the "libraryfolders" block, which is the last one.
+cut = text.rstrip().rfind("}")
+with open(vdf, "w") as handle:
+    handle.write(text[:cut] + entry + text[cut:])
+PY
+
+    printf '%s' "$file"
+}
+
 # fx_steam_tree <native|flatpak|both|none|bootstrap> [key=value ...] -> root path
 #
 #   native     ~/.local/share/Steam plus the symlink farm a real install has

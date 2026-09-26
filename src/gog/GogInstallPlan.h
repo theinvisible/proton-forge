@@ -50,6 +50,14 @@ QList<GogContentClient::DepotRef> selectDepots(const GogContentClient::BuildMeta
                                                const QStringList& ownedDlcIds,
                                                int bitness = 64);
 
+// The one directory an install gets under the store directory. `preferred`
+// comes from the network (a build's installDirectory) or from the store's
+// title, so it is forced to a single, non-empty path segment: separators
+// become '_', and a name that is empty, "." or ".." falls back to the product
+// id. Unchecked, an empty name would put the install — and its journal, which
+// is what makes a directory deletable — in the store directory itself.
+QString installFolderName(const QString& preferred, const QString& productId);
+
 // `manifests` must be in the same order selectDepots() returned, because that
 // order is what decides which depot wins when two provide the same path.
 Plan build(const GogContentClient::BuildMeta& meta,

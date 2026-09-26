@@ -416,8 +416,17 @@ QWidget* SettingsDialog::buildGogPage()
 void SettingsDialog::loadSettings()
 {
     SecretStore& store = SecretStore::instance();
-    m_tokenEdit->setText(store.value(SecretStore::Key::GitHubToken));
-    m_steamApiKeyEdit->setText(store.value(SecretStore::Key::SteamWebApiKey));
+    if (store.isReady()) {
+        loadSecrets();
+    } else {
+        // A keyring that is still unlocking, or still answering its first reads.
+        for (QLineEdit* edit : {m_tokenEdit, m_steamApiKeyEdit}) {
+            edit->setEnabled(false);
+            edit->setPlaceholderText("Waiting for the system keyring…");
+        }
+        connect(&store, &SecretStore::ready, this, &SettingsDialog::loadSecrets,
+                Qt::SingleShotConnection);
+    }
 
     QSettings settings;
     m_steamIdEdit->setText(settings.value("steam/steamId64").toString());
@@ -425,6 +434,20 @@ void SettingsDialog::loadSettings()
     const int languageIndex =
         m_gogLanguageBox->findData(settings.value("gog/language", "en-US").toString());
     m_gogLanguageBox->setCurrentIndex(languageIndex >= 0 ? languageIndex : 0);
+}
+
+void SettingsDialog::loadSecrets()
+{
+    SecretStore& store = SecretStore::instance();
+    m_loadedGitHubToken = store.value(SecretStore::Key::GitHubToken);
+    m_loadedSteamApiKey = store.value(SecretStore::Key::SteamWebApiKey);
+
+    m_tokenEdit->setText(m_loadedGitHubToken);
+    m_tokenEdit->setPlaceholderText("ghp_...");
+    m_tokenEdit->setEnabled(true);
+    m_steamApiKeyEdit->setText(m_loadedSteamApiKey);
+    m_steamApiKeyEdit->setPlaceholderText("32 hex characters");
+    m_steamApiKeyEdit->setEnabled(true);
 }
 
 void SettingsDialog::saveSettings()
@@ -439,8 +462,19 @@ void SettingsDialog::saveSettings()
     connect(&store, &SecretStore::writeFailed, this, &SettingsDialog::onSecretWriteFailed,
             Qt::UniqueConnection);
 
-    store.setValue(SecretStore::Key::GitHubToken, m_tokenEdit->text().trimmed());
-    store.setValue(SecretStore::Key::SteamWebApiKey, m_steamApiKeyEdit->text().trimmed());
+    // Only what the user changed, and only once the fields were really loaded:
+    // an unchanged field has nothing to say, and rewriting it is one more
+    // keyring round trip that can fail.
+    if (store.isReady()) {
+        const QString token = m_tokenEdit->text().trimmed();
+        if (token != m_loadedGitHubToken) {
+            store.setValue(SecretStore::Key::GitHubToken, token);
+        }
+        const QString apiKey = m_steamApiKeyEdit->text().trimmed();
+        if (apiKey != m_loadedSteamApiKey) {
+            store.setValue(SecretStore::Key::SteamWebApiKey, apiKey);
+        }
+    }
 
     // Not credentials, so plain QSettings is the right home for these.
     QSettings settings;

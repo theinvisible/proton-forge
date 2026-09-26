@@ -77,14 +77,19 @@ QString SteamLauncher::steamAppsPath()
 
 QStringList SteamLauncher::libraryPaths()
 {
-    QStringList paths;
+    return scanLibraries().paths;
+}
+
+SteamLauncher::LibraryScan SteamLauncher::scanLibraries()
+{
+    LibraryScan scan;
 
     const QString defaultPath = SteamPaths::steamAppsPath();
     if (defaultPath.isEmpty()) {
-        return paths;
+        return scan;
     }
     if (QDir(defaultPath).exists()) {
-        paths << defaultPath;
+        scan.paths << defaultPath;
     }
 
     // Parse libraryfolders.vdf for additional library folders
@@ -104,21 +109,66 @@ QStringList SteamLauncher::libraryPaths()
                 if (isNumber && it.value().hasChild("path")) {
                     QString libPath = it.value().getString("path");
                     QString steamApps = libPath + "/steamapps";
-                    if (QDir(steamApps).exists() && !paths.contains(steamApps)) {
-                        paths << steamApps;
+                    if (QDir(steamApps).exists()) {
+                        if (!scan.paths.contains(steamApps)) {
+                            scan.paths << steamApps;
+                        }
+                    } else if (!scan.unreadable.contains(libPath)) {
+                        // Named by Steam and not there for us. Kept rather than
+                        // dropped: this is the difference between "you have no
+                        // games" and "your games are on a drive I cannot see".
+                        scan.unreadable << libPath;
                     }
                 }
             }
         }
     }
 
-    return paths;
+    return scan;
+}
+
+QString SteamLauncher::flatpakAppId()
+{
+    return qEnvironmentVariable("FLATPAK_ID");
+}
+
+QStringList SteamLauncher::libraryWarnings(const QStringList& unreadable,
+                                           const QString& flatpakId)
+{
+    QStringList warnings;
+    for (const QString& path : unreadable) {
+        QString text = QStringLiteral(
+            "Steam lists a game library ProtonForge cannot read: %1\n"
+            "Games installed there are missing from the list.").arg(path);
+
+        if (!flatpakId.isEmpty()) {
+            // Inside a Flatpak this is nearly always a missing grant rather
+            // than a missing drive, and the remedy is one command — so give it
+            // verbatim, scoped to the one path instead of the whole mount.
+            text += QStringLiteral(
+                "\n\nIf the drive is mounted, ProtonForge has not been granted access to it:\n"
+                "    flatpak override --user --filesystem=\"%1\" %2\n"
+                "Then restart ProtonForge.").arg(path, flatpakId);
+        } else {
+            text += QStringLiteral(
+                "\nThe drive may be unmounted, or the folder may have been removed.");
+        }
+        warnings << text;
+    }
+    return warnings;
+}
+
+QStringList SteamLauncher::discoveryWarnings() const
+{
+    return libraryWarnings(m_unreadableLibraries);
 }
 
 QList<Game> SteamLauncher::discoverGames()
 {
     QList<Game> games;
-    QStringList libraries = libraryPaths();
+    const LibraryScan scan = scanLibraries();
+    const QStringList libraries = scan.paths;
+    m_unreadableLibraries = scan.unreadable;
 
     // Filter patterns for non-game apps
     QStringList filterPatterns = {

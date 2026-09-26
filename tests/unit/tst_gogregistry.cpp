@@ -51,6 +51,7 @@ private slots:
     void refusesToDiscardDangerousPaths_data();
     void refusesToDiscardDangerousPaths();
     void discardsADirectoryCarryingOurJournal();
+    void aJournalOutsideTheInstallLayoutProvesNothing();
 
 private:
     static QByteArray fixture(const QString& name)
@@ -381,13 +382,32 @@ void TstGogRegistry::discardsADirectoryCarryingOurJournal()
     // journal is the only evidence that we made it.
     QTemporaryDir elsewhere;
     QVERIFY(elsewhere.isValid());
-    const QString game = elsewhere.path() + "/Some Game";
+    const QString store = GogInstallRegistry::storeDirectory(elsewhere.path());
+    const QString game = store + "/Some Game";
     QVERIFY(QDir().mkpath(game));
 
     QCOMPARE(GogDownloader::isSafeToDiscard(game, "/home/user/Games/ProtonForge"), false);
 
     QVERIFY(QDir().mkpath(game + "/" + GogDownloader::journalDirName()));
     QCOMPARE(GogDownloader::isSafeToDiscard(game, "/home/user/Games/ProtonForge"), true);
+}
+
+void TstGogRegistry::aJournalOutsideTheInstallLayoutProvesNothing()
+{
+    // An install whose folder name came out empty used to put its journal in
+    // the store directory — and the journal alone made that deletable, along
+    // with every other game in it.
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString store = GogInstallRegistry::storeDirectory(root.path());
+    QVERIFY(QDir().mkpath(store + "/" + GogDownloader::journalDirName()));
+    QCOMPARE(GogDownloader::isSafeToDiscard(store, root.path()), false);
+    QCOMPARE(GogDownloader::isSafeToDiscard(store, "/somewhere/else"), false);
+
+    // Nor anywhere that is not <root>/GOG/<game>.
+    const QString stray = root.path() + "/Documents";
+    QVERIFY(QDir().mkpath(stray + "/" + GogDownloader::journalDirName()));
+    QCOMPARE(GogDownloader::isSafeToDiscard(stray, "/somewhere/else"), false);
 }
 
 QTEST_MAIN(TstGogRegistry)

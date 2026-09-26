@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSignalSpy>
 
 #include "runner/GameRunner.h"
 #include "launchers/SteamLauncher.h"
@@ -36,6 +37,7 @@ private slots:
     void launcherArgumentsComeBeforeTheUsersOwn();
     void aGameWithNowhereToPutAPrefixIsRefused();
     void aSteamGameStillGetsTheFullSteamEnvironment();
+    void aSecondGameIsRefusedWhileOneIsRunning();
 
 private:
     QTemporaryDir m_home;
@@ -286,6 +288,41 @@ void TstLaunchPlan::aSteamGameStillGetsTheFullSteamEnvironment()
 
     QVERIFY2(plan.env.value("LD_PRELOAD").contains("gameoverlayrenderer.so"),
              "the overlay still has to reach a Steam game");
+}
+
+void TstLaunchPlan::aSecondGameIsRefusedWhileOneIsRunning()
+{
+    // GameRunner has one process slot. Replacing a running QProcess kills its
+    // child, so starting B used to end A without a word.
+    auto nativeGame = [this](const QString& id, const QString& name) {
+        const QString install = home() + "/Games/" + name;
+        const QString exe = install + "/" + name.toLower();
+        makeFile(exe, "#!/bin/sh\nexec sleep 30\n");
+        QFile(exe).setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+
+        Game game(id, name, "GOG");
+        game.setInstallPath(install);
+        game.setExecutablePath(exe);
+        game.setIsNativeLinux(true);
+        return game;
+    };
+    const Game first = nativeGame("1", "First");
+    const Game second = nativeGame("2", "Second");
+
+    GameRunner runner;
+    QSignalSpy errors(&runner, &GameRunner::launchError);
+
+    QVERIFY2(runner.launch(first, DLSSSettings()), "the first game has to start");
+    QVERIFY(runner.isGameRunning(first));
+
+    QVERIFY2(!runner.launch(second, DLSSSettings()), "a second game has to be refused");
+    QCOMPARE(errors.count(), 1);
+    QVERIFY2(errors.at(0).at(1).toString().contains("First"),
+             "the refusal should name the game that is running");
+
+    QVERIFY2(runner.isGameRunning(first), "refusing the second game must not stop the first");
+    QVERIFY(!runner.isGameRunning(second));
+    QCOMPARE(runner.runningGame().id(), QStringLiteral("1"));
 }
 
 QTEST_MAIN(TstLaunchPlan)

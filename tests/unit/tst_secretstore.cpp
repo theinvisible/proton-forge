@@ -29,6 +29,7 @@ private slots:
     void cleanup();
 
     void valueIsEmptyBeforeTheStoreIsReady();
+    void refusesToWriteBeforeTheStoreIsReady();
     void storesAndReloadsAcrossInstances();
     void writesAreOwnerOnly();
     void repairsPermissionsOnLoad();
@@ -118,6 +119,32 @@ void TstSecretStore::valueIsEmptyBeforeTheStoreIsReady()
     // rather than blocking is what keeps a launcher's isAvailable() cheap.
     QVERIFY(!store().isReady());
     QVERIFY(store().value(SecretStore::Key::GogRefreshToken).isEmpty());
+}
+
+void TstSecretStore::refusesToWriteBeforeTheStoreIsReady()
+{
+    // The Settings dialog opened while the keyring was still unlocking read
+    // both tokens as empty, and Save turned that into two deletes. With the
+    // file backend it was worse: the whole file is rewritten from what is in
+    // memory, which before load() is nothing — so the GOG session went too.
+    loadAndWait();
+    store().setValue(SecretStore::Key::GogRefreshToken, "refresh-me");
+    store().setValue(SecretStore::Key::SteamWebApiKey, "ABCDEF");
+    store().setValue(SecretStore::Key::GitHubToken, "ghp_kept");
+
+    store().resetForTesting();   // a fresh process, before its load has run
+    QVERIFY(!store().isReady());
+
+    QSignalSpy failed(&store(), &SecretStore::writeFailed);
+    store().setValue(SecretStore::Key::GitHubToken, QString());
+    store().clear(SecretStore::Key::SteamWebApiKey);
+    store().setValue(SecretStore::Key::GitHubToken, "ghp_too_early");
+    QCOMPARE(failed.count(), 3);
+
+    loadAndWait();
+    QCOMPARE(store().value(SecretStore::Key::GogRefreshToken), QStringLiteral("refresh-me"));
+    QCOMPARE(store().value(SecretStore::Key::SteamWebApiKey), QStringLiteral("ABCDEF"));
+    QCOMPARE(store().value(SecretStore::Key::GitHubToken), QStringLiteral("ghp_kept"));
 }
 
 void TstSecretStore::storesAndReloadsAcrossInstances()

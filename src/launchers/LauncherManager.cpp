@@ -105,6 +105,15 @@ QList<Game> LauncherManager::discoverAllGames()
     return allGames;
 }
 
+QStringList LauncherManager::discoveryWarnings() const
+{
+    QStringList warnings;
+    for (const auto& launcher : m_launchers) {
+        warnings += launcher->discoveryWarnings();
+    }
+    return warnings;
+}
+
 void LauncherManager::resetForTesting()
 {
     m_launchers.clear();

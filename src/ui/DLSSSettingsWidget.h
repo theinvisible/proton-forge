@@ -30,6 +30,8 @@ public:
 
     void updateLaunchCommand(const QString& command);
     void setGameRunning(bool running);
+    // A different game is running; Play stays disabled until it exits.
+    void setOtherGameRunning(const QString& gameName);
     // Launch accepted but still waiting for the Steam client to come up.
     void setLaunchPending(bool pending);
     void updateGameStatus(const Game& game);
@@ -181,6 +183,7 @@ private:
     Game m_currentGame;
     QFutureWatcher<QStringList>* m_executableWatcher;
     QString m_savedExecutablePath;  // Store saved selection during async search
+    bool m_loading = false;         // setSettings() is writing the widgets
     unsigned int m_searchGeneration = 0;
     std::shared_ptr<std::atomic<bool>> m_cancelFlag;
 };
