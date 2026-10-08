@@ -181,6 +181,21 @@ if gui_app_start_with_checks; then
 fi
 gui_app_stop
 
+# And with no Steam at all, no dialog either: there is nothing to install Proton
+# into. This is what the AppImage catalog's test sees — a clean system, one
+# screenshot — and a dialog there reads as an error message.
+fx_reset
+
+if gui_app_start_with_checks; then
+    if gui_wait_window 'Not Found' 5 200 >/dev/null; then
+        fail "the app asks to install Proton although there is no Steam" \
+            "$(gui_list_windows)"
+    else
+        ok "with no Steam installed there is no dialog"
+    fi
+fi
+gui_app_stop
+
 # ---------------------------------------------------------------------------
 part "e) no session bus"
 

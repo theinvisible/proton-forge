@@ -80,6 +80,33 @@ PLAN="$(app_cli --launch "$APPID" --dry-run --set protonVersion=GE-Proton9-20)"
 assert_json_contains "an explicitly selected version wins over config.vdf" "$PLAN" \
     'd["protonPath"]' "GE-Proton9-20"
 
+# "Latest GE" compares versions. Sorting names put GE-Proton9-20 above
+# GE-Proton10-26, because '9' > '1'.
+fx_compat_tool "$NATIVE" "GE-Proton10-26" >/dev/null
+PLAN="$(app_cli --launch "$APPID" --dry-run --set protonVersion=latest-ge)"
+assert_json_contains "latest-ge picks the newest GE by version" "$PLAN" \
+    'd["protonPath"]' "GE-Proton10-26"
+
+# config.vdf holds Steam's internal tool name, which is whatever a tool's
+# compatibilitytool.vdf registers — not necessarily its directory name.
+fx_compat_tool_named "$NATIVE" "proton-cachyos-11.0-20261005-slr-x86_64_v3" "proton-cachyos-slr" >/dev/null
+fx_config_vdf "$NATIVE" "$APPID=proton-cachyos-slr" >/dev/null
+PLAN="$(app_cli --launch "$APPID" --dry-run)"
+assert_json_contains "a mapping by internal name finds the tool" "$PLAN" \
+    'd["protonPath"]' "proton-cachyos-11.0-20261005-slr-x86_64_v3"
+
+# Valve's own Protons are mapped as proton_11 / proton-stable and live in
+# steamapps/common as "Proton 11.0".
+fx_valve_proton "$NATIVE" "Proton 11.0" "1788504981 proton-11.0-2c-x86_64" >/dev/null
+fx_config_vdf "$NATIVE" "$APPID=proton_11" >/dev/null
+PLAN="$(app_cli --launch "$APPID" --dry-run)"
+assert_json_contains "proton_11 resolves to Valve's Proton 11.0" "$PLAN" \
+    'd["protonPath"]' "steamapps/common/Proton 11.0"
+fx_config_vdf "$NATIVE" "$APPID=proton-stable" >/dev/null
+PLAN="$(app_cli --launch "$APPID" --dry-run)"
+assert_json_contains "and so does the proton-stable alias" "$PLAN" \
+    'd["protonPath"]' "steamapps/common/Proton 11.0"
+
 # ---------------------------------------------------------------------------
 part "b) paths and the environment Proton is given"
 

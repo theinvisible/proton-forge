@@ -10,6 +10,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QLabel>
+#include <QLineEdit>
 #include <QFutureWatcher>
 #include <atomic>
 #include <initializer_list>
@@ -124,8 +125,9 @@ private:
     QCheckBox* m_disableAutoHDR;  // NOT part of the m_enableAllHDR master toggle
 
     // Proton Tweaks
-    QCheckBox* m_protonPriorityHigh;
-    QCheckBox* m_protonUseNTSync;
+    // NTSync: Proton default / force on (opt-in up to Proton 10) / off (11+).
+    // One combo for the two DLSSSettings booleans, so they cannot both be set.
+    QComboBox* m_ntsyncMode;
     QCheckBox* m_protonUseD7VK;
     QCheckBox* m_protonLog;
 
@@ -149,6 +151,7 @@ private:
 
     // DLSS Upgrade
     QCheckBox* m_dlssUpgrade;
+    QLineEdit* m_dlssVersion;
 
     // Smooth Motion
     QCheckBox* m_enableSmoothMotion;
@@ -183,6 +186,12 @@ private:
     Game m_currentGame;
     QFutureWatcher<QStringList>* m_executableWatcher;
     QString m_savedExecutablePath;  // Store saved selection during async search
+    // Round-tripped fields with no control of their own (foreign VKD3D_CONFIG /
+    // DXVK_CONFIG entries from imported launch options). settings() builds a
+    // fresh DLSSSettings from the widgets, so without these an edit to any
+    // control would silently drop them.
+    QString m_vkd3dConfigExtra;
+    QString m_dxvkConfigExtra;
     bool m_loading = false;         // setSettings() is writing the widgets
     unsigned int m_searchGeneration = 0;
     std::shared_ptr<std::atomic<bool>> m_cancelFlag;

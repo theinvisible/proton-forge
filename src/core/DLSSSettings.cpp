@@ -44,6 +44,9 @@ QJsonObject DLSSSettings::toJson() const
     json["enableSmoothMotion"] = enableSmoothMotion;
     json["enableFrameRateLimit"] = enableFrameRateLimit;
     json["targetFrameRate"] = targetFrameRate;
+    if (!dxvkConfigExtra.isEmpty()) {
+        json["dxvkConfigExtra"] = dxvkConfigExtra;
+    }
 
     // HDR
     json["enableProtonWayland"] = enableProtonWayland;
@@ -52,8 +55,8 @@ QJsonObject DLSSSettings::toJson() const
     json["disableAutoHDR"] = disableAutoHDR;
 
     // Proton Tweaks
-    json["protonPriorityHigh"] = protonPriorityHigh;
     json["protonUseNTSync"] = protonUseNTSync;
+    json["protonDisableNTSync"] = protonDisableNTSync;
     json["protonUseD7VK"] = protonUseD7VK;
     json["protonLog"] = protonLog;
 
@@ -121,6 +124,7 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableSmoothMotion = json["enableSmoothMotion"].toBool(false);
     settings.enableFrameRateLimit = json["enableFrameRateLimit"].toBool(false);
     settings.targetFrameRate = json["targetFrameRate"].toInt(60);
+    settings.dxvkConfigExtra = json["dxvkConfigExtra"].toString();
 
     // HDR
     settings.enableProtonWayland = json["enableProtonWayland"].toBool(false);
@@ -129,8 +133,8 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.disableAutoHDR = json["disableAutoHDR"].toBool(false);
 
     // Proton Tweaks
-    settings.protonPriorityHigh = json["protonPriorityHigh"].toBool(false);
     settings.protonUseNTSync = json["protonUseNTSync"].toBool(false);
+    settings.protonDisableNTSync = json["protonDisableNTSync"].toBool(false);
     settings.protonUseD7VK = json["protonUseD7VK"].toBool(false);
     settings.protonLog = json["protonLog"].toBool(false);
 
@@ -248,12 +252,13 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            enableSmoothMotion == other.enableSmoothMotion &&
            enableFrameRateLimit == other.enableFrameRateLimit &&
            targetFrameRate == other.targetFrameRate &&
+           dxvkConfigExtra == other.dxvkConfigExtra &&
            enableProtonWayland == other.enableProtonWayland &&
            enableProtonHDR == other.enableProtonHDR &&
            enableHDRWSI == other.enableHDRWSI &&
            disableAutoHDR == other.disableAutoHDR &&
-           protonPriorityHigh == other.protonPriorityHigh &&
            protonUseNTSync == other.protonUseNTSync &&
+           protonDisableNTSync == other.protonDisableNTSync &&
            protonUseD7VK == other.protonUseD7VK &&
            protonLog == other.protonLog &&
            enableSteamOverlay == other.enableSteamOverlay &&

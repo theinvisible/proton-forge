@@ -40,7 +40,7 @@ public:
     // two never drift apart when a new option is added.
     static QStringList managedVars();
 
-    // Build launch options string for Steam (e.g., "PROTON_ENABLE_NVAPI=1 %command%")
+    // Build launch options string for Steam (e.g., "DXVK_NVAPI_VKREFLEX=1 %command%")
     static QString buildLaunchOptions(const DLSSSettings& settings);
 
     // Build environment variables for direct process launch
@@ -54,7 +54,9 @@ public:
     // the "%command%" token and everything after it, plus any unrecognised
     // token, are collected into customParams so the string round-trips. Fields
     // that are never emitted to launch options (executablePath, protonVersion,
-    // dlssVersion, enableSteamOverlay) are preserved from `base`.
+    // enableSteamOverlay) are preserved from `base`. Variables Proton no longer
+    // reads (PROTON_ENABLE_NVAPI, DXVK_FRAME_RATE) are still understood, so an
+    // old string migrates to their replacements on the next write.
     static ParsedLaunchOptions parseLaunchOptions(const QString& raw, const DLSSSettings& base);
 
     // Extra game arguments from customLaunchParams, for passing to the game

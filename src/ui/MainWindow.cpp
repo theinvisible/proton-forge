@@ -637,6 +637,13 @@ void MainWindow::checkProtonOnStartup()
         return;
     }
 
+    // Without a Steam install there is nothing to put Proton into, and a
+    // first start on a clean system should not open with a dialog. The Tools
+    // menu still offers the install for anyone who wants it anyway.
+    if (SteamPaths::steamRoot().isEmpty()) {
+        return;
+    }
+
     ProtonManager& pm = ProtonManager::instance();
 
     if (!pm.isProtonCachyOSInstalled()) {

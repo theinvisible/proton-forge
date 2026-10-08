@@ -7,6 +7,7 @@
 #include "core/FeatureGate.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/CompatToolResolver.h"
 #include "utils/LaunchOptionExtractor.h"
 #include "utils/GpuInfoCache.h"
 #include "utils/HDRChecker.h"
@@ -26,6 +27,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include <QMessageBox>
 #include <QtConcurrent>
 #include <algorithm>
@@ -320,11 +322,13 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
     QGroupBox* group = new QGroupBox("General", this);
     QVBoxLayout* layout = new QVBoxLayout(group);
 
-    m_enableNVAPI = new QCheckBox("Enable NVAPI (PROTON_ENABLE_NVAPI)", this);
+    m_enableNVAPI = new QCheckBox("Enable NVAPI", this);
     m_enableNVAPI->setToolTip(
-        "Enable NVIDIA API support in Proton.\n\n"
+        "NVIDIA API support in Proton (dxvk-nvapi).\n\n"
         "Required for DLSS and other NVIDIA features to work. "
-        "This enables dxvk-nvapi which translates NVIDIA-specific DirectX calls to Vulkan.\n\n"
+        "dxvk-nvapi translates NVIDIA-specific DirectX calls to Vulkan.\n\n"
+        "Current Proton versions enable it on NVIDIA GPUs by default, so nothing "
+        "is written while this is checked. Unchecking it sets PROTON_DISABLE_NVAPI=1.\n\n"
         "Recommended: Enabled for all NVIDIA GPU users.");
     layout->addWidget(m_enableNVAPI);
 
@@ -426,16 +430,19 @@ QGroupBox* DLSSSettingsWidget::createHDRGroup()
         "Required for HDR to work. Enables Wayland backend instead of XWayland.");
     hdrOptionsLayout->addWidget(m_enableProtonWayland);
 
-    m_enableProtonHDR = new QCheckBox("PROTON_ENABLE_HDR=1", this);
+    m_enableProtonHDR = new QCheckBox("PROTON_ENABLE_HDR=1 + DXVK_HDR=1", this);
     m_enableProtonHDR->setToolTip(
         "Enable HDR support in Proton.\n\n"
-        "Enables High Dynamic Range rendering support in Proton.");
+        "GE-Proton reads PROTON_ENABLE_HDR; Proton-CachyOS retired it in "
+        "11.0-20260506 and reads DXVK_HDR instead. Both are set, so the option "
+        "works whichever Proton runs the game.");
     hdrOptionsLayout->addWidget(m_enableProtonHDR);
 
     m_enableHDRWSI = new QCheckBox("ENABLE_HDR_WSI=1", this);
     m_enableHDRWSI->setToolTip(
         "Enable HDR Window System Integration.\n\n"
-        "Enables HDR support in the Vulkan WSI (Window System Integration) layer.");
+        "Enables HDR support in the Vulkan WSI (Window System Integration) layer.\n\n"
+        "Only needed with NVIDIA drivers older than 595.");
     hdrOptionsLayout->addWidget(m_enableHDRWSI);
 
     m_disableAutoHDR = new QCheckBox("Disable auto-HDR (DXVK_NO_HDR)", this);
@@ -467,29 +474,29 @@ QGroupBox* DLSSSettingsWidget::createProtonTweaksGroup()
     QGroupBox* group = m_protonTweaksGroup;
     QVBoxLayout* layout = new QVBoxLayout(group);
 
-    m_protonPriorityHigh = new QCheckBox("High Priority (PROTON_PRIORITY_HIGH)", this);
-    m_protonPriorityHigh->setToolTip(
-        "Set the game process to high scheduling priority.\n\n"
-        "Can reduce stuttering and improve frame pacing by giving the game "
-        "higher CPU priority over background processes.\n\n"
-        "Recommended: Enable if you experience micro-stutters or inconsistent frame times.");
-    layout->addWidget(m_protonPriorityHigh);
-
-    m_protonUseNTSync = new QCheckBox("Use NTSync (PROTON_USE_NTSYNC)", this);
-    m_protonUseNTSync->setToolTip(
-        "Enable NTSync for faster Windows synchronization primitives.\n\n"
-        "NTSync is a kernel-level replacement for wineserver-based synchronization. "
-        "It significantly reduces CPU overhead for thread synchronization, "
-        "which can improve performance in multi-threaded games.\n\n"
+    QHBoxLayout* ntsyncRow = new QHBoxLayout();
+    ntsyncRow->addWidget(new QLabel("NTSync:", this));
+    m_ntsyncMode = new QComboBox(this);
+    m_ntsyncMode->addItem("Proton default", QStringLiteral("default"));
+    m_ntsyncMode->addItem("Force on (PROTON_USE_NTSYNC, Proton ≤ 10)", QStringLiteral("on"));
+    m_ntsyncMode->addItem("Off (PROTON_NO_NTSYNC, Proton 11+)", QStringLiteral("off"));
+    m_ntsyncMode->setToolTip(
+        "NTSync: kernel-level Windows synchronization primitives.\n\n"
+        "It replaces wineserver-based synchronization and significantly reduces "
+        "CPU overhead in multi-threaded games.\n\n"
+        "• Up to Proton 10 it is opt-in: 'Force on' sets PROTON_USE_NTSYNC=1.\n"
+        "• From Proton 11 it is on by default: 'Off' sets PROTON_NO_NTSYNC=1 "
+        "for a game that misbehaves with it.\n\n"
         "Requires: Linux kernel 6.14+ with NTSync support enabled.");
-    layout->addWidget(m_protonUseNTSync);
+    ntsyncRow->addWidget(m_ntsyncMode, 1);
+    layout->addLayout(ntsyncRow);
 
     m_protonUseD7VK = new QCheckBox("Use D7VK (PROTON_USE_D7VK)", this);
     m_protonUseD7VK->setToolTip(
         "Translate Direct3D 7 to Vulkan via d7vk.\n\n"
         "Improves compatibility and performance for very old D3D7-era games.\n\n"
         "Requires: GE-Proton 11-1+ or Proton-CachyOS 11.0+.\n\n"
-        "Sets PROTON_USE_D7VK=1.");
+        "Sets PROTON_USE_D7VK=1 (GE-Proton) and PROTON_D7VK_DDRAW=1 (Proton-CachyOS).");
     layout->addWidget(m_protonUseD7VK);
 
     m_protonLog = new QCheckBox("Enable Logging (PROTON_LOG)", this);
@@ -500,8 +507,7 @@ QGroupBox* DLSSSettingsWidget::createProtonTweaksGroup()
         "Note: May impact performance. Only enable for troubleshooting.");
     layout->addWidget(m_protonLog);
 
-    connect(m_protonPriorityHigh, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_protonUseNTSync, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_ntsyncMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonUseD7VK, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_protonLog, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
 
@@ -781,10 +787,37 @@ QGroupBox* DLSSSettingsWidget::createUpgradeGroup()
         "• Access to newer DLSS features (RR, FG)\n"
         "• Bug fixes and improvements\n\n"
         "Recommended: Enabled for games released before 2024.\n\n"
-        "Note: A few games may have compatibility issues with newer DLSS versions.");
+        "Note: A few games may have compatibility issues with newer DLSS versions.\n\n"
+        "Requires: Proton-CachyOS or GE-Proton 10-26+. Valve's Proton has no "
+        "equivalent — use the NGX updater there.");
     layout->addWidget(m_dlssUpgrade);
 
-    connect(m_dlssUpgrade, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    QHBoxLayout* versionRow = new QHBoxLayout();
+    QLabel* versionLabel = new QLabel("DLSS version:", this);
+    versionRow->addWidget(versionLabel);
+    m_dlssVersion = new QLineEdit(this);
+    m_dlssVersion->setPlaceholderText("latest");
+    m_dlssVersion->setValidator(new QRegularExpressionValidator(
+        QRegularExpression(R"(\d+(\.\d+){0,3})"), m_dlssVersion));
+    m_dlssVersion->setToolTip(
+        "Pin a specific DLSS version, e.g. 310.9.1 — written as "
+        "PROTON_DLSS_UPGRADE=<version>.\n\n"
+        "Empty: the newest version Proton knows (PROTON_DLSS_UPGRADE=1).\n\n"
+        "Requires: Proton-CachyOS or GE-Proton 10-26+.");
+    versionRow->addWidget(m_dlssVersion, 1);
+    layout->addLayout(versionRow);
+
+    auto updateVersionEnabled = [this, versionLabel]() {
+        const bool on = m_dlssUpgrade->isChecked();
+        m_dlssVersion->setEnabled(on);
+        versionLabel->setEnabled(on);
+    };
+    connect(m_dlssUpgrade, &QCheckBox::toggled, this, [this, updateVersionEnabled]() {
+        updateVersionEnabled();
+        onSettingChanged();
+    });
+    connect(m_dlssVersion, &QLineEdit::textChanged, this, &DLSSSettingsWidget::onSettingChanged);
+    updateVersionEnabled();
 
     return group;
 }
@@ -808,7 +841,8 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
         "• Lower GPU temperature and power consumption\n"
         "• Provide more consistent frame times\n"
         "• Reduce input latency spikes\n\n"
-        "Uses DXVK_FRAME_RATE environment variable.\n\n"
+        "Sets dxvk.maxFrameRate in DXVK_CONFIG (D3D8-11) and VKD3D_FRAME_RATE (D3D12). "
+        "DXVK 3.0 removed the older DXVK_FRAME_RATE.\n\n"
         "Recommended: Enable if you experience tearing or want to cap FPS below your monitor's refresh rate.");
     layout->addWidget(m_enableFrameRateLimit);
 
@@ -1116,6 +1150,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_fgMode->blockSignals(block);
     m_fgPreset->blockSignals(block);
     m_dlssUpgrade->blockSignals(block);
+    m_dlssVersion->blockSignals(block);
     m_protonVersionSelector->blockSignals(block);
     m_enableAllHDR->blockSignals(block);
     m_enableProtonWayland->blockSignals(block);
@@ -1125,8 +1160,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_enableFrameRateLimit->blockSignals(block);
     m_targetFrameRate->blockSignals(block);
     m_disableAutoHDR->blockSignals(block);
-    m_protonPriorityHigh->blockSignals(block);
-    m_protonUseNTSync->blockSignals(block);
+    m_ntsyncMode->blockSignals(block);
     m_protonUseD7VK->blockSignals(block);
     m_protonLog->blockSignals(block);
     m_enableSteamOverlay->blockSignals(block);
@@ -1164,8 +1198,10 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
                                settings.enableHDRWSI);
 
     // Proton Tweaks
-    m_protonPriorityHigh->setChecked(settings.protonPriorityHigh);
-    m_protonUseNTSync->setChecked(settings.protonUseNTSync);
+    const QString ntsync = settings.protonDisableNTSync ? QStringLiteral("off")
+                         : settings.protonUseNTSync     ? QStringLiteral("on")
+                                                        : QStringLiteral("default");
+    m_ntsyncMode->setCurrentIndex(std::max(0, m_ntsyncMode->findData(ntsync)));
     m_protonUseD7VK->setChecked(settings.protonUseD7VK);
     m_protonLog->setChecked(settings.protonLog);
 
@@ -1214,6 +1250,12 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
 
     // DLSS Upgrade
     m_dlssUpgrade->setChecked(settings.dlssUpgrade);
+    m_dlssVersion->setText(settings.dlssVersion);
+    m_dlssVersion->setEnabled(settings.dlssUpgrade);
+
+    // No control of their own; kept so settings() can hand them back.
+    m_vkd3dConfigExtra = settings.vkd3dConfigExtra;
+    m_dxvkConfigExtra = settings.dxvkConfigExtra;
 
     // Smooth Motion
     m_enableSmoothMotion->setChecked(settings.enableSmoothMotion);
@@ -1270,6 +1312,7 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableReflex = m_enableReflex->isChecked();
     settings.enableVkd3dLowLatency = m_enableVkd3dLowLatency->isChecked();
     settings.enableVkd3dDescriptorHeap = m_enableVkd3dDescriptorHeap->isChecked();
+    settings.vkd3dConfigExtra = m_vkd3dConfigExtra;
     settings.enablePrimeRenderOffload = m_enablePrimeOffload->isChecked();
     settings.showIndicator = m_showIndicator->isChecked();
 
@@ -1280,8 +1323,9 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.disableAutoHDR = m_disableAutoHDR->isChecked();
 
     // Proton Tweaks
-    settings.protonPriorityHigh = m_protonPriorityHigh->isChecked();
-    settings.protonUseNTSync = m_protonUseNTSync->isChecked();
+    const QString ntsync = m_ntsyncMode->currentData().toString();
+    settings.protonUseNTSync = (ntsync == QLatin1String("on"));
+    settings.protonDisableNTSync = (ntsync == QLatin1String("off"));
     settings.protonUseD7VK = m_protonUseD7VK->isChecked();
     settings.protonLog = m_protonLog->isChecked();
 
@@ -1309,11 +1353,13 @@ DLSSSettings DLSSSettingsWidget::settings() const
 
     // DLSS Upgrade
     settings.dlssUpgrade = m_dlssUpgrade->isChecked();
+    settings.dlssVersion = m_dlssVersion->text().trimmed();
 
     // Smooth Motion
     settings.enableSmoothMotion = m_enableSmoothMotion->isChecked();
     settings.enableFrameRateLimit = m_enableFrameRateLimit->isChecked();
     settings.targetFrameRate = m_targetFrameRate->value();
+    settings.dxvkConfigExtra = m_dxvkConfigExtra;
 
     // Custom launch parameters
     settings.customLaunchParams = m_customLaunchParams->toPlainText().trimmed();
@@ -1414,11 +1460,11 @@ void DLSSSettingsWidget::applyPlatformGating(const Game& game)
         { m_rrGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
         { m_fgGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
         { m_upgradeGroup,             "PROTON_DLSS_UPGRADE" },
-        { m_protonTweaksGroup,        "PROTON_USE_NTSYNC" },
+        { m_protonTweaksGroup,        "PROTON_NO_NTSYNC" },
 
         // General — mixed, so gated per control. PRIME offload is a driver
         // setting and stays live.
-        { m_enableNVAPI,              "PROTON_ENABLE_NVAPI" },
+        { m_enableNVAPI,              "PROTON_DISABLE_NVAPI" },
         { m_enableNGXUpdater,         "PROTON_ENABLE_NGX_UPDATER" },
         { m_enableReflex,             "DXVK_NVAPI_VKREFLEX" },
         { m_enableVkd3dLowLatency,    "PROTON_VKD3D_LOWLATENCY" },
@@ -1435,9 +1481,9 @@ void DLSSSettingsWidget::applyPlatformGating(const Game& game)
 
         // Smooth Motion group — mixed. Smooth Motion itself is driver-level
         // and stays live; the frame-rate limit is DXVK/VKD3D only.
-        { m_enableFrameRateLimit,     "DXVK_FRAME_RATE" },
-        { m_targetFrameRate,          "DXVK_FRAME_RATE" },
-        { m_targetFrameRateLabel,     "DXVK_FRAME_RATE" },
+        { m_enableFrameRateLimit,     "DXVK_CONFIG" },
+        { m_targetFrameRate,          "DXVK_CONFIG" },
+        { m_targetFrameRateLabel,     "DXVK_CONFIG" },
     };
 
     for (const Gated& g : gated) {
@@ -1462,12 +1508,12 @@ void DLSSSettingsWidget::updateFeatureWarnings()
 
     Context ctx;
     ctx.driver = GpuInfoCache::instance().nvidiaDriverVersion();
+    ctx.gpu = GpuInfoCache::instance().gpuGeneration();
     const ProtonManager::ResolvedProton rp = ProtonManager::instance().resolveSelected(
         m_protonVersionSelector->currentData().toString());
     ctx.proton = rp.version;
     ctx.protonKnown = rp.known;
-    ctx.fork = !rp.known ? Fork::Unknown
-             : (rp.type == ProtonManager::ProtonGE ? Fork::GE : Fork::CachyOS);
+    ctx.fork = rp.fork;
 
     QStringList lines;
 
@@ -1495,8 +1541,9 @@ void DLSSSettingsWidget::updateFeatureWarnings()
 
     const bool fgOn = m_fgOverride->isChecked();
     check(m_enableSmoothMotion, m_enableSmoothMotion->isChecked(), Feature::SmoothMotion, "Smooth Motion");
+    check(m_fgOverride, fgOn, Feature::FrameGen, "Frame Generation");
     check(m_fgMultiFrameCount, fgOn && m_fgMultiFrameCount->currentData().toInt() >= 2,
-          Feature::MultiFrameGen, "Multi-Frame Generation (3x/4x)");
+          Feature::MultiFrameGen, "Multi-Frame Generation (3x–6x)");
     check(m_rrOverride, m_rrOverride->isChecked(), Feature::RayReconstruction, "Ray Reconstruction");
     check(m_fgMode, fgOn && !m_fgMode->currentData().toString().isEmpty(),
           Feature::DlssgMode, "FG Mode");
@@ -1507,6 +1554,13 @@ void DLSSSettingsWidget::updateFeatureWarnings()
     check(m_enableVkd3dDescriptorHeap, m_enableVkd3dDescriptorHeap->isChecked(), Feature::Vkd3dDescriptorHeap, "VKD3D Descriptor Heap");
     check(m_protonUseD7VK, m_protonUseD7VK->isChecked(), Feature::D7vk, "D7VK");
     check(m_disableAutoHDR, m_disableAutoHDR->isChecked(), Feature::DisableAutoHdr, "Disable auto-HDR");
+    const QString ntsync = m_ntsyncMode->currentData().toString();
+    check(m_ntsyncMode, ntsync == QLatin1String("on"), Feature::NtsyncOptIn, "NTSync");
+    check(m_ntsyncMode, ntsync == QLatin1String("off"), Feature::NtsyncDisable, "NTSync off");
+    const bool upgradeOn = m_dlssUpgrade->isChecked();
+    const bool pinned = upgradeOn && !m_dlssVersion->text().trimmed().isEmpty();
+    check(m_dlssUpgrade, upgradeOn && !pinned, Feature::DlssUpgrade, "DLSS Upgrade");
+    check(m_dlssVersion, pinned, Feature::DlssUpgradeVersion, "DLSS version");
 
     // PRIME offload is gated by hardware, not driver/Proton versions: warn only
     // when the probe positively found a non-hybrid system (Unknown stays silent).
@@ -1766,93 +1820,46 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
     addVersionItem("Latest Steam Proton", "steam-proton");
 
     // ── Discover installed versions ─────────────────────────────────────────
-    QString protonPath = ProtonManager::protonCachyOSPath();
-    QDir dir(protonPath);
-
-    QMap<QString, QString> cachyosVersions;
-    QMap<QString, QString> geVersions;
-    QList<QPair<QString, QString>> steamProtonVersions;
-
-    if (dir.exists()) {
-        QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
-
-        for (const QString& entry : entries) {
-            QString protonExe = protonPath + "/" + entry + "/proton";
-            if (QFile::exists(protonExe)) {
-                if (entry.startsWith("proton-cachyos-")) {
-                    QString displayName = entry.mid(15);
-                    cachyosVersions[displayName] = entry;
-                } else if (entry.startsWith("GE-Proton")) {
-                    QString displayName = entry.mid(3);
-                    geVersions[displayName] = entry;
-                }
-            }
-        }
-    }
-
-    // Get Steam Proton versions from Steam libraries
-    QStringList libraryPaths = SteamLauncher::libraryPaths();
-    QStringList preferredSteamVersions = {"Proton - Experimental", "Proton 10", "Proton 9", "Proton 8", "Proton 7", "Proton Hotfix", "Proton 6", "Proton 5"};
-
-    for (const QString& preferred : preferredSteamVersions) {
-        bool found = false;
-        for (const QString& libPath : libraryPaths) {
-            if (found) break;
-
-            QString commonPath = libPath + "/common";
-            QDir steamDir(commonPath);
-
-            if (steamDir.exists()) {
-                QStringList entries = steamDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-
-                for (const QString& entry : entries) {
-                    if (entry.contains(preferred, Qt::CaseInsensitive)) {
-                        QString protonExe = commonPath + "/" + entry + "/proton";
-                        if (QFile::exists(protonExe)) {
-                            QString fullPath = commonPath + "/" + entry;
-                            steamProtonVersions.append(qMakePair(entry, fullPath));
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (steamProtonVersions.size() >= 3) {
-            break;
-        }
-    }
+    // Newest first by version, not by name: sorting names put GE-Proton9-20
+    // above GE-Proton11-7.
+    using namespace CompatToolResolver;
+    const QList<ToolInfo> managed =
+        sortedNewestFirst(scanCompatDirs({ProtonManager::protonCachyOSPath()}));
+    const QList<ToolInfo> steamTools =
+        scanLibraries(SteamLauncher::libraryPaths());
 
     // ── Proton-CachyOS ─────────────────────────────────────────────────────
-    if (!cachyosVersions.isEmpty()) {
-        addGroupHeader("— Proton-CachyOS —");
-        QStringList sortedCachyos = cachyosVersions.keys();
-        sortedCachyos.sort(Qt::CaseInsensitive);
-        std::reverse(sortedCachyos.begin(), sortedCachyos.end());
-
-        for (const QString& displayName : sortedCachyos) {
-            addVersionItem(displayName, cachyosVersions[displayName]);
-        }
+    // Stored as the bare folder name; findProtonPath() resolves it against
+    // ProtonForge's install directory.
+    bool header = false;
+    for (const ToolInfo& t : managed) {
+        if (t.kind != Kind::CachyOS) continue;
+        if (!header) { addGroupHeader("— Proton-CachyOS —"); header = true; }
+        addVersionItem(t.dirName.mid(QStringLiteral("proton-cachyos-").size()), t.dirName);
     }
 
     // ── GE-Proton ───────────────────────────────────────────────────────────
-    if (!geVersions.isEmpty()) {
-        addGroupHeader("— GE-Proton —");
-        QStringList sortedGe = geVersions.keys();
-        sortedGe.sort(Qt::CaseInsensitive);
-        std::reverse(sortedGe.begin(), sortedGe.end());
-
-        for (const QString& displayName : sortedGe) {
-            addVersionItem(displayName, geVersions[displayName]);
-        }
+    header = false;
+    for (const ToolInfo& t : managed) {
+        if (t.kind != Kind::GE) continue;
+        if (!header) { addGroupHeader("— GE-Proton —"); header = true; }
+        addVersionItem(t.dirName.mid(3), t.dirName);
     }
 
     // ── Steam Proton ────────────────────────────────────────────────────────
-    if (!steamProtonVersions.isEmpty()) {
+    // Stored as absolute paths. Experimental first, then numbered releases
+    // newest first, then Hotfix.
+    QList<ToolInfo> steamOrdered;
+    for (Kind kind : {Kind::ValveExperimental, Kind::Valve, Kind::ValveHotfix}) {
+        QList<ToolInfo> ofKind;
+        for (const ToolInfo& t : steamTools)
+            if (t.kind == kind) ofKind << t;
+        steamOrdered += sortedNewestFirst(ofKind);
+    }
+    if (!steamOrdered.isEmpty()) {
         addGroupHeader("— Steam Proton —");
-        for (const auto& pair : steamProtonVersions) {
-            addVersionItem(pair.first, pair.second);
+        for (const ToolInfo& t : steamOrdered) {
+            addVersionItem(t.dirName, t.path);
         }
     }
 

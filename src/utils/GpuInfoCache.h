@@ -5,6 +5,7 @@
 #include <QVersionNumber>
 #include <QFutureWatcher>
 #include <QList>
+#include "core/FeatureGate.h"
 #include "utils/GPUDetector.h"
 
 // App-wide, lazily-populated cache of the NVIDIA driver version, used for
@@ -24,6 +25,10 @@ public:
     QVersionNumber nvidiaDriverVersion() const { return m_driverVersion; }
     bool driverKnown() const { return !m_driverVersion.isNull(); }
 
+    // Newest NVIDIA GPU generation present; Unknown until detected (and for
+    // architectures FeatureGate does not map).
+    FeatureGate::GpuGeneration gpuGeneration() const { return m_gpuGeneration; }
+
     // Hybrid iGPU+dGPU probe result; Unknown until detection has run.
     GPUDetector::HybridGpu hybridGpu() const { return m_hybridGpu; }
 
@@ -42,6 +47,7 @@ private:
     GpuInfoCache& operator=(const GpuInfoCache&) = delete;
 
     QVersionNumber m_driverVersion;
+    FeatureGate::GpuGeneration m_gpuGeneration = FeatureGate::GpuGeneration::Unknown;
     GPUDetector::HybridGpu m_hybridGpu = GPUDetector::HybridGpu::Unknown;
     bool m_started = false;
     QFutureWatcher<Detection>* m_watcher;

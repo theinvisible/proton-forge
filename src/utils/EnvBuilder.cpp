@@ -29,16 +29,17 @@ const QHash<QString, EnvBuilder::VarScope>& varScopeTable()
         {"MANGOHUD",                       EnvBuilder::VarScope::Any},
 
         // Proton wrapper script.
-        {"PROTON_ENABLE_NVAPI",            EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_DISABLE_NVAPI",           EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_ENABLE_NGX_UPDATER",      EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_VKD3D_LOWLATENCY",        EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_DLSS_UPGRADE",            EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_DLSS_INDICATOR",          EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_ENABLE_WAYLAND",          EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_ENABLE_HDR",              EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_PRIORITY_HIGH",           EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_USE_NTSYNC",              EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_NO_NTSYNC",               EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_USE_D7VK",                EnvBuilder::VarScope::ProtonOnly},
+        {"PROTON_D7VK_DDRAW",              EnvBuilder::VarScope::ProtonOnly},
         {"PROTON_LOG",                     EnvBuilder::VarScope::ProtonOnly},
 
         // DXVK-NVAPI — the NVAPI stand-in that exists only inside Wine. Every
@@ -47,8 +48,9 @@ const QHash<QString, EnvBuilder::VarScope>& varScopeTable()
         {"DXVK_NVAPI_VKREFLEX",            EnvBuilder::VarScope::ProtonOnly},
 
         // DXVK / vkd3d-proton.
+        {"DXVK_HDR",                       EnvBuilder::VarScope::ProtonOnly},
         {"DXVK_NO_HDR",                    EnvBuilder::VarScope::ProtonOnly},
-        {"DXVK_FRAME_RATE",                EnvBuilder::VarScope::ProtonOnly},
+        {"DXVK_CONFIG",                    EnvBuilder::VarScope::ProtonOnly},
         {"VKD3D_FRAME_RATE",               EnvBuilder::VarScope::ProtonOnly},
         {"VKD3D_CONFIG",                   EnvBuilder::VarScope::ProtonOnly},
     };
@@ -140,6 +142,140 @@ QString vkd3dConfigValue(const DLSSSettings& s)
     return flags.join(',');
 }
 
+// DXVK_CONFIG, the same way: the frame cap ProtonForge manages, then whatever
+// foreign options were round-tripped through dxvkConfigExtra. DXVK 3.0 removed
+// DXVK_FRAME_RATE; dxvk.maxFrameRate is what it reads instead, and Proton's
+// own script appends to this variable with ';' as well.
+QString dxvkConfigValue(const DLSSSettings& s)
+{
+    QStringList options;
+    if (s.enableFrameRateLimit && s.targetFrameRate > 0) {
+        options << QString("dxvk.maxFrameRate=%1").arg(s.targetFrameRate);
+    }
+    if (!s.dxvkConfigExtra.isEmpty()) {
+        options << s.dxvkConfigExtra;
+    }
+    return options.join(';');
+}
+
+// PROTON_DLSS_UPGRADE takes "1" (newest) or a DLSS version to pin, e.g.
+// "310.9.1". Anything that does not look like a version falls back to "1".
+bool isDlssVersion(const QString& v)
+{
+    static const QRegularExpression re(R"(^\d+(\.\d+){1,3}$)");
+    return re.match(v).hasMatch();
+}
+
+QString joinNonEmpty(const QString& a, const QString& b, QChar sep)
+{
+    if (a.isEmpty()) return b;
+    if (b.isEmpty()) return a;
+    return a + sep + b;
+}
+
+// Every variable ProtonForge sets for `s`, in emission order — the single list
+// both buildLaunchOptions() and buildEnvironment() write out, so the Steam
+// string and a direct launch cannot drift apart.
+//
+// `customEnv` is the KEY=VALUE part of the user's custom parameters. A
+// DXVK_CONFIG or VKD3D_CONFIG in it is merged into ours and removed from it:
+// both builders put custom variables last, and the later assignment wins, so
+// left alone it would silently replace the frame cap or descriptor_heap.
+QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& customEnv)
+{
+    QString customDxvk, customVkd3d;
+    for (auto it = customEnv.begin(); it != customEnv.end();) {
+        const int eq = it->indexOf('=');
+        const QString key = it->left(eq);
+        if (key == QLatin1String("DXVK_CONFIG") || key == QLatin1String("VKD3D_CONFIG")) {
+            QString& into = key == QLatin1String("DXVK_CONFIG") ? customDxvk : customVkd3d;
+            into = joinNonEmpty(into, stripQuotes(it->mid(eq + 1)),
+                                key == QLatin1String("DXVK_CONFIG") ? ';' : ',');
+            it = customEnv.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    QList<QPair<QString, QString>> env;
+    const auto set = [&env](const char* key, const QString& value) {
+        env.append({QString::fromLatin1(key), value});
+    };
+    const QString one = QStringLiteral("1");
+
+    // PRIME render offload for hybrid iGPU+dGPU systems. Deliberately the
+    // portable NVIDIA-recommended trio — no distro-specific ICD path.
+    if (s.enablePrimeRenderOffload) {
+        set("__NV_PRIME_RENDER_OFFLOAD", one);
+        set("__GLX_VENDOR_LIBRARY_NAME", QStringLiteral("nvidia"));
+        set("__VK_LAYER_NV_optimus", QStringLiteral("NVIDIA_only"));
+    }
+
+    // NVAPI is on by default in every current Proton; PROTON_ENABLE_NVAPI is
+    // read by none of them any more. Only turning it off needs saying.
+    if (!s.enableNVAPI) set("PROTON_DISABLE_NVAPI", one);
+    if (s.enableNGXUpdater) set("PROTON_ENABLE_NGX_UPDATER", one);
+    if (s.enableReflex) set("DXVK_NVAPI_VKREFLEX", one);
+    if (s.enableVkd3dLowLatency) set("PROTON_VKD3D_LOWLATENCY", one);
+
+    const QString vkd3dConfig = joinNonEmpty(vkd3dConfigValue(s), customVkd3d, ',');
+    if (!vkd3dConfig.isEmpty()) set("VKD3D_CONFIG", vkd3dConfig);
+
+    if (s.dlssUpgrade)
+        set("PROTON_DLSS_UPGRADE", isDlssVersion(s.dlssVersion) ? s.dlssVersion : one);
+    if (s.showIndicator) set("PROTON_DLSS_INDICATOR", one);
+
+    // All DLSS overrides go in this single variable.
+    const QString drs = EnvBuilder::buildDRSSettings(s);
+    if (!drs.isEmpty()) set("DXVK_NVAPI_DRS_SETTINGS", drs);
+
+    if (s.enableSmoothMotion) set("NVPRESENT_ENABLE_SMOOTH_MOTION", one);
+
+    // Frame rate limit: DXVK (D3D8-11) through DXVK_CONFIG, vkd3d-proton
+    // (D3D12) through its own variable, which it still reads.
+    const QString dxvkConfig = joinNonEmpty(dxvkConfigValue(s), customDxvk, ';');
+    if (!dxvkConfig.isEmpty()) set("DXVK_CONFIG", dxvkConfig);
+    if (s.enableFrameRateLimit && s.targetFrameRate > 0)
+        set("VKD3D_FRAME_RATE", QString::number(s.targetFrameRate));
+
+    // HDR. GE-Proton reads PROTON_ENABLE_HDR (and sets DXVK_HDR from it);
+    // Proton-CachyOS retired that variable and wants DXVK_HDR itself. Both are
+    // harmless where unread, and the string has to work with whichever Proton
+    // Steam ends up running.
+    if (s.enableProtonWayland) set("PROTON_ENABLE_WAYLAND", one);
+    if (s.enableProtonHDR) {
+        set("PROTON_ENABLE_HDR", one);
+        set("DXVK_HDR", one);
+    }
+    if (s.enableHDRWSI) set("ENABLE_HDR_WSI", one);
+    if (s.disableAutoHDR) set("DXVK_NO_HDR", one);
+
+    // Proton tweaks. NTSync is opt-in up to Proton 10 and on by default from
+    // 11, where only switching it off is possible.
+    if (s.protonUseNTSync) set("PROTON_USE_NTSYNC", one);
+    if (s.protonDisableNTSync) set("PROTON_NO_NTSYNC", one);
+    // d7vk: GE-Proton's name and Proton-CachyOS's name for the same switch.
+    if (s.protonUseD7VK) {
+        set("PROTON_USE_D7VK", one);
+        set("PROTON_D7VK_DDRAW", one);
+    }
+    if (s.protonLog) set("PROTON_LOG", one);
+
+    if (s.enableMangoHud) set("MANGOHUD", one);
+
+    return env;
+}
+
+// A value as it has to appear in a launch-options string, which Steam hands
+// to a shell: ';' would end the command there. Whitespace is deliberately not
+// handled — tokenize() is not quote-aware, so a quoted value with spaces would
+// not survive the way back anyway.
+QString shellValue(const QString& value)
+{
+    static const QRegularExpression needsQuotes(R"([;&|<>()$`])");
+    return value.contains(needsQuotes) ? '"' + value + '"' : value;
+}
+
 // Returns the canonical-cased entry from `options` matching `value`
 // case-insensitively, or `value` unchanged if there is no match (so custom
 // values survive). buildDRSSettings lowercases mode values, so the reverse
@@ -192,28 +328,65 @@ void applyDrsSubKey(DLSSSettings& s, const QString& key, const QString& value)
 // sync with buildLaunchOptions / buildEnvironment.
 bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
 {
-    if (key == "PROTON_ENABLE_NVAPI") { s.enableNVAPI = (value != "0"); return true; }
+    // NVAPI is on unless something turns it off. PROTON_ENABLE_NVAPI=1 is a
+    // relic: consumed (so the next write drops it) but it changes nothing,
+    // and it cannot override a PROTON_DISABLE_NVAPI=1 elsewhere in the string.
+    if (key == "PROTON_ENABLE_NVAPI") { if (value == "0") s.enableNVAPI = false; return true; }
+    if (key == "PROTON_DISABLE_NVAPI") { if (value != "0") s.enableNVAPI = false; return true; }
     if (key == "__NV_PRIME_RENDER_OFFLOAD") { s.enablePrimeRenderOffload = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_NGX_UPDATER") { s.enableNGXUpdater = (value != "0"); return true; }
     if (key == "DXVK_NVAPI_VKREFLEX") { s.enableReflex = (value != "0"); return true; }
     if (key == "PROTON_VKD3D_LOWLATENCY") { s.enableVkd3dLowLatency = (value != "0"); return true; }
-    if (key == "PROTON_DLSS_UPGRADE") { s.dlssUpgrade = (value != "0"); return true; }
+    if (key == "PROTON_DLSS_UPGRADE") {
+        s.dlssUpgrade = (value != "0");
+        s.dlssVersion = isDlssVersion(value) ? value : QString();
+        return true;
+    }
     if (key == "PROTON_DLSS_INDICATOR") { s.showIndicator = (value != "0"); return true; }
     if (key == "NVPRESENT_ENABLE_SMOOTH_MOTION") { s.enableSmoothMotion = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_WAYLAND") { s.enableProtonWayland = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_HDR") { s.enableProtonHDR = (value != "0"); return true; }
+    // DXVK_HDR=1 alone is how Proton-CachyOS users switch HDR on. An explicit
+    // DXVK_HDR=0 is not ours to model and stays a custom parameter.
+    if (key == "DXVK_HDR") {
+        if (value == "0") return false;
+        s.enableProtonHDR = true;
+        return true;
+    }
     if (key == "ENABLE_HDR_WSI") { s.enableHDRWSI = (value != "0"); return true; }
     if (key == "DXVK_NO_HDR") { s.disableAutoHDR = (value != "0"); return true; }
-    if (key == "PROTON_PRIORITY_HIGH") { s.protonPriorityHigh = (value != "0"); return true; }
     if (key == "PROTON_USE_NTSYNC") { s.protonUseNTSync = (value != "0"); return true; }
-    if (key == "PROTON_USE_D7VK") { s.protonUseD7VK = (value != "0"); return true; }
+    if (key == "PROTON_NO_NTSYNC") { s.protonDisableNTSync = (value != "0"); return true; }
+    if (key == "PROTON_USE_D7VK" || key == "PROTON_D7VK_DDRAW") {
+        if (value != "0") s.protonUseD7VK = true;
+        return true;
+    }
     if (key == "PROTON_LOG") { s.protonLog = (value != "0"); return true; }
     if (key == "MANGOHUD") { s.enableMangoHud = (value != "0"); return true; }
-    // DXVK covers D3D9/10/11, VKD3D covers D3D12 — both map onto the same
-    // frame-rate-limit setting and are emitted together.
+    // DXVK covers D3D8-11, VKD3D covers D3D12 — both map onto the same
+    // frame-rate-limit setting and are emitted together. DXVK_FRAME_RATE is
+    // what DXVK read before 3.0; still understood, so old strings migrate to
+    // DXVK_CONFIG on the next write.
     if (key == "DXVK_FRAME_RATE" || key == "VKD3D_FRAME_RATE") {
         s.enableFrameRateLimit = true;
         s.targetFrameRate = value.toInt();
+        return true;
+    }
+    if (key == "DXVK_CONFIG") {
+        QStringList rest;
+        for (const QString& option : value.split(';', Qt::SkipEmptyParts)) {
+            const QString o = option.trimmed();
+            const int eq = o.indexOf('=');
+            const QString name = o.left(eq).trimmed();
+            const int fps = eq > 0 ? o.mid(eq + 1).trimmed().toInt() : 0;
+            if (name.compare("dxvk.maxFrameRate", Qt::CaseInsensitive) == 0 && fps > 0) {
+                s.enableFrameRateLimit = true;
+                s.targetFrameRate = fps;
+            } else if (!o.isEmpty()) {
+                rest << o;
+            }
+        }
+        s.dxvkConfigExtra = joinNonEmpty(s.dxvkConfigExtra, rest.join(';'), ';');
         return true;
     }
     if (key == "VKD3D_CONFIG") {
@@ -332,92 +505,15 @@ QString EnvBuilder::buildDRSSettings(const DLSSSettings& settings)
 
 QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
 {
+    // Custom launch parameters, see splitCustom(). Their env vars join ours in
+    // front of every command token, mangohud included.
+    CustomParts custom = splitCustom(settings.customLaunchParams);
+
     QStringList envVars;
-
-    // PRIME render offload for hybrid iGPU+dGPU systems. Deliberately the
-    // portable NVIDIA-recommended trio — no distro-specific ICD path.
-    if (settings.enablePrimeRenderOffload) {
-        envVars << "__NV_PRIME_RENDER_OFFLOAD=1"
-                << "__GLX_VENDOR_LIBRARY_NAME=nvidia"
-                << "__VK_LAYER_NV_optimus=NVIDIA_only";
+    for (const auto& kv : managedEnv(settings, custom.env)) {
+        envVars << kv.first + '=' + shellValue(kv.second);
     }
-
-    // General settings
-    if (settings.enableNVAPI) {
-        envVars << "PROTON_ENABLE_NVAPI=1";
-    }
-
-    if (settings.enableNGXUpdater) {
-        envVars << "PROTON_ENABLE_NGX_UPDATER=1";
-    }
-
-    if (settings.enableReflex) {
-        envVars << "DXVK_NVAPI_VKREFLEX=1";
-    }
-
-    if (settings.enableVkd3dLowLatency) {
-        envVars << "PROTON_VKD3D_LOWLATENCY=1";
-    }
-
-    const QString vkd3dConfig = vkd3dConfigValue(settings);
-    if (!vkd3dConfig.isEmpty()) {
-        envVars << QString("VKD3D_CONFIG=%1").arg(vkd3dConfig);
-    }
-
-    // DLSS Upgrade
-    if (settings.dlssUpgrade) {
-        envVars << "PROTON_DLSS_UPGRADE=1";
-    }
-
-    // Indicator
-    if (settings.showIndicator) {
-        envVars << "PROTON_DLSS_INDICATOR=1";
-    }
-
-    // DRS Settings (all DLSS overrides go in this single variable)
-    QString drsSettings = buildDRSSettings(settings);
-    if (!drsSettings.isEmpty()) {
-        envVars << QString("DXVK_NVAPI_DRS_SETTINGS=%1").arg(drsSettings);
-    }
-
-    // Smooth Motion
-    if (settings.enableSmoothMotion) {
-        envVars << "NVPRESENT_ENABLE_SMOOTH_MOTION=1";
-    }
-
-    // Frame Rate Limit — DXVK for D3D9/10/11, VKD3D for D3D12
-    if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
-        envVars << QString("DXVK_FRAME_RATE=%1").arg(settings.targetFrameRate);
-        envVars << QString("VKD3D_FRAME_RATE=%1").arg(settings.targetFrameRate);
-    }
-
-    // HDR
-    if (settings.enableProtonWayland) {
-        envVars << "PROTON_ENABLE_WAYLAND=1";
-    }
-    if (settings.enableProtonHDR) {
-        envVars << "PROTON_ENABLE_HDR=1";
-    }
-    if (settings.enableHDRWSI) {
-        envVars << "ENABLE_HDR_WSI=1";
-    }
-    if (settings.disableAutoHDR) {
-        envVars << "DXVK_NO_HDR=1";
-    }
-
-    // Proton Tweaks
-    if (settings.protonPriorityHigh) {
-        envVars << "PROTON_PRIORITY_HIGH=1";
-    }
-    if (settings.protonUseNTSync) {
-        envVars << "PROTON_USE_NTSYNC=1";
-    }
-    if (settings.protonUseD7VK) {
-        envVars << "PROTON_USE_D7VK=1";
-    }
-    if (settings.protonLog) {
-        envVars << "PROTON_LOG=1";
-    }
+    envVars << custom.env;
 
     // Everything from here on is the command part, which has to follow every
     // KEY=VALUE token: `mangohud FOO=1 game` would hand FOO=1 to mangohud as an
@@ -431,10 +527,6 @@ QString EnvBuilder::buildLaunchOptions(const DLSSSettings& settings)
         tail << "mangohud";
     }
 
-    // Custom launch parameters, see splitCustom(). Their env vars join ours in
-    // front of every command token, mangohud included.
-    const CustomParts custom = splitCustom(settings.customLaunchParams);
-    envVars << custom.env;
     tail << custom.wrapper << QStringLiteral("%command%") << custom.args;
 
     return (envVars + tail).join(" ");
@@ -447,99 +539,15 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     // a mount that disappears when we exit. Identity function everywhere else.
     QProcessEnvironment env = HostEnvironment::forChildProcess();
 
-    // PRIME render offload for hybrid iGPU+dGPU systems
-    if (settings.enablePrimeRenderOffload) {
-        env.insert("__NV_PRIME_RENDER_OFFLOAD", "1");
-        env.insert("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
-        env.insert("__VK_LAYER_NV_optimus", "NVIDIA_only");
-    }
-
-    // General settings
-    if (settings.enableNVAPI) {
-        env.insert("PROTON_ENABLE_NVAPI", "1");
-    }
-
-    if (settings.enableNGXUpdater) {
-        env.insert("PROTON_ENABLE_NGX_UPDATER", "1");
-    }
-
-    if (settings.enableReflex) {
-        env.insert("DXVK_NVAPI_VKREFLEX", "1");
-    }
-
-    if (settings.enableVkd3dLowLatency) {
-        env.insert("PROTON_VKD3D_LOWLATENCY", "1");
-    }
-
-    const QString vkd3dConfig = vkd3dConfigValue(settings);
-    if (!vkd3dConfig.isEmpty()) {
-        env.insert("VKD3D_CONFIG", vkd3dConfig);
-    }
-
-    // DLSS Upgrade
-    if (settings.dlssUpgrade) {
-        env.insert("PROTON_DLSS_UPGRADE", "1");
-    }
-
-    // Indicator
-    if (settings.showIndicator) {
-        env.insert("PROTON_DLSS_INDICATOR", "1");
-    }
-
-    // DRS Settings
-    QString drsSettings = buildDRSSettings(settings);
-    if (!drsSettings.isEmpty()) {
-        env.insert("DXVK_NVAPI_DRS_SETTINGS", drsSettings);
-    }
-
-    // Smooth Motion
-    if (settings.enableSmoothMotion) {
-        env.insert("NVPRESENT_ENABLE_SMOOTH_MOTION", "1");
-    }
-
-    // Frame Rate Limit — DXVK for D3D9/10/11, VKD3D for D3D12
-    if (settings.enableFrameRateLimit && settings.targetFrameRate > 0) {
-        env.insert("DXVK_FRAME_RATE", QString::number(settings.targetFrameRate));
-        env.insert("VKD3D_FRAME_RATE", QString::number(settings.targetFrameRate));
-    }
-
-    // HDR
-    if (settings.enableProtonWayland) {
-        env.insert("PROTON_ENABLE_WAYLAND", "1");
-    }
-    if (settings.enableProtonHDR) {
-        env.insert("PROTON_ENABLE_HDR", "1");
-    }
-    if (settings.enableHDRWSI) {
-        env.insert("ENABLE_HDR_WSI", "1");
-    }
-    if (settings.disableAutoHDR) {
-        env.insert("DXVK_NO_HDR", "1");
-    }
-
-    // Proton Tweaks
-    if (settings.protonPriorityHigh) {
-        env.insert("PROTON_PRIORITY_HIGH", "1");
-    }
-    if (settings.protonUseNTSync) {
-        env.insert("PROTON_USE_NTSYNC", "1");
-    }
-    if (settings.protonUseD7VK) {
-        env.insert("PROTON_USE_D7VK", "1");
-    }
-    if (settings.protonLog) {
-        env.insert("PROTON_LOG", "1");
-    }
-
-    // Overlay
-    if (settings.enableMangoHud) {
-        env.insert("MANGOHUD", "1");
+    QStringList customEnv = splitCustom(settings.customLaunchParams).env;
+    for (const auto& kv : managedEnv(settings, customEnv)) {
+        env.insert(kv.first, kv.second);
     }
 
     // Custom launch parameters: their KEY=VALUE portion goes into the process
     // environment. Wrapper and game arguments are customWrapper() and
     // customGameArgs().
-    for (const QString& token : splitCustom(settings.customLaunchParams).env) {
+    for (const QString& token : customEnv) {
         const int eq = token.indexOf('=');
         env.insert(token.left(eq), stripQuotes(token.mid(eq + 1)));
     }
@@ -562,22 +570,23 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     // reflects the Steam string (an absent token means the option is off). Fields
     // that are never written to launch options are left untouched from `base`.
     DLSSSettings& s = result.settings;
-    s.enableNVAPI = false;
+    s.enableNVAPI = true;   // on unless the string turns it off
     s.enableNGXUpdater = false;
     s.enableReflex = false;
     s.enableVkd3dLowLatency = false;
     s.enablePrimeRenderOffload = false;
     s.enableVkd3dDescriptorHeap = false; s.vkd3dConfigExtra.clear();
-    s.dlssUpgrade = false;
+    s.dlssUpgrade = false; s.dlssVersion.clear();
     s.showIndicator = false;
     s.srOverride = false; s.srMode.clear(); s.srPreset.clear(); s.srScalingRatio = 0;
     s.rrOverride = false; s.rrMode.clear(); s.rrPreset.clear(); s.rrScalingRatio = 0;
     s.fgOverride = false; s.fgMultiFrameCount = 0; s.fgMode.clear(); s.fgPreset.clear();
     s.enableSmoothMotion = false;
-    s.enableFrameRateLimit = false; s.targetFrameRate = 60;
+    s.enableFrameRateLimit = false; s.targetFrameRate = 60; s.dxvkConfigExtra.clear();
     s.enableProtonWayland = false; s.enableProtonHDR = false; s.enableHDRWSI = false;
     s.disableAutoHDR = false;
-    s.protonPriorityHigh = false; s.protonUseNTSync = false; s.protonUseD7VK = false; s.protonLog = false;
+    s.protonUseNTSync = false; s.protonDisableNTSync = false;
+    s.protonUseD7VK = false; s.protonLog = false;
     s.enableMangoHud = false;
 
     const QStringList tokens = tokenize(raw);

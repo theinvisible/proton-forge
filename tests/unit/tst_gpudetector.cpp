@@ -13,6 +13,7 @@
 #include <QFile>
 
 #include "utils/GPUDetector.h"
+#include "utils/NvidiaGPUDetector.h"
 
 class TstGpuDetector : public QObject
 {
@@ -33,6 +34,9 @@ private slots:
     void deviceIdIsReported();
     void boundDriverIsReadFromTheSymlink();
     void unboundDeviceHasNoDriver();
+
+    void architectureFromName_data();
+    void architectureFromName();
 
 private:
     QTemporaryDir m_root;
@@ -215,6 +219,35 @@ void TstGpuDetector::unboundDeviceHasNoDriver()
     const QList<PciDisplayDevice> devices = GPUDetector::displayDevices(root());
     QCOMPARE(devices.size(), 1);
     QVERIFY(devices[0].boundDriver.isEmpty());
+}
+
+// The name-based fallback, used when NVML cannot report an architecture.
+// Feature gating keys GPU-only warnings off its answer, so a workstation card
+// misread as a consumer series would warn a working setup.
+void TstGpuDetector::architectureFromName_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("rtx 5090")       << "NVIDIA GeForce RTX 5090" << "Blackwell";
+    QTest::newRow("rtx 5070 ti")    << "NVIDIA GeForce RTX 5070 Ti" << "Blackwell";
+    QTest::newRow("rtx 4090")       << "NVIDIA GeForce RTX 4090" << "Ada Lovelace";
+    QTest::newRow("rtx 3080")       << "NVIDIA GeForce RTX 3080" << "Ampere";
+    QTest::newRow("rtx 2070 super") << "NVIDIA GeForce RTX 2070 SUPER" << "Turing";
+    QTest::newRow("gtx 1660")       << "NVIDIA GeForce GTX 1660 Ti" << "Turing";
+    QTest::newRow("gtx 1080")       << "NVIDIA GeForce GTX 1080" << "Pascal";
+    QTest::newRow("rtx 2000 ada")   << "NVIDIA RTX 2000 Ada Generation" << "Ada Lovelace";
+    QTest::newRow("rtx 500 ada")    << "NVIDIA RTX 500 Ada Generation Laptop GPU" << "Ada Lovelace";
+    QTest::newRow("rtx pro 6000")   << "NVIDIA RTX PRO 6000 Blackwell" << "Blackwell";
+    QTest::newRow("rtx a6000")      << "NVIDIA RTX A6000" << "";
+    QTest::newRow("unknown")        << "Some GPU" << "";
+}
+
+void TstGpuDetector::architectureFromName()
+{
+    QFETCH(QString, name);
+    QFETCH(QString, expected);
+    QCOMPARE(NvidiaGPUDetector::inferArchitecture(name), expected);
 }
 
 QTEST_MAIN(TstGpuDetector)

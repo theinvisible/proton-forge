@@ -118,12 +118,29 @@ void NvidiaGPUDetector::readProcGpuInformation(GPUInfo& info, const QString& pro
 
 QString NvidiaGPUDetector::inferArchitecture(const QString& name)
 {
-    if (name.contains("RTX 50")) return "Blackwell";
-    if (name.contains("RTX 40")) return "Ada Lovelace";
-    if (name.contains("RTX 30")) return "Ampere";
-    if (name.contains("RTX 20")) return "Turing";
-    if (name.contains("GTX 16")) return "Turing";
-    if (name.contains("GTX 10")) return "Pascal";
+    // Workstation cards name their architecture outright ("RTX 2000 Ada",
+    // "RTX PRO 6000 Blackwell"); their model numbers would otherwise read as
+    // consumer series ("RTX 2000" is not an RTX 20, "RTX 500 Ada" no RTX 50).
+    if (name.contains("Blackwell", Qt::CaseInsensitive)) return "Blackwell";
+    static const QRegularExpression ada("\\bAda\\b");
+    if (name.contains(ada)) return "Ada Lovelace";
+
+    // Consumer series: two series digits followed by a two-digit tier
+    // (RTX 4090, RTX 5070 Ti, GTX 1660).
+    static const QRegularExpression series("\\b(RTX|GTX)\\s*(\\d{2})\\d{2}\\b");
+    const QRegularExpressionMatch m = series.match(name);
+    if (!m.hasMatch()) return QString();
+    const QString kind = m.captured(1);
+    const int s = m.captured(2).toInt();
+    if (kind == "RTX") {
+        if (s == 50) return "Blackwell";
+        if (s == 40) return "Ada Lovelace";
+        if (s == 30) return "Ampere";
+        if (s == 20) return "Turing";
+    } else {
+        if (s == 16) return "Turing";
+        if (s == 10) return "Pascal";
+    }
     return QString();
 }
 

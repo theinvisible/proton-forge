@@ -46,6 +46,14 @@ private slots:
     void dlssOverridesAreProtonOnly();
     void driverLevelVariablesReachNativeGames();
     void unknownVariablesAreTreatedLeniently();
+    void nvapiIsOnUnlessDisabled();
+    void legacyFrameRateMigrates();
+    void dxvkConfigKeepsForeignEntries();
+    void customConfigIsMergedNotShadowed();
+    void dlssVersionRoundTrips();
+    void priorityHighIsKeptAsCustom();
+    void hdrImportsFromDxvkHdr();
+    void d7vkImportsFromEitherName();
 
 private:
     // Every option turned on, so a test can see the full set of variables
@@ -54,7 +62,7 @@ private:
     {
         DLSSSettings s;
         s.enablePrimeRenderOffload = true;
-        s.enableNVAPI = true;
+        s.enableNVAPI = false;          // the only state that emits anything
         s.enableNGXUpdater = true;
         s.enableReflex = true;
         s.enableVkd3dLowLatency = true;
@@ -71,8 +79,8 @@ private:
         s.enableProtonHDR = true;
         s.enableHDRWSI = true;
         s.disableAutoHDR = true;
-        s.protonPriorityHigh = true;
         s.protonUseNTSync = true;
+        s.protonDisableNTSync = true;
         s.protonUseD7VK = true;
         s.protonLog = true;
         s.enableMangoHud = true;
@@ -93,11 +101,9 @@ private:
 
 void TstEnvBuilder::buildsNothingByDefault()
 {
-    // enableNVAPI defaults to true, so a default object is not empty — pinning
-    // this because it is the baseline every other expectation is relative to.
-    const QString built = EnvBuilder::buildLaunchOptions(DLSSSettings());
-    QVERIFY(built.contains("PROTON_ENABLE_NVAPI=1"));
-    QVERIFY(built.endsWith("%command%"));
+    // NVAPI is on by default and on by default in Proton, so a default object
+    // says nothing at all — the baseline every other expectation is relative to.
+    QCOMPARE(EnvBuilder::buildLaunchOptions(DLSSSettings()), QStringLiteral("%command%"));
 }
 
 void TstEnvBuilder::emitsKnownVariables_data()
@@ -113,11 +119,13 @@ void TstEnvBuilder::emitsKnownVariables_data()
     QTest::newRow("smooth motion")   << "enableSmoothMotion"      << "NVPRESENT_ENABLE_SMOOTH_MOTION=1";
     QTest::newRow("wayland")         << "enableProtonWayland"     << "PROTON_ENABLE_WAYLAND=1";
     QTest::newRow("hdr")             << "enableProtonHDR"         << "PROTON_ENABLE_HDR=1";
+    QTest::newRow("hdr (cachyos)")   << "enableProtonHDR"         << "DXVK_HDR=1";
     QTest::newRow("hdr wsi")         << "enableHDRWSI"            << "ENABLE_HDR_WSI=1";
     QTest::newRow("no auto hdr")     << "disableAutoHDR"          << "DXVK_NO_HDR=1";
-    QTest::newRow("priority")        << "protonPriorityHigh"      << "PROTON_PRIORITY_HIGH=1";
     QTest::newRow("ntsync")          << "protonUseNTSync"         << "PROTON_USE_NTSYNC=1";
+    QTest::newRow("ntsync off")      << "protonDisableNTSync"     << "PROTON_NO_NTSYNC=1";
     QTest::newRow("d7vk")            << "protonUseD7VK"           << "PROTON_USE_D7VK=1";
+    QTest::newRow("d7vk (cachyos)")  << "protonUseD7VK"           << "PROTON_D7VK_DDRAW=1";
     QTest::newRow("proton log")      << "protonLog"               << "PROTON_LOG=1";
     // Not an env var: MANGOHUD=1 only enables the Vulkan implicit layer, so the
     // launch options carry the wrapper command that also covers OpenGL.
@@ -179,7 +187,6 @@ void TstEnvBuilder::roundTrips_data()
     QTest::newRow("hdr stack") << hdr;
 
     DLSSSettings tweaks;
-    tweaks.protonPriorityHigh = true;
     tweaks.protonUseNTSync = true;
     tweaks.protonUseD7VK = true;
     tweaks.protonLog = true;
@@ -190,6 +197,25 @@ void TstEnvBuilder::roundTrips_data()
     fps.enableFrameRateLimit = true;
     fps.targetFrameRate = 144;
     QTest::newRow("frame rate limit") << fps;
+
+    DLSSSettings dxvk;
+    dxvk.enableFrameRateLimit = true;
+    dxvk.targetFrameRate = 90;
+    dxvk.dxvkConfigExtra = "dxgi.syncInterval=0;d3d11.samplerAnisotropy=16";
+    QTest::newRow("dxvk config with frame cap") << dxvk;
+
+    DLSSSettings nvapiOff;
+    nvapiOff.enableNVAPI = false;
+    QTest::newRow("nvapi off") << nvapiOff;
+
+    DLSSSettings ntsyncOff;
+    ntsyncOff.protonDisableNTSync = true;
+    QTest::newRow("ntsync off") << ntsyncOff;
+
+    DLSSSettings pinned;
+    pinned.dlssUpgrade = true;
+    pinned.dlssVersion = "310.9.1";
+    QTest::newRow("dlss upgrade pinned") << pinned;
 
     DLSSSettings prime;
     prime.enablePrimeRenderOffload = true;
@@ -420,9 +446,23 @@ void TstEnvBuilder::environmentCarriesTheSameVariables()
     const QProcessEnvironment env = EnvBuilder::buildEnvironment(settings);
 
     QCOMPARE(env.value("PROTON_ENABLE_HDR"), QString("1"));
+    QCOMPARE(env.value("DXVK_HDR"), QString("1"));
     QCOMPARE(env.value("PROTON_USE_NTSYNC"), QString("1"));
-    QCOMPARE(env.value("DXVK_FRAME_RATE"), QString("90"));
+    QCOMPARE(env.value("DXVK_CONFIG"), QString("dxvk.maxFrameRate=90"));
     QCOMPARE(env.value("VKD3D_FRAME_RATE"), QString("90"));
+    QVERIFY(!env.contains("DXVK_FRAME_RATE"));      // removed in DXVK 3.0
+
+    // Every managed variable, set the same way on both paths. The launch
+    // string may quote a value for the shell; the environment never does.
+    const DLSSSettings all = everythingOn();
+    const QProcessEnvironment allEnv = EnvBuilder::buildEnvironment(all);
+    for (const QString& token : EnvBuilder::buildLaunchOptions(all).split(' ', Qt::SkipEmptyParts)) {
+        const int eq = token.indexOf('=');
+        if (eq <= 0) continue;
+        QString value = token.mid(eq + 1);
+        if (value.startsWith('"')) value = value.mid(1, value.size() - 2);
+        QCOMPARE(allEnv.value(token.left(eq)), value);
+    }
 }
 
 void TstEnvBuilder::mangoHudIsAWrapperNotAVariable()
@@ -595,9 +635,9 @@ void TstEnvBuilder::dlssOverridesAreProtonOnly()
     // given these settings at all.
     QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_DRS_SETTINGS"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_VKREFLEX"), EnvBuilder::VarScope::ProtonOnly);
-    QCOMPARE(EnvBuilder::scopeOf("PROTON_ENABLE_NVAPI"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("PROTON_DISABLE_NVAPI"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("VKD3D_CONFIG"), EnvBuilder::VarScope::ProtonOnly);
-    QCOMPARE(EnvBuilder::scopeOf("DXVK_FRAME_RATE"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("DXVK_CONFIG"), EnvBuilder::VarScope::ProtonOnly);
 }
 
 void TstEnvBuilder::driverLevelVariablesReachNativeGames()
@@ -620,6 +660,153 @@ void TstEnvBuilder::unknownVariablesAreTreatedLeniently()
     // FeatureGate's policy, the unknown case never disables anything.
     QCOMPARE(EnvBuilder::scopeOf("SOMETHING_WE_DO_NOT_KNOW"), EnvBuilder::VarScope::Any);
     QCOMPARE(EnvBuilder::scopeOf(""), EnvBuilder::VarScope::Any);
+}
+
+void TstEnvBuilder::nvapiIsOnUnlessDisabled()
+{
+    // Valve's Proton 11 and Proton-CachyOS read PROTON_DISABLE_NVAPI and
+    // PROTON_FORCE_NVAPI; nothing current reads PROTON_ENABLE_NVAPI. So the
+    // default emits nothing and switching NVAPI off is what gets written.
+    DLSSSettings off;
+    off.enableNVAPI = false;
+    QCOMPARE(EnvBuilder::buildLaunchOptions(off), QStringLiteral("PROTON_DISABLE_NVAPI=1 %command%"));
+    QCOMPARE(EnvBuilder::buildEnvironment(off).value("PROTON_DISABLE_NVAPI"), QString("1"));
+
+    // A string without any NVAPI variable means NVAPI on — even when the base
+    // had it off. (The reset used to say "off", which would have turned every
+    // import into PROTON_DISABLE_NVAPI=1.)
+    QVERIFY(reparse("%command%", off).enableNVAPI);
+
+    // The relic is understood and dropped on the next write.
+    DLSSSettings legacy = reparse("PROTON_ENABLE_NVAPI=1 %command%", off);
+    QVERIFY(legacy.enableNVAPI);
+    QCOMPARE(legacy.customLaunchParams, QStringLiteral("%command%"));
+    QVERIFY(!reparse("PROTON_ENABLE_NVAPI=0 %command%", DLSSSettings()).enableNVAPI);
+
+    // Disabling wins, in either order.
+    QVERIFY(!reparse("PROTON_DISABLE_NVAPI=1 PROTON_ENABLE_NVAPI=1 %command%", DLSSSettings()).enableNVAPI);
+    QVERIFY(!reparse("PROTON_ENABLE_NVAPI=1 PROTON_DISABLE_NVAPI=1 %command%", DLSSSettings()).enableNVAPI);
+
+    // PROTON_FORCE_NVAPI is not modelled and survives as the user's own.
+    QVERIFY(reparse("PROTON_FORCE_NVAPI=1 %command%", DLSSSettings())
+                .customLaunchParams.contains("PROTON_FORCE_NVAPI=1"));
+}
+
+void TstEnvBuilder::legacyFrameRateMigrates()
+{
+    // DXVK 3.0 removed DXVK_FRAME_RATE, and Valve's Proton 11 ships a DXVK
+    // without it. An old string still imports, and is rewritten.
+    const DLSSSettings parsed = reparse("DXVK_FRAME_RATE=144 VKD3D_FRAME_RATE=144 %command%", DLSSSettings());
+    QVERIFY(parsed.enableFrameRateLimit);
+    QCOMPARE(parsed.targetFrameRate, 144);
+    QVERIFY(parsed.customLaunchParams == "%command%");
+
+    const QString rebuilt = EnvBuilder::buildLaunchOptions(parsed);
+    QVERIFY2(rebuilt.contains("DXVK_CONFIG=dxvk.maxFrameRate=144"), qPrintable(rebuilt));
+    QVERIFY2(rebuilt.contains("VKD3D_FRAME_RATE=144"), qPrintable(rebuilt));
+    QVERIFY2(!rebuilt.contains("DXVK_FRAME_RATE"), qPrintable(rebuilt));
+}
+
+void TstEnvBuilder::dxvkConfigKeepsForeignEntries()
+{
+    // A user's own DXVK options travel in the same variable as the frame cap.
+    const QString raw = R"(DXVK_CONFIG="dxgi.syncInterval=0;dxvk.maxFrameRate=120" %command%)";
+    const DLSSSettings parsed = reparse(raw, DLSSSettings());
+    QVERIFY(parsed.enableFrameRateLimit);
+    QCOMPARE(parsed.targetFrameRate, 120);
+    QCOMPARE(parsed.dxvkConfigExtra, QStringLiteral("dxgi.syncInterval=0"));
+
+    // Switching the cap off keeps their options.
+    DLSSSettings uncapped = parsed;
+    uncapped.enableFrameRateLimit = false;
+    QCOMPARE(EnvBuilder::buildLaunchOptions(uncapped),
+             QStringLiteral("DXVK_CONFIG=dxgi.syncInterval=0 %command%"));
+
+    // Two entries need quoting, or the shell Steam runs ends the command at ';'.
+    const QString built = EnvBuilder::buildLaunchOptions(parsed);
+    QVERIFY2(built.contains(R"(DXVK_CONFIG="dxvk.maxFrameRate=120;dxgi.syncInterval=0")"),
+             qPrintable(built));
+    QCOMPARE(EnvBuilder::buildEnvironment(parsed).value("DXVK_CONFIG"),
+             QStringLiteral("dxvk.maxFrameRate=120;dxgi.syncInterval=0"));
+}
+
+void TstEnvBuilder::customConfigIsMergedNotShadowed()
+{
+    // Custom variables are emitted after ours, and the later assignment wins:
+    // a DXVK_CONFIG typed into Custom Launch Parameters used to silently drop
+    // the frame cap, and a VKD3D_CONFIG the descriptor heap.
+    DLSSSettings s;
+    s.enableFrameRateLimit = true;
+    s.targetFrameRate = 60;
+    s.enableVkd3dDescriptorHeap = true;
+    s.customLaunchParams = "DXVK_CONFIG=dxgi.maxDeviceMemory=4096 VKD3D_CONFIG=dxr %command% -novid";
+
+    const QString built = EnvBuilder::buildLaunchOptions(s);
+    QCOMPARE(built.count("DXVK_CONFIG="), 1);
+    QCOMPARE(built.count("VKD3D_CONFIG="), 1);
+    QVERIFY2(built.contains(R"(DXVK_CONFIG="dxvk.maxFrameRate=60;dxgi.maxDeviceMemory=4096")"),
+             qPrintable(built));
+    QVERIFY2(built.contains("VKD3D_CONFIG=descriptor_heap,dxr"), qPrintable(built));
+    QVERIFY2(built.endsWith("%command% -novid"), qPrintable(built));
+
+    const QProcessEnvironment env = EnvBuilder::buildEnvironment(s);
+    QCOMPARE(env.value("DXVK_CONFIG"), QStringLiteral("dxvk.maxFrameRate=60;dxgi.maxDeviceMemory=4096"));
+    QCOMPARE(env.value("VKD3D_CONFIG"), QStringLiteral("descriptor_heap,dxr"));
+
+    // And the merged string is stable.
+    QCOMPARE(EnvBuilder::buildLaunchOptions(reparse(built, DLSSSettings())), built);
+}
+
+void TstEnvBuilder::dlssVersionRoundTrips()
+{
+    DLSSSettings s;
+    s.dlssUpgrade = true;
+    s.dlssVersion = "310.9.1";
+    QCOMPARE(EnvBuilder::buildLaunchOptions(s), QStringLiteral("PROTON_DLSS_UPGRADE=310.9.1 %command%"));
+
+    const DLSSSettings parsed = reparse("PROTON_DLSS_UPGRADE=310.2 %command%", DLSSSettings());
+    QVERIFY(parsed.dlssUpgrade);
+    QCOMPARE(parsed.dlssVersion, QStringLiteral("310.2"));
+
+    // "1" means newest, and clears a pinned version from the base.
+    const DLSSSettings newest = reparse("PROTON_DLSS_UPGRADE=1 %command%", s);
+    QVERIFY(newest.dlssUpgrade);
+    QVERIFY(newest.dlssVersion.isEmpty());
+    QVERIFY(!reparse("%command%", s).dlssUpgrade);
+    QVERIFY(reparse("%command%", s).dlssVersion.isEmpty());
+
+    // Anything that is not a version is never written as one.
+    s.dlssVersion = "latest; rm -rf ~";
+    QCOMPARE(EnvBuilder::buildLaunchOptions(s), QStringLiteral("PROTON_DLSS_UPGRADE=1 %command%"));
+}
+
+void TstEnvBuilder::priorityHighIsKeptAsCustom()
+{
+    // PROTON_PRIORITY_HIGH is read by no current Proton. ProtonForge no longer
+    // offers it, but a string that has it keeps it — it is the user's.
+    const DLSSSettings parsed = reparse("PROTON_PRIORITY_HIGH=1 %command%", DLSSSettings());
+    QCOMPARE(parsed.customLaunchParams, QStringLiteral("PROTON_PRIORITY_HIGH=1 %command%"));
+    QCOMPARE(EnvBuilder::buildLaunchOptions(parsed), QStringLiteral("PROTON_PRIORITY_HIGH=1 %command%"));
+}
+
+void TstEnvBuilder::hdrImportsFromDxvkHdr()
+{
+    // How Proton-CachyOS users turn HDR on since PROTON_ENABLE_HDR was retired.
+    const DLSSSettings parsed = reparse("DXVK_HDR=1 %command%", DLSSSettings());
+    QVERIFY(parsed.enableProtonHDR);
+    QCOMPARE(parsed.customLaunchParams, QStringLiteral("%command%"));
+
+    // An explicit "off" is not something ProtonForge models.
+    const DLSSSettings off = reparse("DXVK_HDR=0 %command%", DLSSSettings());
+    QVERIFY(!off.enableProtonHDR);
+    QVERIFY(off.customLaunchParams.contains("DXVK_HDR=0"));
+}
+
+void TstEnvBuilder::d7vkImportsFromEitherName()
+{
+    QVERIFY(reparse("PROTON_USE_D7VK=1 %command%", DLSSSettings()).protonUseD7VK);
+    QVERIFY(reparse("PROTON_D7VK_DDRAW=1 %command%", DLSSSettings()).protonUseD7VK);
+    QVERIFY(!reparse("PROTON_D7VK_DDRAW=0 %command%", DLSSSettings()).protonUseD7VK);
 }
 
 QTEST_MAIN(TstEnvBuilder)

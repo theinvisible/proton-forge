@@ -320,6 +320,51 @@ EOF
     printf '%s' "$dir"
 }
 
+# fx_compat_tool_named <root> <dir> <internal name> -> the tool directory
+#
+# A tool whose compatibilitytool.vdf registers it under a name other than its
+# directory — which is what Steam then stores in config.vdf's CompatToolMapping.
+fx_compat_tool_named() {
+    local root="$1" name="$2" internal="$3"
+    local dir
+    dir="$(fx_compat_tool "$root" "$name")"
+    cat >"$dir/compatibilitytool.vdf" <<EOF
+"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "${internal}" // Internal name of this tool
+    {
+      "install_path" "."
+      "display_name" "${internal}"
+      "from_oslist"  "windows"
+      "to_oslist"    "linux"
+    }
+  }
+}
+EOF
+    printf '%s' "$dir"
+}
+
+# fx_valve_proton <library root> <dir name> [version line] -> the tool directory
+#
+# One of Valve's own Protons, as Steam installs it into a library's
+# steamapps/common ("Proton 11.0", "Proton - Experimental"). Steam's
+# CompatToolMapping names these by internal name (proton_11), never by
+# directory. The optional version line is the tool's `version` file, e.g.
+# "1788504981 proton-11.0-2c-x86_64".
+fx_valve_proton() {
+    local lib="$1" name="$2" version="${3:-}"
+    local dir="$lib/steamapps/common/$name"
+    mkdir -p "$dir"
+    printf '#!/bin/sh\nexit 0\n' >"$dir/proton"
+    chmod +x "$dir/proton"
+    if [[ -n "$version" ]]; then
+        printf '%s\n' "$version" >"$dir/version"
+    fi
+    printf '%s' "$dir"
+}
+
 # fx_localconfig <root> [key=value ...] <appid>=<launchoptions> ... -> the file
 #
 # Keys:

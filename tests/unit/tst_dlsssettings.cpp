@@ -29,9 +29,10 @@ private:
     static QJsonObject mutatedJson()
     {
         QJsonObject json = DLSSSettings().toJson();
-        // vkd3dConfigExtra is dropped by toJson when empty; put it back so the
-        // "every field" checks below cover it too.
+        // The *ConfigExtra fields are dropped by toJson when empty; put them
+        // back so the "every field" checks below cover them too.
         json["vkd3dConfigExtra"] = QString("dxr");
+        json["dxvkConfigExtra"] = QString("dxgi.syncInterval=0");
 
         for (const QString& key : json.keys()) {
             const QJsonValue value = json.value(key);

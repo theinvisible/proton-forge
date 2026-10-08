@@ -28,7 +28,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 - **Platform Gating**: On a native Linux game the options that only Proton, DXVK, vkd3d-proton or DXVK-NVAPI would read are greyed out with a one-line explanation, because nothing in a native process reads them — the DLSS overrides in particular travel in `DXVK_NVAPI_DRS_SETTINGS`, and NVIDIA does not support preset overrides outside NVAPI. Driver-level options (Smooth Motion, PRIME offload) and the Vulkan HDR layer stay live, and your saved values are kept untouched, so forcing a compatibility tool in Steam still gets the full launch string
 
 ### HDR Support
-- **Individual HDR Options**: Separately configure PROTON_ENABLE_WAYLAND, PROTON_ENABLE_HDR, and ENABLE_HDR_WSI
+- **Individual HDR Options**: Separately configure PROTON_ENABLE_WAYLAND, PROTON_ENABLE_HDR (written together with DXVK_HDR, which Proton-CachyOS reads instead) and ENABLE_HDR_WSI
 - **Smart Detection**: Automatic detection of system HDR status on KDE Plasma and Gnome
 - **Desktop Environment Awareness**: Provides specific instructions for enabling HDR based on your DE
 - **Wayland Check**: Warns if you're running on X11 (HDR requires Wayland)
@@ -64,8 +64,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 - **Launch Preview**: See exactly what environment variables will be set before launching
 
 ### Proton Tweaks
-- **High Priority**: Set game process to high CPU scheduling priority (PROTON_PRIORITY_HIGH)
-- **NTSync**: Enable kernel-level Windows synchronization primitives for better multi-threaded performance (PROTON_USE_NTSYNC, requires Linux 6.14+)
+- **NTSync**: Kernel-level Windows synchronization primitives for better multi-threaded performance (requires Linux 6.14+). Opt-in up to Proton 10 (PROTON_USE_NTSYNC); on by default from Proton 11, where it can be switched off per game (PROTON_NO_NTSYNC)
 - **Debug Logging**: Enable Proton log output for troubleshooting (PROTON_LOG)
 
 ### Overlay
@@ -75,9 +74,9 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 - **Installation Detection**: Automatically detects whether MangoHud is installed and disables the option with a helpful message if not
 
 ### Performance Tuning
-- **Frame Rate Limiting**: Set precise FPS caps (DXVK_FRAME_RATE)
+- **Frame Rate Limiting**: Set precise FPS caps (`dxvk.maxFrameRate` in DXVK_CONFIG, plus VKD3D_FRAME_RATE — DXVK 3.0 removed DXVK_FRAME_RATE; older strings are migrated on import)
 - **Smooth Motion**: Enable driver level frame generation
-- **DLSS Upgrade**: Force newer DLSS DLL versions
+- **DLSS Upgrade**: Force newer DLSS DLL versions, optionally pinned to a specific version (PROTON_DLSS_UPGRADE, Proton-CachyOS and GE-Proton)
 
 ### User Interface
 - **Game Library Browser**: Beautiful card view with cover art for both Steam and GOG games

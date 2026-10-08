@@ -1,6 +1,7 @@
 #include "GameRunner.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
+#include "utils/CompatToolResolver.h"
 #include "utils/SteamPaths.h"
 #include "utils/SteamClient.h"
 #include "parsers/VDFParser.h"
@@ -73,109 +74,18 @@ GameRunner::GameRunner(QObject* parent)
 
 QString GameRunner::findDefaultProton() const
 {
-    // Get all Steam library paths
-    QStringList libraryPaths = SteamLauncher::libraryPaths();
-
-    // Build list of directories to check for Proton
-    QStringList protonDirs;
-
-    // Where our own Proton-Manager installs to. With Steam present this is the
-    // same compatibilitytools.d as below and dedups away; without Steam it is
-    // the only one of these that resolves at all, and leaving it out is what
-    // made the default ("auto") find nothing on a machine with no Steam but a
-    // Proton installed through ProtonForge itself.
-    const QString managedTools = ProtonManager::protonCachyOSPath();
-    if (!managedTools.isEmpty()) {
-        protonDirs << managedTools;
-    }
-
-    // Then compatibilitytools.d in the detected Steam directory
-    const QString compatTools = SteamPaths::compatibilityToolsPath();
-    if (!compatTools.isEmpty() && !protonDirs.contains(compatTools)) {
-        protonDirs << compatTools;
-    }
-
-    // Add common folders from all libraries
-    for (const QString& libPath : libraryPaths) {
-        protonDirs << libPath + "/common";
-    }
-
-    // Preferred Proton versions (newest first)
-    QStringList preferredVersions = {
-        "proton-cachyos",
-        "GE-Proton",
-        "Proton - Experimental",
-        "Proton 9",
-        "Proton 8",
-        "Proton 7",
-        "Proton Hotfix",
-        "Proton 6",
-        "Proton 5"
-    };
-
-    for (const QString& dir : protonDirs) {
-        QDir d(dir);
-        if (!d.exists()) continue;
-
-        QStringList entries = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-
-        // First check for preferred versions
-        for (const QString& preferred : preferredVersions) {
-            for (const QString& entry : entries) {
-                if (entry.contains(preferred, Qt::CaseInsensitive)) {
-                    QString protonExe = dir + "/" + entry + "/proton";
-                    if (QFile::exists(protonExe)) {
-                        return dir + "/" + entry;
-                    }
-                }
-            }
-        }
-    }
-
-    return QString();
+    // Newest Proton-CachyOS, then newest GE, then Valve's — compared by
+    // version, not by directory name (which made the oldest CachyOS win).
+    // installedTools() includes ProtonForge's own install directory, so this
+    // also works on a machine with no Steam but a Proton installed through
+    // ProtonForge itself.
+    return CompatToolResolver::defaultChoice(ProtonManager::instance().installedTools()).path;
 }
 
 QString GameRunner::findLatestSteamProton() const
 {
-    // Get all Steam library paths
-    QStringList libraryPaths = SteamLauncher::libraryPaths();
-
-    // Build list of directories to check for Proton
-    QStringList protonDirs;
-
-    // Add common folders from all libraries (official Steam Proton is in common/)
-    for (const QString& libPath : libraryPaths) {
-        protonDirs << libPath + "/common";
-    }
-
-    // Preferred Steam Proton versions (newest first)
-    QStringList steamProtonVersions = {
-        "Proton - Experimental",
-        "Proton 10",
-        "Proton 9",
-        "Proton 8"
-    };
-
-    for (const QString& dir : protonDirs) {
-        QDir d(dir);
-        if (!d.exists()) continue;
-
-        QStringList entries = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-
-        // Check for Steam Proton versions (excluding CachyOS and GE)
-        for (const QString& preferred : steamProtonVersions) {
-            for (const QString& entry : entries) {
-                if (entry.contains(preferred, Qt::CaseInsensitive)) {
-                    QString protonExe = dir + "/" + entry + "/proton";
-                    if (QFile::exists(protonExe)) {
-                        return dir + "/" + entry;
-                    }
-                }
-            }
-        }
-    }
-
-    return QString();
+    using namespace CompatToolResolver;
+    return latestSteam(scanLibraries(SteamLauncher::libraryPaths())).path;
 }
 
 QString GameRunner::findProtonFromConfig(const QString& appId) const
@@ -218,25 +128,15 @@ QString GameRunner::findProtonFromConfig(const QString& appId) const
         return QString();
     }
 
-    // Find the tool path
-    const QString steamApps = SteamPaths::steamAppsPath() + "/common";
-    const QString compatTools = SteamPaths::compatibilityToolsPath();
-
-    // Check steamapps/common first
-    QString toolPath = steamApps + "/" + toolName;
-    if (QFile::exists(toolPath + "/proton")) {
-        return toolPath;
-    }
-
-    // Check compatibilitytools.d
-    if (!compatTools.isEmpty()) {
-        toolPath = compatTools + "/" + toolName;
-        if (QFile::exists(toolPath + "/proton")) {
-            return toolPath;
-        }
-    }
-
-    return QString();
+    // The mapping holds Steam's internal tool name — "proton_11",
+    // "proton_experimental", an alias such as "proton-stable", or whatever a
+    // custom tool's compatibilitytool.vdf registers — not a directory name.
+    // Steam also honours system-wide tool directories, so a distro-packaged
+    // Proton the user picked in Steam has to be found here too.
+    using namespace CompatToolResolver;
+    QList<ToolInfo> tools = ProtonManager::instance().installedTools();
+    tools += scanCompatDirs(systemCompatDirs());
+    return resolveMappedName(toolName, tools).path;
 }
 
 QString GameRunner::findRequiredRuntimeTool(const QString& protonPath, bool* required) const
@@ -302,16 +202,11 @@ QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& setting
         if (settings.protonVersion == "auto") {
             // Use latest CachyOS - fall through to default logic
         } else if (settings.protonVersion == "latest-ge") {
-            // Find latest GE-Proton version
-            QDir dir(ProtonManager::protonCachyOSPath());
-            if (dir.exists()) {
-                QStringList geVersions = dir.entryList(QStringList() << "GE-Proton*", QDir::Dirs, QDir::Name | QDir::Reversed);
-                if (!geVersions.isEmpty()) {
-                    QString protonPath = ProtonManager::protonCachyOSPath() + "/" + geVersions.first();
-                    if (QFile::exists(protonPath + "/proton")) {
-                        return protonPath;
-                    }
-                }
+            // Newest GE-Proton by version: "GE-Proton11-7" over "GE-Proton9-20".
+            const QString protonPath = CompatToolResolver::newest(
+                ProtonManager::instance().installedTools(), CompatToolResolver::Kind::GE).path;
+            if (!protonPath.isEmpty()) {
+                return protonPath;
             }
         } else if (settings.protonVersion == "steam-proton") {
             // Find latest Steam Proton version

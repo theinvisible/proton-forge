@@ -55,6 +55,7 @@ set(CORE_SOURCES
     src/utils/ProcessRunner.cpp
     src/utils/HostEnvironment.cpp
     src/utils/ProtonManager.cpp
+    src/utils/CompatToolResolver.cpp
     src/utils/LaunchOptionExtractor.cpp
     src/utils/GpuInfoCache.cpp
     src/utils/SteamPaths.cpp
@@ -116,6 +117,7 @@ set(CORE_HEADERS
     src/utils/ProcessRunner.h
     src/utils/HostEnvironment.h
     src/utils/ProtonManager.h
+    src/utils/CompatToolResolver.h
     src/utils/LaunchOptionExtractor.h
     src/utils/GpuInfoCache.h
     src/utils/SteamPaths.h

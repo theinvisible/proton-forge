@@ -386,7 +386,7 @@ two — one of them somewhere Steam would never read it:
     {
         "level"  "5"
 
-    "LaunchOptions"  "PROTON_ENABLE_NVAPI=1 ... %command%"
+    "LaunchOptions"  "DXVK_NVAPI_VKREFLEX=1 ... %command%"
 }
         "LaunchOptions"  ""
     }
@@ -811,6 +811,50 @@ Two things worth keeping from it:
   to be. It stays: the probe is one flatpak version on one host, and the cost of
   keeping it is nothing. The case reports what it measured either way instead of
   asserting a belief.
+
+### 11. The wrong Proton for a direct launch, and launch options Proton 11 no longer reads — fixed
+
+`tst_compattoolresolver`, `tst_launchplan`, `tst_envbuilder`, `tst_featuregate`,
+`40_launchopts`, `45_launch`
+
+Found in a review against the Proton 11 / DXVK 3.0 release notes, not by the
+suite. Three Proton choices were made by sorting directory names:
+
+* **"Latest Proton-GE"** took the first `GE-Proton*` in reverse name order, so
+  `GE-Proton9-20` beat `GE-Proton11-7` (`'9' > '1'`) and `GE-Proton10-9` beat
+  `GE-Proton10-26`. `ProtonManager::getInstalledGEVersion()` compared versions
+  correctly all along — the launch path just did not use it.
+* **The default** took the first match in *ascending* order: with two
+  Proton-CachyOS builds installed, the older one. Its preference list also
+  stopped at Proton 9.
+* **Steam's per-game choice** was looked up as a literal directory name. But
+  `CompatToolMapping` holds internal names — `proton_11`, `proton_experimental`,
+  since September 2026 the alias `proton-stable`, or whatever a custom tool's
+  `compatibilitytool.vdf` registers. None of those is a directory, so a direct
+  launch silently fell back to the default. Only the main library was searched.
+
+All three now go through `CompatToolResolver` (`src/utils/`), which takes every
+directory as a parameter and compares versions numerically, including Valve's,
+read from the tool's `version` file.
+
+On the launch-options side, five variables had stopped doing anything:
+`DXVK_FRAME_RATE` (removed in DXVK 3.0, absent from Valve's Proton 11),
+`PROTON_USE_NTSYNC` (NTSync is the default from Proton 11; `PROTON_NO_NTSYNC`
+turns it off), `PROTON_ENABLE_HDR` and `PROTON_USE_D7VK` on Proton-CachyOS (which
+reads `DXVK_HDR` and `PROTON_D7VK_DDRAW`), and `PROTON_ENABLE_NVAPI`, which no
+current Proton reads and which ProtonForge wrote into every string by default.
+`PROTON_PRIORITY_HIGH` is read by no Proton at all and was removed. The old names
+are still parsed, so an imported string migrates on the next write.
+
+Two more, found while fixing it:
+
+* **A `DXVK_CONFIG` or `VKD3D_CONFIG` in Custom Launch Parameters replaced
+  ProtonForge's own.** Custom variables come last, and the last assignment wins —
+  so the user's `VKD3D_CONFIG=dxr` silently dropped `descriptor_heap`. Both are
+  merged into one value now.
+* **The settings widget dropped `vkd3dConfigExtra`** on the first edit after an
+  import: `settings()` builds a fresh object from the controls, and that field has
+  none.
 
 ### Also found, and fixed
 

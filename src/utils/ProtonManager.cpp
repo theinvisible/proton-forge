@@ -1,7 +1,9 @@
 #include "ProtonManager.h"
 #include "core/SecretStore.h"
 #include "SteamPaths.h"
+#include "launchers/SteamLauncher.h"
 #include <QDir>
+#include <QFileInfo>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -78,108 +80,76 @@ bool ProtonManager::isProtonGEInstalled() const
 
 QString ProtonManager::getInstalledGEVersion() const
 {
-    QDir dir(protonCachyOSPath());
-    if (!dir.exists())
-        return QString();
-
-    QVersionNumber highest;
-    QString highestName;
-
-    for (const QString& entry : dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-        if (entry.startsWith("GE-Proton", Qt::CaseInsensitive)) {
-            QVersionNumber v = parseProtonGEVersion(entry);
-            if (v > highest) {
-                highest     = v;
-                highestName = entry;
-            }
-        }
-    }
-    return highestName;
+    using namespace CompatToolResolver;
+    return newest(scanCompatDirs({protonCachyOSPath()}), Kind::GE).dirName;
 }
 
 QString ProtonManager::getInstalledVersion() const
 {
-    QDir dir(protonCachyOSPath());
-    if (!dir.exists()) {
-        return QString();
-    }
+    using namespace CompatToolResolver;
+    const ToolInfo t = newest(scanCompatDirs({protonCachyOSPath()}), Kind::CachyOS);
+    if (!t.isValid()) return QString();
 
-    QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    QVersionNumber highestVersion;
-    QString highestVersionString;
+    // Directory format: proton-cachyos-11.0-20260703-slr-x86_64 -> "11.0-20260703"
+    static const QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+))",
+                                          QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = regex.match(t.dirName);
+    return match.hasMatch() ? match.captured(1) + "-" + match.captured(2) : QString();
+}
 
-    QRegularExpression regex(R"(proton-cachyos-([0-9.]+)-(\d+))");
+QList<CompatToolResolver::ToolInfo> ProtonManager::installedTools() const
+{
+    using namespace CompatToolResolver;
 
-    for (const QString& entry : entries) {
-        if (entry.startsWith("proton-cachyos", Qt::CaseInsensitive)) {
-            // Extract version from directory name
-            // Format: proton-cachyos-10.0-20260127-slr
-            QRegularExpressionMatch match = regex.match(entry);
-            if (match.hasMatch()) {
-                QString versionStr = match.captured(1) + "-" + match.captured(2);
-                QVersionNumber version = parseVersion(entry);
+    // Our own install directory first: with Steam present it is the same
+    // compatibilitytools.d and dedups away; without Steam it is the only one.
+    QStringList compatDirs = {protonCachyOSPath()};
+    const QString steamCompat = SteamPaths::compatibilityToolsPath();
+    if (!steamCompat.isEmpty() && !compatDirs.contains(steamCompat))
+        compatDirs << steamCompat;
 
-                if (version > highestVersion) {
-                    highestVersion = version;
-                    highestVersionString = versionStr;
-                }
-            }
-        }
-    }
-
-    return highestVersionString;
+    return scanCompatDirs(compatDirs) + scanLibraries(SteamLauncher::libraryPaths());
 }
 
 ProtonManager::ResolvedProton ProtonManager::resolveSelected(const QString& key) const
 {
+    using namespace CompatToolResolver;
     const QString k = key.trimmed();
 
-    // "auto" / empty -> latest installed Proton-CachyOS.
-    // getInstalledVersion() returns e.g. "11.0-20260521" (no prefix), so
-    // re-prefix it for the parser.
-    if (k.isEmpty() || k.compare("auto", Qt::CaseInsensitive) == 0) {
-        const QString installed = getInstalledVersion();
-        if (installed.isEmpty()) return {};
-        const QVersionNumber v = parseVersion("proton-cachyos-" + installed);
-        return {v, !v.isNull(), ProtonCachyOS};
-    }
+    const auto fromTool = [](const ToolInfo& t) -> ResolvedProton {
+        if (!t.isValid()) return {};
+        return {t.version, !t.version.isNull(), forkOf(t.kind)};
+    };
 
-    // "latest-ge" -> latest installed Proton-GE.
-    if (k.compare("latest-ge", Qt::CaseInsensitive) == 0) {
-        const QString name = getInstalledGEVersion();
-        if (name.isEmpty()) return {};
-        const QVersionNumber v = parseProtonGEVersion(name);
-        return {v, !v.isNull(), ProtonGE};
-    }
+    // "auto" / empty -> what a launch would pick without a Steam mapping.
+    if (k.isEmpty() || k.compare("auto", Qt::CaseInsensitive) == 0)
+        return fromTool(defaultChoice(installedTools()));
 
-    // Specific folder names.
-    if (k.startsWith("proton-cachyos", Qt::CaseInsensitive)) {
-        const QVersionNumber v = parseVersion(k);
-        return {v, !v.isNull(), ProtonCachyOS};
-    }
-    if (k.startsWith("GE-Proton", Qt::CaseInsensitive)) {
-        const QVersionNumber v = parseProtonGEVersion(k);
-        return {v, !v.isNull(), ProtonGE};
-    }
+    if (k.compare("latest-ge", Qt::CaseInsensitive) == 0)
+        return fromTool(newest(installedTools(), Kind::GE));
 
-    // "steam-proton", absolute paths, or anything else -> unknown (lenient).
-    return {};
+    if (k.compare("steam-proton", Qt::CaseInsensitive) == 0)
+        return fromTool(latestSteam(scanLibraries(SteamLauncher::libraryPaths())));
+
+    // Absolute paths (the selector stores Valve Protons this way) and folder
+    // names under our install directory: inspect what is really there.
+    const QString path = k.startsWith('/') ? k : protonCachyOSPath() + "/" + k;
+    const ToolInfo installed = inspect(path);
+    if (installed.isValid()) return fromTool(installed);
+
+    // Not (or no longer) installed: the name alone still tells the forks apart.
+    const Kind kind = classify(QFileInfo(k).fileName());
+    QVersionNumber v;
+    if (kind == Kind::CachyOS) v = parseCachyOS(k);
+    else if (kind == Kind::GE) v = parseGE(k);
+    else return {};
+    return {v, !v.isNull(), forkOf(kind)};
 }
 
 QVersionNumber ProtonManager::parseVersion(const QString& fileName) const
 {
-    // Extract version from filename like: proton-cachyos-10.0-20260127-slr-x86_64.tar.xz
-    QRegularExpression regex(R"(proton-cachyos-([0-9]+)\.([0-9]+)-(\d+))");
-    QRegularExpressionMatch match = regex.match(fileName);
-
-    if (match.hasMatch()) {
-        int major = match.captured(1).toInt();
-        int minor = match.captured(2).toInt();
-        int patch = match.captured(3).toInt();
-        return QVersionNumber(major, minor, patch);
-    }
-
-    return QVersionNumber();
+    // Directory or release file name, e.g. proton-cachyos-10.0-20260127-slr-x86_64.tar.xz
+    return CompatToolResolver::parseCachyOS(fileName);
 }
 
 void ProtonManager::checkForUpdates()
@@ -601,17 +571,8 @@ ProtonManager::ProtonRelease ProtonManager::parseProtonGEReleaseFromJson(const Q
 
 QVersionNumber ProtonManager::parseProtonGEVersion(const QString& tagName) const
 {
-    // Parse version from tag like "GE-Proton9-20" or "GE-Proton8-25"
-    QRegularExpression regex(R"(GE-Proton(\d+)-(\d+))");
-    QRegularExpressionMatch match = regex.match(tagName);
-
-    if (match.hasMatch()) {
-        int major = match.captured(1).toInt();
-        int minor = match.captured(2).toInt();
-        return QVersionNumber(major, minor, 0);
-    }
-
-    return QVersionNumber();
+    // Tag or directory name like "GE-Proton9-20"
+    return CompatToolResolver::parseGE(tagName);
 }
 
 void ProtonManager::installProtonCachyOS()

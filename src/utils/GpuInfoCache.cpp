@@ -18,15 +18,21 @@ GpuInfoCache::GpuInfoCache(QObject* parent)
         for (const GPUInfo& gpu : detection.gpus) {
             if (gpu.vendor != GPUInfo::NVIDIA)
                 continue;
+            // The newest card decides what the user can run; on a multi-GPU
+            // box the game is expected to land on it.
+            const FeatureGate::GpuGeneration generation =
+                FeatureGate::generationFromArchitecture(gpu.architecture);
+            if (generation > m_gpuGeneration)
+                m_gpuGeneration = generation;
+            if (!m_driverVersion.isNull())
+                continue;
             // Prefer the richer driverInfo.version, fall back to the plain
             // version reported by nvidia-smi.
             const QString version = !gpu.driverInfo.version.isEmpty()
                                          ? gpu.driverInfo.version
                                          : gpu.driverVersion;
-            if (!version.isEmpty()) {
+            if (!version.isEmpty())
                 m_driverVersion = QVersionNumber::fromString(version);
-                break;
-            }
         }
         emit updated();
     });

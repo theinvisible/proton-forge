@@ -29,8 +29,12 @@ fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" >/dev/null
 
 # --set drives the settings through their JSON names, so this table needs no
 # knowledge of the C++ side.
-assert_contains_str "NVAPI is on by default" \
-    "$(app_cli --print-launch-options "$APPID")" "PROTON_ENABLE_NVAPI=1"
+# NVAPI is on by default in ProtonForge and in every current Proton, so nothing
+# is written for it — and nothing current reads PROTON_ENABLE_NVAPI anyway.
+assert_eq "the defaults write nothing but %command%" \
+    "%command%" "$(app_cli --print-launch-options "$APPID")"
+assert_contains_str "switching NVAPI off is what gets written" \
+    "$(app_cli --print-launch-options "$APPID" --set enableNVAPI=false)" "PROTON_DISABLE_NVAPI=1"
 
 OPTS="$(app_cli --print-launch-options "$APPID" \
     --set srOverride=true --set srMode=Quality --set srPreset="Preset E")"
@@ -40,13 +44,15 @@ assert_contains_str "and the mode is lowercased for the driver" "$OPTS" "NGX_DLS
 
 OPTS="$(app_cli --print-launch-options "$APPID" \
     --set enableFrameRateLimit=true --set targetFrameRate=144)"
-assert_contains_str "the frame cap goes to DXVK" "$OPTS" "DXVK_FRAME_RATE=144"
+assert_contains_str "the frame cap goes to DXVK" "$OPTS" "DXVK_CONFIG=dxvk.maxFrameRate=144"
 assert_contains_str "and to VKD3D" "$OPTS" "VKD3D_FRAME_RATE=144"
+assert_not_contains_str "not as DXVK_FRAME_RATE, which DXVK 3.0 removed" "$OPTS" "DXVK_FRAME_RATE"
 
 OPTS="$(app_cli --print-launch-options "$APPID" \
     --set enableProtonWayland=true --set enableProtonHDR=true --set enableHDRWSI=true)"
 assert_contains_str "wayland" "$OPTS" "PROTON_ENABLE_WAYLAND=1"
 assert_contains_str "hdr" "$OPTS" "PROTON_ENABLE_HDR=1"
+assert_contains_str "hdr, Proton-CachyOS's name for it" "$OPTS" "DXVK_HDR=1"
 assert_contains_str "hdr wsi" "$OPTS" "ENABLE_HDR_WSI=1"
 
 OPTS="$(app_cli --print-launch-options "$APPID" --set enablePrimeRenderOffload=true)"
@@ -69,7 +75,10 @@ for combo in \
     "--set fgOverride=true --set fgMultiFrameCount=3 --set fgMode=Auto" \
     "--set enableReflex=true --set protonUseNTSync=true --set protonLog=true" \
     "--set enableSmoothMotion=true --set disableAutoHDR=true" \
-    "--set dlssUpgrade=true --set showIndicator=true --set enableMangoHud=true"
+    "--set dlssUpgrade=true --set showIndicator=true --set enableMangoHud=true" \
+    "--set dlssUpgrade=true --set dlssVersion=310.9.1" \
+    "--set enableNVAPI=false --set protonDisableNTSync=true --set protonUseD7VK=true" \
+    "--set enableFrameRateLimit=true --set targetFrameRate=90 --set enableProtonHDR=true"
 do
     # shellcheck disable=SC2086
     BUILT="$(app_cli --print-launch-options "$APPID" $combo)"
@@ -85,6 +94,10 @@ RAW="SOME_FUTURE_FLAG=1 gamemoderun PROTON_ENABLE_NVAPI=1 %command% -skipintro -
 PARSED="$(app_cli --parse-launch-options "$RAW")"
 
 assert_json "NVAPI is recognised" "$PARSED" 'd["settings"]["enableNVAPI"]' "true"
+ROUNDTRIP="$(json_get "$PARSED" 'd["roundTrip"]')"
+assert_not_contains_str "and the variable no Proton reads any more is dropped" \
+    "$ROUNDTRIP" "PROTON_ENABLE_NVAPI"
+
 assert_json_contains "an unknown env var is kept" "$PARSED" \
     'd["customParams"]' "SOME_FUTURE_FLAG=1"
 assert_json_contains "a wrapper command is kept" "$PARSED" 'd["customParams"]' "gamemoderun"
@@ -95,6 +108,11 @@ assert_json_contains "the round trip keeps the wrapper and the arguments" "$PARS
     'd["roundTrip"]' "gamemoderun %command% -skipintro -width 2560"
 assert_json_contains "the round trip keeps the unknown env var" "$PARSED" \
     'd["roundTrip"]' "SOME_FUTURE_FLAG=1"
+
+# Strings written by an older ProtonForge migrate on the next write.
+PARSED="$(app_cli --parse-launch-options "DXVK_FRAME_RATE=120 VKD3D_FRAME_RATE=120 %command%")"
+assert_json "an old frame cap is recognised" "$PARSED" 'd["settings"]["targetFrameRate"]' "120"
+assert_json_contains "and rewritten for DXVK 3" "$PARSED" 'd["roundTrip"]' "DXVK_CONFIG=dxvk.maxFrameRate=120"
 
 # Without %command% Steam appends the string to the game's command line. Written
 # back as "-novid -console %command%", Steam would try to run "-novid".
@@ -233,6 +251,16 @@ assert_json_contains "and reads back with the quotes intact" "$GAMES" \
     "$READBACK" '-name "My Game"'
 assert_json_contains "and the backslash intact" "$GAMES" \
     "$READBACK" 'C:\dir'
+
+# A DXVK_CONFIG with more than one entry is quoted for the shell Steam runs
+# (';' would end the command there) — quotes ProtonForge adds itself, which
+# have to survive VDF escaping just like the user's own.
+RESULT="$(app_cli --apply "$APPID" --set enableFrameRateLimit=true --set targetFrameRate=60 \
+    --set customLaunchParams='DXVK_CONFIG=dxgi.syncInterval=0 %command%')"
+assert_json "a quoted DXVK_CONFIG reads back exactly as written" "$RESULT" 'd["matches"]' "true"
+GAMES="$(app_cli --list-games)"
+assert_json_contains "with the frame cap and the user's entry merged" "$GAMES" \
+    "$READBACK" 'DXVK_CONFIG="dxvk.maxFrameRate=60;dxgi.syncInterval=0"'
 
 # ---------------------------------------------------------------------------
 part "f) the file is never left truncated"

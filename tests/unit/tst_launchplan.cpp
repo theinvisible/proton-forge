@@ -31,6 +31,10 @@ private slots:
     void findsProtonInstalledWithoutSteam();
     void findsProtonInSteamCompatToolsDir();
     void findsNothingWhenNoProtonIsInstalled();
+    void latestGePicksNumericallyNewest();
+    void autoPicksNewestCachyOS();
+    void mappingResolvesInternalNameFromVdf();
+    void mappingResolvesValveInSecondaryLibrary();
 
     void aNonSteamGameGetsNoSteamEnvironment();
     void aNonSteamGameNeverGetsTheOverlayEvenWithSteamInstalled();
@@ -93,6 +97,32 @@ private:
         QFile vdf(root + "/steamapps/libraryfolders.vdf");
         QVERIFY(vdf.open(QIODevice::WriteOnly | QIODevice::Text));
         vdf.write(QString(R"("libraryfolders" { "0" { "path" "%1" } })").arg(root).toUtf8());
+    }
+
+    // A second library, registered in the root's libraryfolders.vdf.
+    void addLibrary(const QString& root, const QString& library) const
+    {
+        QVERIFY(QDir().mkpath(library + "/steamapps"));
+        QFile vdf(root + "/steamapps/libraryfolders.vdf");
+        QVERIFY(vdf.open(QIODevice::WriteOnly | QIODevice::Text));
+        vdf.write(QString(R"("libraryfolders" { "0" { "path" "%1" } "1" { "path" "%2" } })")
+                      .arg(root, library).toUtf8());
+    }
+
+    // Steam's per-game compatibility tool choice, as config.vdf stores it.
+    void mapCompatTool(const QString& root, const QString& appId, const QString& tool) const
+    {
+        makeFile(root + "/config/config.vdf",
+                 QString(R"("InstallConfigStore" { "Software" { "Valve" { "Steam" {
+                     "CompatToolMapping" { "%1" { "name" "%2" "config" "" "priority" "250" } }
+                 } } } })").arg(appId, tool).toUtf8());
+    }
+
+    Game steamGame(const QString& appId) const
+    {
+        Game game(appId, "Some Game", "Steam");
+        game.setTraits(SteamLauncher().traits());
+        return game;
     }
 };
 
@@ -164,6 +194,75 @@ void TstLaunchPlan::findsNothingWhenNoProtonIsInstalled()
 {
     GameRunner runner;
     QVERIFY(runner.findProtonPath(Game(), DLSSSettings()).isEmpty());
+}
+
+void TstLaunchPlan::latestGePicksNumericallyNewest()
+{
+    // Sorting names put GE-Proton9-20 above GE-Proton11-7 and GE-Proton10-9
+    // above GE-Proton10-26.
+    const QString compat = home() + "/.steam/root/compatibilitytools.d";
+    for (const char* name : {"GE-Proton9-20", "GE-Proton10-9", "GE-Proton10-26"})
+        makeProton(compat + "/" + name);
+
+    DLSSSettings settings;
+    settings.protonVersion = "latest-ge";
+
+    GameRunner runner;
+    QCOMPARE(runner.findProtonPath(Game(), settings), compat + "/GE-Proton10-26");
+
+    makeProton(compat + "/GE-Proton11-7");
+    QCOMPARE(runner.findProtonPath(Game(), settings), compat + "/GE-Proton11-7");
+}
+
+void TstLaunchPlan::autoPicksNewestCachyOS()
+{
+    // The default used to take the first match in ascending name order — the
+    // oldest Proton-CachyOS on disk.
+    const QString compat = home() + "/.steam/root/compatibilitytools.d";
+    makeProton(compat + "/proton-cachyos-10.0-20260127-slr-x86_64");
+    makeProton(compat + "/proton-cachyos-11.0-20260703-slr-x86_64");
+    makeProton(compat + "/GE-Proton11-7");
+
+    GameRunner runner;
+    QCOMPARE(runner.findProtonPath(Game(), DLSSSettings()),
+             compat + "/proton-cachyos-11.0-20260703-slr-x86_64");
+}
+
+void TstLaunchPlan::mappingResolvesInternalNameFromVdf()
+{
+    // Steam stores the name a tool registers in its compatibilitytool.vdf,
+    // which need not be its directory name.
+    makeSteamRoot(nativeRoot());
+    const QString tool = nativeRoot() + "/compatibilitytools.d/proton-cachyos-11.0-20261005-slr-x86_64_v3";
+    makeProton(tool);
+    makeProton(nativeRoot() + "/compatibilitytools.d/GE-Proton11-7");
+    makeFile(tool + "/compatibilitytool.vdf",
+             R"vdf("compatibilitytools" { "compat_tools" { "proton-cachyos-slr" // Internal name
+                 { "install_path" "." "display_name" "proton-cachyos (slr)" } } })vdf");
+    mapCompatTool(nativeRoot(), "1245620", "proton-cachyos-slr");
+
+    GameRunner runner;
+    QCOMPARE(runner.findProtonPath(steamGame("1245620"), DLSSSettings()), tool);
+}
+
+void TstLaunchPlan::mappingResolvesValveInSecondaryLibrary()
+{
+    // "proton_11" is an internal name; the directory is "Proton 11.0", and it
+    // may live in any library, not just the one under the Steam root.
+    makeSteamRoot(nativeRoot());
+    const QString library = home() + "/SecondDrive/SteamLibrary";
+    addLibrary(nativeRoot(), library);
+    const QString valve = library + "/steamapps/common/Proton 11.0";
+    makeProton(valve);
+    makeProton(nativeRoot() + "/compatibilitytools.d/proton-cachyos-11.0-20260703-slr-x86_64");
+    mapCompatTool(nativeRoot(), "1245620", "proton_11");
+
+    GameRunner runner;
+    QCOMPARE(runner.findProtonPath(steamGame("1245620"), DLSSSettings()), valve);
+
+    // An alias resolves the same way.
+    mapCompatTool(nativeRoot(), "1245620", "proton-stable");
+    QCOMPARE(runner.findProtonPath(steamGame("1245620"), DLSSSettings()), valve);
 }
 
 void TstLaunchPlan::aNonSteamGameGetsNoSteamEnvironment()

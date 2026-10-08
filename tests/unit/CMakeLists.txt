@@ -22,6 +22,7 @@ set(UNIT_TESTS
     tst_steamlauncher
     tst_launchermanager
     tst_launchplan
+    tst_compattoolresolver
     tst_badgerow
     tst_storevisuals
     tst_mangohudpreview

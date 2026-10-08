@@ -10,7 +10,7 @@ public:
     DLSSSettings() = default;
 
     // General
-    bool enableNVAPI = true;
+    bool enableNVAPI = true;  // false -> PROTON_DISABLE_NVAPI=1; on by default in Proton
     bool enableNGXUpdater = false;
     bool enableReflex = false;  // DXVK_NVAPI_VKREFLEX=1
     bool enableVkd3dLowLatency = false;  // PROTON_VKD3D_LOWLATENCY=1 (CachyOS ≥ 11.0-20260703)
@@ -38,9 +38,9 @@ public:
     QString fgMode;    // NGX_DLSSG_MODE: "", ON, OFF, AUTO, DYNAMIC
     QString fgPreset;  // NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION
 
-    // DLSS Upgrade
+    // DLSS Upgrade (PROTON_DLSS_UPGRADE, Proton-CachyOS / GE-Proton)
     bool dlssUpgrade = false;
-    QString dlssVersion;
+    QString dlssVersion;  // e.g. "310.9.1"; empty = newest (PROTON_DLSS_UPGRADE=1)
 
     // Indicators
     bool showIndicator = false;
@@ -48,18 +48,21 @@ public:
     // Smooth Motion / Frame Rate
     bool enableSmoothMotion = false;
     bool enableFrameRateLimit = false;
-    int targetFrameRate = 60;  // FPS limit
+    int targetFrameRate = 60;  // FPS limit: DXVK_CONFIG dxvk.maxFrameRate + VKD3D_FRAME_RATE
+    // Other DXVK_CONFIG options (';'-separated) round-tripped from imported
+    // launch options so the frame cap doesn't clobber them. Not in the UI.
+    QString dxvkConfigExtra;
 
     // HDR Settings
     bool enableProtonWayland = false;
-    bool enableProtonHDR = false;
+    bool enableProtonHDR = false;  // PROTON_ENABLE_HDR=1 (GE) + DXVK_HDR=1 (CachyOS)
     bool enableHDRWSI = false;
     bool disableAutoHDR = false;  // DXVK_NO_HDR=1 — opt out of CachyOS auto-HDR
 
     // Proton Tweaks
-    bool protonPriorityHigh = false;
-    bool protonUseNTSync = false;
-    bool protonUseD7VK = false;  // PROTON_USE_D7VK=1 — Direct3D 7 via d7vk
+    bool protonUseNTSync = false;      // PROTON_USE_NTSYNC=1 — opt-in up to Proton 10
+    bool protonDisableNTSync = false;  // PROTON_NO_NTSYNC=1 — opt-out from Proton 11
+    bool protonUseD7VK = false;  // PROTON_USE_D7VK=1 (GE) + PROTON_D7VK_DDRAW=1 (CachyOS) — d7vk
     bool protonLog = false;
 
     // Overlay
