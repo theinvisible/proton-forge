@@ -38,6 +38,14 @@ current (`launchOptionsCurrent`).
   to. **Latest Proton-CachyOS** is a separate entry that ignores Steam's
   choice, and the "Latest …" entries are only offered for kinds that are
   actually installed.
+- **Render presets** describe themselves: each entry names its model and what
+  it is for (K: default for DLAA/Quality/Balanced, M: Performance, L: Ultra
+  Performance; A–D removed in DLSS 310, E/F deprecated). "LATEST" is now
+  called **Recommended**, which is what DLSS 310 made it mean. G/H/I/N/O, which
+  were never real models, are no longer offered — a game that has one saved
+  keeps it and shows it as "(saved, not in list)".
+- **Ray Reconstruction** has its own preset list (D, E and the new F) instead
+  of sharing Super Resolution's.
 
 Older launch strings still import: the retired variables are recognised and
 rewritten in the new form on the next write.
@@ -52,6 +60,16 @@ rewritten in the new form on the next write.
   descriptor heap in 11.0).
 - `--list-games` reports `launchOptionsCurrent`: whether the launch options
   Steam has stored for a game are the ones ProtonForge would write.
+- **Dynamic Multi-Frame Generation:** with FG mode "Dynamic", a target frame
+  rate and a maximum frame count
+  (`NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE`, `NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX`;
+  RTX 50, DXVK-NVAPI 0.9.2+). Support under Proton is still incomplete.
+- Ray Reconstruction preset **F** (Ray Reconstruction 2, DLSS 310.9.1+).
+- **Smooth Motion: present on graphics queue** (`NVPRESENT_QUEUE_FAMILY=1`)
+  makes third-party overlays such as MangoHud work with Smooth Motion, at a
+  small performance cost.
+- A warning when Smooth Motion and the DLSS Frame Generation override are both
+  on — NVIDIA advises against combining them.
 
 ### Fixed
 

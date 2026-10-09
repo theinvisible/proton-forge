@@ -23,6 +23,7 @@
 #include <QStyledItemDelegate>
 #include <QPainter>
 #include <QFileInfo>
+#include <QHash>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -49,6 +50,70 @@ QString protonDbBadgeTierStyle(const QString& color)
         "QPushButton { font-size: 11px; font-weight: bold; padding: 4px 8px; "
         "border-radius: 4px; background-color: %1; color: #1a1a1a; border: none; }")
         .arg(color);
+}
+
+enum class PresetKind { SuperResolution, RayReconstruction, FrameGeneration };
+
+// Display text for a render preset. The stored value stays the NGX name
+// (RENDER_PRESET_K), so settings and launch strings are unaffected by wording.
+QString presetLabel(PresetKind kind, const QString& value)
+{
+    if (value.isEmpty())
+        return QStringLiteral("(App Default)");
+    // DLSS 310 redefined "latest" as "recommended": the driver picks the
+    // preset NVIDIA recommends for the quality mode in use.
+    if (value == QLatin1String("RENDER_PRESET_LATEST"))
+        return QStringLiteral("Recommended (driver picks per mode)");
+
+    static const QHash<QString, QString> sr = {
+        {"RENDER_PRESET_M", "M — DLSS 4.5 (default: Performance)"},
+        {"RENDER_PRESET_L", "L — DLSS 4.5 (default: Ultra Performance)"},
+        {"RENDER_PRESET_K", "K — Transformer (default: DLAA / Quality / Balanced)"},
+        {"RENDER_PRESET_J", "J — Transformer, 1st gen (similar to K)"},
+        {"RENDER_PRESET_F", "F — CNN (deprecated)"},
+        {"RENDER_PRESET_E", "E — CNN (deprecated)"},
+        {"RENDER_PRESET_D", "D — CNN (removed in DLSS 310)"},
+        {"RENDER_PRESET_C", "C — CNN (removed in DLSS 310)"},
+        {"RENDER_PRESET_B", "B — CNN (removed in DLSS 310)"},
+        {"RENDER_PRESET_A", "A — CNN (removed in DLSS 310)"},
+    };
+    static const QHash<QString, QString> rr = {
+        {"RENDER_PRESET_F", "F — Ray Reconstruction 2 (DLSS 310.9.1+)"},
+        {"RENDER_PRESET_E", "E — Transformer, latest (needed for the depth-of-field guide)"},
+        {"RENDER_PRESET_D", "D — Transformer"},
+    };
+    static const QHash<QString, QString> fg = {
+        {"RENDER_PRESET_B", "B — UI recomposition (DLSS 310.6.0+)"},
+        {"RENDER_PRESET_A", "A — Original"},
+    };
+    switch (kind) {
+        case PresetKind::SuperResolution:   return sr.value(value, value);
+        case PresetKind::RayReconstruction: return rr.value(value, value);
+        case PresetKind::FrameGeneration:   return fg.value(value, value);
+    }
+    return value;
+}
+
+// Marks an item selectData() added for a value the list does not offer.
+constexpr int SavedValueRole = Qt::UserRole + 1;
+
+// Selects the item carrying `value`. A non-empty value the combo does not
+// offer — a preset dropped from the list, or one written by hand — gets an
+// item of its own instead of silently turning into "(App Default)", which
+// the next save would then have made permanent.
+void selectData(QComboBox* combo, const QString& value)
+{
+    for (int i = combo->count() - 1; i >= 0; --i) {
+        if (combo->itemData(i, SavedValueRole).toBool())
+            combo->removeItem(i);
+    }
+    int index = combo->findData(value);
+    if (index < 0 && !value.isEmpty()) {
+        combo->addItem(QStringLiteral("%1 (saved, not in list)").arg(value), value);
+        index = combo->count() - 1;
+        combo->setItemData(index, true, SavedValueRole);
+    }
+    combo->setCurrentIndex(index >= 0 ? index : 0);
 }
 } // namespace
 
@@ -571,26 +636,25 @@ QGroupBox* DLSSSettingsWidget::createSuperResolutionGroup()
 
     m_srPreset = new QComboBox(this);
     for (const QString& preset : DLSSSettings::availablePresets()) {
-        m_srPreset->addItem(preset.isEmpty() ? "(App Default)" : preset, preset);
+        m_srPreset->addItem(presetLabel(PresetKind::SuperResolution, preset), preset);
     }
     m_srPreset->setToolTip(
         "DLSS Super Resolution model preset (NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
-        "Picks the AI model variant. Presets that actually exist today:\n\n"
-        "CNN models (legacy, DLSS 2/3):\n"
-        "• A–D: early models (C favors motion clarity, D favors stability)\n"
-        "• E: improved CNN — default for many CNN-era games\n"
-        "• F: used for Ultra Performance and DLAA\n\n"
-        "Transformer models (DLSS 4):\n"
-        "• J: 1st-gen transformer — large quality jump over CNN\n"
-        "• K: refined transformer — the current \"Latest\" (since Jan 2025), "
-        "better temporal stability / less ghosting\n"
-        "• L: DLSS 4.5, tuned for 4K Ultra Performance\n"
-        "• M: DLSS 4.5, tuned for Performance mode\n\n"
+        "Picks the AI model variant:\n\n"
         "• (App Default): use the game's choice\n"
-        "• RENDER_PRESET_LATEST: newest model; with DLSS 4.5 this means "
-        "\"recommended\" (auto-picks K/L/M per mode)\n\n"
-        "Recommended: LATEST (or K) on DLSS 4 GPUs. G/H/I/N/O are unused "
-        "placeholders that fall back to the default.");
+        "• Recommended (RENDER_PRESET_LATEST): the driver picks NVIDIA's "
+        "recommendation for the quality mode — K for DLAA/Quality/Balanced, "
+        "M for Performance, L for Ultra Performance\n\n"
+        "Transformer models (DLSS 4 / 4.5):\n"
+        "• M, L: DLSS 4.5, tuned for Performance / Ultra Performance\n"
+        "• K: refined transformer, the default for DLAA, Quality and Balanced\n"
+        "• J: 1st-gen transformer, similar to K\n\n"
+        "CNN models (DLSS 2/3):\n"
+        "• E, F: deprecated in DLSS 310\n"
+        "• A–D: removed in DLSS 310 — only an older DLL still has them\n\n"
+        "A preset the game's DLSS DLL does not know falls back to its default, "
+        "so J–M need a DLSS 4 DLL: use DLSS Upgrade or the NGX updater for "
+        "games that ship an older one.");
     formLayout->addRow("Render Preset:", m_srPreset);
 
     m_srScalingRatio = new QSpinBox(this);
@@ -663,14 +727,19 @@ QGroupBox* DLSSSettingsWidget::createRayReconstructionGroup()
     formLayout->addRow("Mode:", m_rrMode);
 
     m_rrPreset = new QComboBox(this);
-    for (const QString& preset : DLSSSettings::availablePresets()) {
-        m_rrPreset->addItem(preset.isEmpty() ? "(App Default)" : preset, preset);
+    for (const QString& preset : DLSSSettings::availableRRPresets()) {
+        m_rrPreset->addItem(presetLabel(PresetKind::RayReconstruction, preset), preset);
     }
     m_rrPreset->setToolTip(
-        "Ray Reconstruction AI model preset:\n\n"
-        "Different presets tune the denoising algorithm. "
-        "RENDER_PRESET_LATEST uses the newest model optimizations.\n\n"
-        "Generally leave at default unless troubleshooting quality issues.");
+        "DLSS Ray Reconstruction model preset (NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
+        "Ray Reconstruction has its own presets, separate from Super Resolution:\n"
+        "• (App Default): use the game's choice\n"
+        "• Recommended (RENDER_PRESET_LATEST): the driver's pick\n"
+        "• F: Ray Reconstruction 2 — needs DLSS 310.9.1 or newer\n"
+        "• E: latest transformer — required when the game supplies a depth-of-field guide\n"
+        "• D: transformer\n\n"
+        "A preset the game's DLL does not know falls back to its default — "
+        "use DLSS Upgrade or the NGX updater for F.");
     formLayout->addRow("Render Preset:", m_rrPreset);
 
     m_rrScalingRatio = new QSpinBox(this);
@@ -756,44 +825,88 @@ QGroupBox* DLSSSettingsWidget::createFrameGenerationGroup()
         "• (App Default): Let the game decide\n"
         "• On / Off: Force FG enabled or disabled\n"
         "• Auto: Driver decides based on conditions\n"
-        "• Dynamic: Dynamically scale generated frames toward a target frame rate\n\n"
+        "• Dynamic: Dynamically scale generated frames toward a target frame rate "
+        "(RTX 50) — set by the two Dynamic fields below\n\n"
         "Requires the FG override above to be enabled.");
     formLayout->addRow("FG Mode:", m_fgMode);
 
+    const QString dynamicNote = QStringLiteral(
+        "\n\nOnly used with FG Mode \"Dynamic\": Dynamic Multi-Frame Generation "
+        "changes the number of generated frames on the fly to reach the target "
+        "frame rate. RTX 50 only, DXVK-NVAPI ≥ 0.9.2.\n\n"
+        "Support under Proton is still incomplete — if the game ignores it, use "
+        "a fixed Multi-Frame Count instead.");
+
+    m_fgDynamicTargetFps = new QSpinBox(this);
+    m_fgDynamicTargetFps->setRange(0, 1000);
+    m_fgDynamicTargetFps->setSpecialValueText("(Driver Default)");
+    m_fgDynamicTargetFps->setSuffix(" FPS");
+    m_fgDynamicTargetFps->setToolTip(
+        "Frame rate Dynamic Multi-Frame Generation aims for "
+        "(NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE) — usually your monitor's refresh rate."
+        + dynamicNote);
+    m_fgDynamicTargetFpsLabel = new QLabel("Dynamic Target:", this);
+    formLayout->addRow(m_fgDynamicTargetFpsLabel, m_fgDynamicTargetFps);
+
+    m_fgDynamicMaxCount = new QComboBox(this);
+    m_fgDynamicMaxCount->addItem("(Driver Default)", 0);
+    m_fgDynamicMaxCount->addItem("up to 2x", 1);
+    m_fgDynamicMaxCount->addItem("up to 3x", 2);
+    m_fgDynamicMaxCount->addItem("up to 4x", 3);
+    m_fgDynamicMaxCount->addItem("up to 5x", 4);
+    m_fgDynamicMaxCount->addItem("up to 6x", 5);
+    m_fgDynamicMaxCount->setToolTip(
+        "The most frames Dynamic Multi-Frame Generation may generate "
+        "(NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX)." + dynamicNote);
+    m_fgDynamicMaxCountLabel = new QLabel("Dynamic Max:", this);
+    formLayout->addRow(m_fgDynamicMaxCountLabel, m_fgDynamicMaxCount);
+
     m_fgPreset = new QComboBox(this);
     for (const QString& preset : DLSSSettings::availableFGPresets()) {
-        m_fgPreset->addItem(preset.isEmpty() ? "(App Default)" : preset, preset);
+        m_fgPreset->addItem(presetLabel(PresetKind::FrameGeneration, preset), preset);
     }
     m_fgPreset->setToolTip(
         "DLSS Frame Generation model preset (NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
         "Frame Generation only exposes a couple of real presets:\n"
         "• (App Default): use the game's choice\n"
-        "• Preset A: original FG model\n"
-        "• Preset B: Enhanced FG model (DLSS 4) — better UI handling, fewer artifacts\n"
-        "• RENDER_PRESET_LATEST: newest FG model (recommended)\n\n"
+        "• Recommended (RENDER_PRESET_LATEST): the driver's pick\n"
+        "• B: UI recomposition — keeps HUD and text cleaner (DLSS 310.6.0+)\n"
+        "• A: original FG model\n\n"
         "Requires the FG override above to be enabled.");
     formLayout->addRow("FG Render Preset:", m_fgPreset);
 
     layout->addLayout(formLayout);
 
-    auto updateFGEnabled = [this]() {
-        bool enabled = m_fgOverride->isChecked();
-        m_fgMultiFrameCount->setEnabled(enabled);
-        m_fgMode->setEnabled(enabled);
-        m_fgPreset->setEnabled(enabled);
-    };
-
-    connect(m_fgOverride, &QCheckBox::toggled, this, [updateFGEnabled, this]() {
-        updateFGEnabled();
+    connect(m_fgOverride, &QCheckBox::toggled, this, [this]() {
+        updateFrameGenEnabled();
         onSettingChanged();
     });
     connect(m_fgMultiFrameCount, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_fgMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_fgMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        updateFrameGenEnabled();
+        onSettingChanged();
+    });
     connect(m_fgPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_fgDynamicTargetFps, QOverload<int>::of(&QSpinBox::valueChanged), this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_fgDynamicMaxCount, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
 
-    updateFGEnabled();
+    updateFrameGenEnabled();
 
     return group;
+}
+
+void DLSSSettingsWidget::updateFrameGenEnabled()
+{
+    const bool enabled = m_fgOverride->isChecked();
+    m_fgMultiFrameCount->setEnabled(enabled);
+    m_fgMode->setEnabled(enabled);
+    m_fgPreset->setEnabled(enabled);
+
+    const bool dynamic = enabled && m_fgMode->currentData().toString() == QLatin1String("DYNAMIC");
+    m_fgDynamicTargetFps->setEnabled(dynamic);
+    m_fgDynamicTargetFpsLabel->setEnabled(dynamic);
+    m_fgDynamicMaxCount->setEnabled(dynamic);
+    m_fgDynamicMaxCountLabel->setEnabled(dynamic);
 }
 
 QGroupBox* DLSSSettingsWidget::createUpgradeGroup()
@@ -855,9 +968,24 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
 
     m_enableSmoothMotion = new QCheckBox("Enable Smooth Motion", this);
     m_enableSmoothMotion->setToolTip(
-        "Enable driver-level frame generation.\n\n"
-        "Sets NVPRESENT_ENABLE_SMOOTH_MOTION=1 environment variable.\n");
+        "Enable driver-level frame generation (RTX 40/50).\n\n"
+        "Doubles the displayed frame rate in games that have no frame generation "
+        "of their own. NVIDIA advises against combining it with DLSS Frame "
+        "Generation — use one or the other.\n\n"
+        "Sets NVPRESENT_ENABLE_SMOOTH_MOTION=1.");
     layout->addWidget(m_enableSmoothMotion);
+
+    m_smoothMotionGraphicsQueue = new QCheckBox("Present on graphics queue (overlay compatibility)", this);
+    m_smoothMotionGraphicsQueue->setToolTip(
+        "Sets NVPRESENT_QUEUE_FAMILY=1.\n\n"
+        "Smooth Motion normally presents on a queue of its own, which third-party "
+        "overlays (MangoHud, OBS, Discord) do not see — they show nothing or flicker. "
+        "Presenting on the graphics queue fixes that at a small performance cost.\n\n"
+        "Only takes effect together with Smooth Motion.");
+    QHBoxLayout* queueRow = new QHBoxLayout();
+    queueRow->addSpacing(20);
+    queueRow->addWidget(m_smoothMotionGraphicsQueue);
+    layout->addLayout(queueRow);
 
     m_enableFrameRateLimit = new QCheckBox("Enable Frame Rate Limit", this);
     m_enableFrameRateLimit->setToolTip(
@@ -901,7 +1029,12 @@ QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
         m_targetFrameRateLabel->setEnabled(on);
     };
 
-    connect(m_enableSmoothMotion, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableSmoothMotion, &QCheckBox::toggled, this, [this](bool on) {
+        m_smoothMotionGraphicsQueue->setEnabled(on);
+        onSettingChanged();
+    });
+    connect(m_smoothMotionGraphicsQueue, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    m_smoothMotionGraphicsQueue->setEnabled(m_enableSmoothMotion->isChecked());
     connect(m_enableFrameRateLimit, &QCheckBox::toggled, this, [updateFpsEnabled, this]() {
         updateFpsEnabled();
         onSettingChanged();
@@ -1175,6 +1308,8 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_fgMultiFrameCount->blockSignals(block);
     m_fgMode->blockSignals(block);
     m_fgPreset->blockSignals(block);
+    m_fgDynamicTargetFps->blockSignals(block);
+    m_fgDynamicMaxCount->blockSignals(block);
     m_dlssUpgrade->blockSignals(block);
     m_dlssVersion->blockSignals(block);
     m_protonVersionSelector->blockSignals(block);
@@ -1183,6 +1318,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_enableProtonHDR->blockSignals(block);
     m_enableHDRWSI->blockSignals(block);
     m_enableSmoothMotion->blockSignals(block);
+    m_smoothMotionGraphicsQueue->blockSignals(block);
     m_enableFrameRateLimit->blockSignals(block);
     m_targetFrameRate->blockSignals(block);
     m_disableAutoHDR->blockSignals(block);
@@ -1241,8 +1377,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_srOverride->setChecked(settings.srOverride);
     int srModeIndex = m_srMode->findData(settings.srMode);
     m_srMode->setCurrentIndex(srModeIndex >= 0 ? srModeIndex : 0);
-    int srPresetIndex = m_srPreset->findData(settings.srPreset);
-    m_srPreset->setCurrentIndex(srPresetIndex >= 0 ? srPresetIndex : 0);
+    selectData(m_srPreset, settings.srPreset);
     m_srScalingRatio->setValue(settings.srScalingRatio);
 
     // Update enabled state
@@ -1254,8 +1389,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_rrOverride->setChecked(settings.rrOverride);
     int rrModeIndex = m_rrMode->findData(settings.rrMode);
     m_rrMode->setCurrentIndex(rrModeIndex >= 0 ? rrModeIndex : 0);
-    int rrPresetIndex = m_rrPreset->findData(settings.rrPreset);
-    m_rrPreset->setCurrentIndex(rrPresetIndex >= 0 ? rrPresetIndex : 0);
+    selectData(m_rrPreset, settings.rrPreset);
     m_rrScalingRatio->setValue(settings.rrScalingRatio);
 
     m_rrMode->setEnabled(settings.rrOverride);
@@ -1266,13 +1400,13 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_fgOverride->setChecked(settings.fgOverride);
     int fgIndex = m_fgMultiFrameCount->findData(settings.fgMultiFrameCount);
     m_fgMultiFrameCount->setCurrentIndex(fgIndex >= 0 ? fgIndex : 0);
-    m_fgMultiFrameCount->setEnabled(settings.fgOverride);
     int fgModeIndex = m_fgMode->findData(settings.fgMode);
     m_fgMode->setCurrentIndex(fgModeIndex >= 0 ? fgModeIndex : 0);
-    m_fgMode->setEnabled(settings.fgOverride);
-    int fgPresetIndex = m_fgPreset->findData(settings.fgPreset);
-    m_fgPreset->setCurrentIndex(fgPresetIndex >= 0 ? fgPresetIndex : 0);
-    m_fgPreset->setEnabled(settings.fgOverride);
+    selectData(m_fgPreset, settings.fgPreset);
+    m_fgDynamicTargetFps->setValue(settings.fgDynamicTargetFps);
+    int fgMaxIndex = m_fgDynamicMaxCount->findData(settings.fgDynamicMaxCount);
+    m_fgDynamicMaxCount->setCurrentIndex(fgMaxIndex >= 0 ? fgMaxIndex : 0);
+    updateFrameGenEnabled();
 
     // DLSS Upgrade
     m_dlssUpgrade->setChecked(settings.dlssUpgrade);
@@ -1285,6 +1419,8 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
 
     // Smooth Motion
     m_enableSmoothMotion->setChecked(settings.enableSmoothMotion);
+    m_smoothMotionGraphicsQueue->setChecked(settings.smoothMotionGraphicsQueue);
+    m_smoothMotionGraphicsQueue->setEnabled(settings.enableSmoothMotion);
     m_enableFrameRateLimit->setChecked(settings.enableFrameRateLimit);
     m_targetFrameRate->setValue(settings.targetFrameRate);
     m_targetFrameRate->setEnabled(settings.enableFrameRateLimit);
@@ -1380,6 +1516,8 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.fgMultiFrameCount = m_fgMultiFrameCount->currentData().toInt();
     settings.fgMode = m_fgMode->currentData().toString();
     settings.fgPreset = m_fgPreset->currentData().toString();
+    settings.fgDynamicTargetFps = m_fgDynamicTargetFps->value();
+    settings.fgDynamicMaxCount = m_fgDynamicMaxCount->currentData().toInt();
 
     // DLSS Upgrade
     settings.dlssUpgrade = m_dlssUpgrade->isChecked();
@@ -1387,6 +1525,7 @@ DLSSSettings DLSSSettingsWidget::settings() const
 
     // Smooth Motion
     settings.enableSmoothMotion = m_enableSmoothMotion->isChecked();
+    settings.smoothMotionGraphicsQueue = m_smoothMotionGraphicsQueue->isChecked();
     settings.enableFrameRateLimit = m_enableFrameRateLimit->isChecked();
     settings.targetFrameRate = m_targetFrameRate->value();
     settings.dxvkConfigExtra = m_dxvkConfigExtra;
@@ -1594,8 +1733,12 @@ void DLSSSettingsWidget::updateFeatureWarnings()
     check(m_fgMultiFrameCount, fgOn && m_fgMultiFrameCount->currentData().toInt() >= 2,
           Feature::MultiFrameGen, "Multi-Frame Generation (3x–6x)");
     check(m_rrOverride, m_rrOverride->isChecked(), Feature::RayReconstruction, "Ray Reconstruction");
-    check(m_fgMode, fgOn && !m_fgMode->currentData().toString().isEmpty(),
-          Feature::DlssgMode, "FG Mode");
+    const QString fgMode = m_fgMode->currentData().toString();
+    if (fgMode == QLatin1String("DYNAMIC")) {
+        check(m_fgMode, fgOn, Feature::DynamicFrameGen, "Dynamic Frame Generation");
+    } else {
+        check(m_fgMode, fgOn && !fgMode.isEmpty(), Feature::DlssgMode, "FG Mode");
+    }
     check(m_fgPreset, fgOn && !m_fgPreset->currentData().toString().isEmpty(),
           Feature::FgPreset, "FG Render Preset");
     check(m_enableReflex, m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
@@ -1610,6 +1753,17 @@ void DLSSSettingsWidget::updateFeatureWarnings()
     const bool pinned = upgradeOn && !m_dlssVersion->text().trimmed().isEmpty();
     check(m_dlssUpgrade, upgradeOn && !pinned, Feature::DlssUpgrade, "DLSS Upgrade");
     check(m_dlssVersion, pinned, Feature::DlssUpgradeVersion, "DLSS version");
+
+    // Not a version gate but a combination NVIDIA advises against. Only the FG
+    // override can be seen here — whether a game turns FG on by itself cannot.
+    // isEnabled() keeps it quiet on native titles, where the FG group is inert.
+    if (m_enableSmoothMotion->isChecked() && m_enableSmoothMotion->isEnabled() &&
+        fgOn && m_fgOverride->isEnabled() && fgMode != QLatin1String("OFF")) {
+        lines << QStringLiteral(
+            "⚠ Smooth Motion + DLSS Frame Generation: NVIDIA advises against using "
+            "both — Smooth Motion is meant for games without frame generation of "
+            "their own");
+    }
 
     // PRIME offload is gated by hardware, not driver/Proton versions: warn only
     // when the probe positively found a non-hybrid system (Unknown stays silent).

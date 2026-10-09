@@ -34,9 +34,12 @@ public:
 
     // Frame Generation (FG)
     bool fgOverride = false;
-    int fgMultiFrameCount = 0;  // 0-3
+    int fgMultiFrameCount = 0;  // generated frames: 0 = app default, 1-5 = 2x-6x
     QString fgMode;    // NGX_DLSSG_MODE: "", ON, OFF, AUTO, DYNAMIC
     QString fgPreset;  // NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION
+    // Dynamic Multi-Frame Generation; only written when fgMode is DYNAMIC.
+    int fgDynamicTargetFps = 0;  // NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE, 0 = driver default
+    int fgDynamicMaxCount = 0;   // NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX, same scale as fgMultiFrameCount
 
     // DLSS Upgrade (PROTON_DLSS_UPGRADE, Proton-CachyOS / GE-Proton)
     bool dlssUpgrade = false;
@@ -47,6 +50,9 @@ public:
 
     // Smooth Motion / Frame Rate
     bool enableSmoothMotion = false;
+    // NVPRESENT_QUEUE_FAMILY=1: present on the graphics queue, which third-party
+    // overlays need. Only written together with Smooth Motion.
+    bool smoothMotionGraphicsQueue = false;
     bool enableFrameRateLimit = false;
     int targetFrameRate = 60;  // FPS limit: DXVK_CONFIG dxvk.maxFrameRate + VKD3D_FRAME_RATE
     // Other DXVK_CONFIG options (';'-separated) round-tripped from imported
@@ -93,7 +99,8 @@ public:
     // Available options
     static QStringList availableSRModes();
     static QStringList availableRRModes();
-    static QStringList availablePresets();
+    static QStringList availablePresets();     // Super Resolution
+    static QStringList availableRRPresets();
     static QStringList availableFGModes();
     static QStringList availableFGPresets();
 

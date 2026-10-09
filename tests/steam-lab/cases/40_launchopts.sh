@@ -73,6 +73,9 @@ part "b) the round trip, through the shell"
 for combo in \
     "--set srOverride=true --set srMode=Performance" \
     "--set fgOverride=true --set fgMultiFrameCount=3 --set fgMode=Auto" \
+    "--set fgOverride=true --set fgMode=DYNAMIC --set fgDynamicTargetFps=120 --set fgDynamicMaxCount=3" \
+    "--set rrOverride=true --set rrPreset=RENDER_PRESET_F" \
+    "--set enableSmoothMotion=true --set smoothMotionGraphicsQueue=true" \
     "--set enableReflex=true --set protonUseNTSync=true --set protonLog=true" \
     "--set enableSmoothMotion=true --set disableAutoHDR=true" \
     "--set dlssUpgrade=true --set showIndicator=true --set enableMangoHud=true" \

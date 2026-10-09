@@ -60,6 +60,9 @@ private:
     QGroupBox* createRayReconstructionGroup();
     QGroupBox* createFrameGenerationGroup();
     QGroupBox* createUpgradeGroup();
+    // Enables the FG controls from the override, and the Dynamic MFG fields
+    // only in FG mode "Dynamic".
+    void updateFrameGenEnabled();
     QGroupBox* createSmoothMotionGroup();
     QGroupBox* createOverlayGroup();
     QGroupBox* createCustomParamsGroup();
@@ -151,6 +154,10 @@ private:
     QComboBox* m_fgMultiFrameCount;
     QComboBox* m_fgMode;
     QComboBox* m_fgPreset;
+    QSpinBox* m_fgDynamicTargetFps;
+    QLabel* m_fgDynamicTargetFpsLabel;
+    QComboBox* m_fgDynamicMaxCount;
+    QLabel* m_fgDynamicMaxCountLabel;
 
     // DLSS Upgrade
     QCheckBox* m_dlssUpgrade;
@@ -158,6 +165,7 @@ private:
 
     // Smooth Motion
     QCheckBox* m_enableSmoothMotion;
+    QCheckBox* m_smoothMotionGraphicsQueue;
     QCheckBox* m_enableFrameRateLimit;
     QSpinBox* m_targetFrameRate;
     // Its row label: a plain layout does not pass the enabled state on, so the

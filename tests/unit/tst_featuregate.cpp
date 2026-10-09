@@ -45,7 +45,7 @@ void TstFeatureGate::everyFeatureHasARequirement()
     // gating nothing — so assert every one of them carries something.
     const QList<Feature> all = {
         Feature::SmoothMotion, Feature::MultiFrameGen, Feature::RayReconstruction,
-        Feature::DlssgMode, Feature::FgPreset, Feature::Reflex,
+        Feature::DlssgMode, Feature::DynamicFrameGen, Feature::FgPreset, Feature::Reflex,
         Feature::Vkd3dLowLatency, Feature::D7vk, Feature::DisableAutoHdr,
         Feature::Vkd3dDescriptorHeap, Feature::FrameGen, Feature::NtsyncOptIn,
         Feature::NtsyncDisable, Feature::DlssUpgrade, Feature::DlssUpgradeVersion,
@@ -427,6 +427,15 @@ void TstFeatureGate::realFeatures_data()
     rowGpu("multi frame gen on RTX 40", Feature::MultiFrameGen,
            QVersionNumber(610), QVersionNumber(11), Fork::CachyOS, GpuGeneration::Ada,
            Status::UnsupportedGpu);
+    rowGpu("dynamic frame gen on RTX 40", Feature::DynamicFrameGen,
+           QVersionNumber(610), valve11_2, Fork::Valve, GpuGeneration::Ada,
+           Status::UnsupportedGpu);
+    rowGpu("dynamic frame gen on RTX 50, Valve 11.0-2", Feature::DynamicFrameGen,
+           QVersionNumber(610), valve11_2, Fork::Valve, GpuGeneration::Blackwell,
+           Status::Supported);
+    rowGpu("dynamic frame gen on RTX 50, Valve 11.0-1", Feature::DynamicFrameGen,
+           QVersionNumber(610), QVersionNumber(11, 0, 1), Fork::Valve, GpuGeneration::Blackwell,
+           Status::BelowMinProton);
     rowGpu("frame gen on RTX 40", Feature::FrameGen,
            QVersionNumber(610), {}, Fork::Unknown, GpuGeneration::Ada, Status::Supported);
     rowGpu("frame gen on RTX 20", Feature::FrameGen,

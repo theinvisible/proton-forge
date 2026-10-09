@@ -56,6 +56,9 @@ private slots:
     void d7vkImportsFromEitherName();
     void sameLaunchOptions_data();
     void sameLaunchOptions();
+    void dynamicFrameGenOnlyInDynamicMode();
+    void queueFamilyNeedsSmoothMotion();
+    void rrPresetsCanonicalizeAgainstTheirOwnList();
 
 private:
     // Every option turned on, so a test can see the full set of variables
@@ -75,6 +78,7 @@ private:
         s.rrOverride = true;
         s.fgOverride = true;
         s.enableSmoothMotion = true;
+        s.smoothMotionGraphicsQueue = true;
         s.enableFrameRateLimit = true;
         s.targetFrameRate = 60;
         s.enableProtonWayland = true;
@@ -181,6 +185,28 @@ void TstEnvBuilder::roundTrips_data()
     fg.fgMode = "On";
     fg.fgPreset = "Preset E";
     QTest::newRow("frame generation") << fg;
+
+    DLSSSettings dynamic;
+    dynamic.fgOverride = true;
+    dynamic.fgMode = "DYNAMIC";
+    dynamic.fgDynamicTargetFps = 117;
+    dynamic.fgDynamicMaxCount = 3;
+    QTest::newRow("dynamic frame generation") << dynamic;
+
+    DLSSSettings rrF;
+    rrF.rrOverride = true;
+    rrF.rrPreset = "RENDER_PRESET_F";
+    QTest::newRow("rr preset F") << rrF;
+
+    DLSSSettings srDropped;   // no longer offered, still round-trips verbatim
+    srDropped.srOverride = true;
+    srDropped.srPreset = "RENDER_PRESET_N";
+    QTest::newRow("dropped sr preset") << srDropped;
+
+    DLSSSettings smoothQueue;
+    smoothQueue.enableSmoothMotion = true;
+    smoothQueue.smoothMotionGraphicsQueue = true;
+    QTest::newRow("smooth motion graphics queue") << smoothQueue;
 
     DLSSSettings hdr;
     hdr.enableProtonWayland = true;
@@ -290,6 +316,9 @@ void TstEnvBuilder::absenceMeansOff()
     base.protonLog = true;
     base.enableSmoothMotion = true;
     base.enableProtonHDR = true;
+    base.smoothMotionGraphicsQueue = true;
+    base.fgDynamicTargetFps = 120;
+    base.fgDynamicMaxCount = 3;
 
     const DLSSSettings parsed = reparse("%command%", base);
 
@@ -297,6 +326,9 @@ void TstEnvBuilder::absenceMeansOff()
     QVERIFY(!parsed.protonLog);
     QVERIFY(!parsed.enableSmoothMotion);
     QVERIFY(!parsed.enableProtonHDR);
+    QVERIFY(!parsed.smoothMotionGraphicsQueue);
+    QCOMPARE(parsed.fgDynamicTargetFps, 0);
+    QCOMPARE(parsed.fgDynamicMaxCount, 0);
 }
 
 void TstEnvBuilder::primeTrioIsAllOrNothing()
@@ -377,6 +409,16 @@ void TstEnvBuilder::drsSettings_data()
     QTest::newRow("frame generation")
         << fg << QStringList{"NGX_DLSS_FG_OVERRIDE=on", "NGX_DLSSG_MULTI_FRAME_COUNT=3",
                              "NGX_DLSSG_MODE=auto"};
+
+    DLSSSettings dynamic;
+    dynamic.fgOverride = true;
+    dynamic.fgMode = "DYNAMIC";
+    dynamic.fgDynamicTargetFps = 144;
+    dynamic.fgDynamicMaxCount = 5;
+    QTest::newRow("dynamic frame generation")
+        << dynamic << QStringList{"NGX_DLSSG_MODE=dynamic",
+                                  "NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE=144",
+                                  "NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX=5"};
 }
 
 void TstEnvBuilder::drsSettings()
@@ -651,6 +693,7 @@ void TstEnvBuilder::driverLevelVariablesReachNativeGames()
     QCOMPARE(EnvBuilder::scopeOf("__GLX_VENDOR_LIBRARY_NAME"), EnvBuilder::VarScope::Any);
     QCOMPARE(EnvBuilder::scopeOf("__VK_LAYER_NV_optimus"), EnvBuilder::VarScope::Any);
     QCOMPARE(EnvBuilder::scopeOf("NVPRESENT_ENABLE_SMOOTH_MOTION"), EnvBuilder::VarScope::Any);
+    QCOMPARE(EnvBuilder::scopeOf("NVPRESENT_QUEUE_FAMILY"), EnvBuilder::VarScope::Any);
     QCOMPARE(EnvBuilder::scopeOf("ENABLE_HDR_WSI"), EnvBuilder::VarScope::Any);
     QCOMPARE(EnvBuilder::scopeOf("MANGOHUD"), EnvBuilder::VarScope::Any);
 }
@@ -834,6 +877,62 @@ void TstEnvBuilder::sameLaunchOptions()
     QFETCH(bool, same);
     QCOMPARE(EnvBuilder::sameLaunchOptions(a, b), same);
     QCOMPARE(EnvBuilder::sameLaunchOptions(b, a), same);
+}
+
+void TstEnvBuilder::dynamicFrameGenOnlyInDynamicMode()
+{
+    // The Dynamic MFG parameters mean nothing in any other mode, so they are
+    // kept in the settings but not written — like an SR preset with the SR
+    // override off.
+    DLSSSettings s;
+    s.fgOverride = true;
+    s.fgMode = "ON";
+    s.fgDynamicTargetFps = 144;
+    s.fgDynamicMaxCount = 5;
+    const QString drs = EnvBuilder::buildDRSSettings(s);
+    QVERIFY2(!drs.contains("NGX_DLSSG_DYNAMIC"), qPrintable(drs));
+
+    // Zero means "driver default" and writes nothing either.
+    s.fgMode = "DYNAMIC";
+    s.fgDynamicTargetFps = 0;
+    s.fgDynamicMaxCount = 0;
+    QVERIFY(!EnvBuilder::buildDRSSettings(s).contains("NGX_DLSSG_DYNAMIC"));
+
+    // An imported string is understood regardless of case.
+    const DLSSSettings parsed = reparse(
+        "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_FG_OVERRIDE=on,NGX_DLSSG_MODE=dynamic,"
+        "NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE=120,NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX=3 %command%",
+        DLSSSettings());
+    QCOMPARE(parsed.fgMode, QStringLiteral("DYNAMIC"));
+    QCOMPARE(parsed.fgDynamicTargetFps, 120);
+    QCOMPARE(parsed.fgDynamicMaxCount, 3);
+}
+
+void TstEnvBuilder::queueFamilyNeedsSmoothMotion()
+{
+    DLSSSettings s;
+    s.smoothMotionGraphicsQueue = true;
+    QVERIFY(!EnvBuilder::buildLaunchOptions(s).contains("NVPRESENT_QUEUE_FAMILY"));
+
+    s.enableSmoothMotion = true;
+    QVERIFY(EnvBuilder::buildLaunchOptions(s).contains("NVPRESENT_QUEUE_FAMILY=1"));
+    QCOMPARE(EnvBuilder::buildEnvironment(s).value("NVPRESENT_QUEUE_FAMILY"), QString("1"));
+
+    // Only 1 is documented; any other value is the user's own and stays put.
+    const DLSSSettings other = reparse(
+        "NVPRESENT_ENABLE_SMOOTH_MOTION=1 NVPRESENT_QUEUE_FAMILY=2 %command%", DLSSSettings());
+    QVERIFY(!other.smoothMotionGraphicsQueue);
+    QVERIFY2(other.customLaunchParams.contains("NVPRESENT_QUEUE_FAMILY=2"),
+             qPrintable(other.customLaunchParams));
+}
+
+void TstEnvBuilder::rrPresetsCanonicalizeAgainstTheirOwnList()
+{
+    const DLSSSettings parsed = reparse(
+        "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_RR_OVERRIDE=on,"
+        "NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION=render_preset_f %command%",
+        DLSSSettings());
+    QCOMPARE(parsed.rrPreset, QStringLiteral("RENDER_PRESET_F"));
 }
 
 QTEST_MAIN(TstEnvBuilder)

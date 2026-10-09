@@ -20,10 +20,10 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 ### DLSS Configuration
 - **Super Resolution (SR)**: Configure DLSS upscaling modes (Performance, Balanced, Quality, DLAA, Ultra Performance)
 - **Ray Reconstruction (RR)**: Fine-tune ray tracing denoising
-- **Frame Generation (FG)**: Control DLSS Frame Generation — Multi-Frame Generation up to 6x, the FG mode (On/Off/Auto/Dynamic) and an FG render preset
+- **Frame Generation (FG)**: Control DLSS Frame Generation — Multi-Frame Generation up to 6x, the FG mode (On/Off/Auto/Dynamic, with a target frame rate and maximum frame count for Dynamic Multi-Frame Generation on RTX 50) and an FG render preset
 - **NVIDIA Reflex**: Lower input latency in Vulkan games (DXVK_NVAPI_VKREFLEX) — the recommended companion to Frame Generation and Smooth Motion
 - **Custom Scaling Ratios**: Set precise render resolution percentages
-- **Render Presets**: Pick the DLSS model preset, including the DLSS 4 transformer presets (J/K plus the DLSS 4.5 L/M models), with in-app tooltips documenting which presets actually exist
+- **Render Presets**: Pick the DLSS model preset separately for Super Resolution (DLSS 4 transformer J/K, DLSS 4.5 L/M, legacy CNN), Ray Reconstruction (D/E, and F for Ray Reconstruction 2) and Frame Generation — or "Recommended" to let the driver pick per quality mode. Every entry says what it is for and whether it is deprecated
 - **Compatibility Warnings**: Options that require a newer NVIDIA driver or Proton version are flagged with a non-blocking warning based on your detected driver and the selected Proton version
 - **Platform Gating**: On a native Linux game the options that only Proton, DXVK, vkd3d-proton or DXVK-NVAPI would read are greyed out with a one-line explanation, because nothing in a native process reads them — the DLSS overrides in particular travel in `DXVK_NVAPI_DRS_SETTINGS`, and NVIDIA does not support preset overrides outside NVAPI. Driver-level options (Smooth Motion, PRIME offload) and the Vulkan HDR layer stay live, and your saved values are kept untouched, so forcing a compatibility tool in Steam still gets the full launch string
 
@@ -75,7 +75,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 
 ### Performance Tuning
 - **Frame Rate Limiting**: Set precise FPS caps (`dxvk.maxFrameRate` in DXVK_CONFIG, plus VKD3D_FRAME_RATE — DXVK 3.0 removed DXVK_FRAME_RATE; older strings are migrated on import)
-- **Smooth Motion**: Enable driver level frame generation
+- **Smooth Motion**: Enable driver level frame generation for games without their own (RTX 40/50), optionally presenting on the graphics queue so overlays like MangoHud keep working. ProtonForge warns when it is combined with DLSS Frame Generation, which NVIDIA advises against
 - **DLSS Upgrade**: Force newer DLSS DLL versions, optionally pinned to a specific version (PROTON_DLSS_UPGRADE, Proton-CachyOS and GE-Proton)
 
 ### User Interface

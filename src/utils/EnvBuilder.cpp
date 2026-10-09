@@ -8,9 +8,11 @@ namespace {
 // Which layer reads each variable ProtonForge emits — see EnvBuilder::VarScope
 // for what the two values mean and why the distinction matters.
 //
-// The judgement calls are the four Any entries that are not the PRIME trio:
+// The judgement calls are the Any entries that are not the PRIME trio:
 //   NVPRESENT_ENABLE_SMOOTH_MOTION  the driver's own present-time interpolation,
 //                                   below the API a game uses, so not Wine-bound
+//   NVPRESENT_QUEUE_FAMILY          the same driver layer's choice of present
+//                                   queue (graphics instead of its own)
 //   ENABLE_HDR_WSI                  a Vulkan implicit layer, loaded by the loader
 //                                   for any Vulkan client, native included
 //   MANGOHUD                        likewise an implicit layer (plus a wrapper)
@@ -25,6 +27,7 @@ const QHash<QString, EnvBuilder::VarScope>& varScopeTable()
         {"__GLX_VENDOR_LIBRARY_NAME",      EnvBuilder::VarScope::Any},
         {"__VK_LAYER_NV_optimus",          EnvBuilder::VarScope::Any},
         {"NVPRESENT_ENABLE_SMOOTH_MOTION", EnvBuilder::VarScope::Any},
+        {"NVPRESENT_QUEUE_FAMILY",         EnvBuilder::VarScope::Any},
         {"ENABLE_HDR_WSI",                 EnvBuilder::VarScope::Any},
         {"MANGOHUD",                       EnvBuilder::VarScope::Any},
 
@@ -232,6 +235,9 @@ QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& cu
     if (!drs.isEmpty()) set("DXVK_NVAPI_DRS_SETTINGS", drs);
 
     if (s.enableSmoothMotion) set("NVPRESENT_ENABLE_SMOOTH_MOTION", one);
+    // Present on the graphics queue so third-party overlays see the frames;
+    // meaningless without Smooth Motion, so only written alongside it.
+    if (s.enableSmoothMotion && s.smoothMotionGraphicsQueue) set("NVPRESENT_QUEUE_FAMILY", one);
 
     // Frame rate limit: DXVK (D3D8-11) through DXVK_CONFIG, vkd3d-proton
     // (D3D12) through its own variable, which it still reads.
@@ -308,7 +314,7 @@ void applyDrsSubKey(DLSSSettings& s, const QString& key, const QString& value)
     } else if (key == "NGX_DLSS_RR_MODE") {
         s.rrMode = canonicalize(value, DLSSSettings::availableRRModes());
     } else if (key == "NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION") {
-        s.rrPreset = canonicalize(value, DLSSSettings::availablePresets());
+        s.rrPreset = canonicalize(value, DLSSSettings::availableRRPresets());
     } else if (key == "NGX_DLSS_RR_OVERRIDE_SCALING_RATIO") {
         s.rrScalingRatio = value.toInt();
     } else if (key == "NGX_DLSS_FG_OVERRIDE") {
@@ -319,6 +325,10 @@ void applyDrsSubKey(DLSSSettings& s, const QString& key, const QString& value)
         s.fgMode = canonicalize(value, DLSSSettings::availableFGModes());
     } else if (key == "NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION") {
         s.fgPreset = canonicalize(value, DLSSSettings::availableFGPresets());
+    } else if (key == "NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE") {
+        s.fgDynamicTargetFps = value.toInt();
+    } else if (key == "NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX") {
+        s.fgDynamicMaxCount = value.toInt();
     }
     // Unknown NGX_* sub-keys are dropped: there is no field for them and they
     // cannot be re-emitted via the DRS settings builder. This is acceptable
@@ -346,6 +356,9 @@ bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
     }
     if (key == "PROTON_DLSS_INDICATOR") { s.showIndicator = (value != "0"); return true; }
     if (key == "NVPRESENT_ENABLE_SMOOTH_MOTION") { s.enableSmoothMotion = (value != "0"); return true; }
+    // Only 1 (graphics queue) is documented; anything else is the user's own
+    // and stays in the custom params.
+    if (key == "NVPRESENT_QUEUE_FAMILY" && value == "1") { s.smoothMotionGraphicsQueue = true; return true; }
     if (key == "PROTON_ENABLE_WAYLAND") { s.enableProtonWayland = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_HDR") { s.enableProtonHDR = (value != "0"); return true; }
     // DXVK_HDR=1 alone is how Proton-CachyOS users switch HDR on. An explicit
@@ -500,6 +513,17 @@ QString EnvBuilder::buildDRSSettings(const DLSSSettings& settings)
         if (!settings.fgPreset.isEmpty()) {
             drsSettings << QString("NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION=%1").arg(settings.fgPreset);
         }
+
+        // Dynamic MFG parameters mean nothing in any other mode; they stay in
+        // the settings (like an SR preset with the override off) but are not written.
+        if (settings.fgMode.compare("DYNAMIC", Qt::CaseInsensitive) == 0) {
+            if (settings.fgDynamicTargetFps > 0) {
+                drsSettings << QString("NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE=%1").arg(settings.fgDynamicTargetFps);
+            }
+            if (settings.fgDynamicMaxCount > 0) {
+                drsSettings << QString("NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX=%1").arg(settings.fgDynamicMaxCount);
+            }
+        }
     }
 
     return drsSettings.join(",");
@@ -592,7 +616,8 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     s.srOverride = false; s.srMode.clear(); s.srPreset.clear(); s.srScalingRatio = 0;
     s.rrOverride = false; s.rrMode.clear(); s.rrPreset.clear(); s.rrScalingRatio = 0;
     s.fgOverride = false; s.fgMultiFrameCount = 0; s.fgMode.clear(); s.fgPreset.clear();
-    s.enableSmoothMotion = false;
+    s.fgDynamicTargetFps = 0; s.fgDynamicMaxCount = 0;
+    s.enableSmoothMotion = false; s.smoothMotionGraphicsQueue = false;
     s.enableFrameRateLimit = false; s.targetFrameRate = 60; s.dxvkConfigExtra.clear();
     s.enableProtonWayland = false; s.enableProtonHDR = false; s.enableHDRWSI = false;
     s.disableAutoHDR = false;

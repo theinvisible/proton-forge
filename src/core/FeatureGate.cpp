@@ -68,6 +68,14 @@ const Requirement& requirementFor(Feature feature)
         return r;
     }();
     static const Requirement fgPreset = dlssgMode;
+    // Dynamic MFG: the two NGX_DLSSG_DYNAMIC_* keys came with the same
+    // DXVK-NVAPI 0.9.2, and the feature itself is RTX 50 only.
+    static const Requirement dynamicFrameGen = [] {
+        Requirement r = dlssgMode;
+        r.minGpu = GpuGeneration::Blackwell;
+        r.gpuNote = QStringLiteral("Dynamic Multi-Frame Generation needs an RTX 50 GPU");
+        return r;
+    }();
     static const Requirement reflex = [] {
         Requirement r;
         r.minProton = QVersionNumber(9);
@@ -148,6 +156,7 @@ const Requirement& requirementFor(Feature feature)
         case Feature::MultiFrameGen:     return multiFrameGen;
         case Feature::RayReconstruction: return rayReconstruction;
         case Feature::DlssgMode:         return dlssgMode;
+        case Feature::DynamicFrameGen:   return dynamicFrameGen;
         case Feature::FgPreset:          return fgPreset;
         case Feature::Reflex:            return reflex;
         case Feature::Vkd3dLowLatency:   return vkd3dLowLatency;

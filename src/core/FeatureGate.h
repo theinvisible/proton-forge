@@ -89,6 +89,7 @@ enum class Feature {
     MultiFrameGen,
     RayReconstruction,
     DlssgMode,
+    DynamicFrameGen,
     FgPreset,
     Reflex,
     Vkd3dLowLatency,

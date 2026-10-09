@@ -22,6 +22,7 @@ private slots:
     void vkd3dConfigExtraIsOmittedWhenEmpty();
     void equalityCoversEveryField();
     void availableOptionsAreNonEmpty();
+    void presetListsMatchTheModels();
 
 private:
     // A settings object with every field moved away from its default, built
@@ -73,6 +74,10 @@ void TstDlssSettings::jsonRoundTrip()
     settings.fgOverride = true;
     settings.fgMultiFrameCount = 3;
     settings.fgMode = "Auto";
+    settings.fgDynamicTargetFps = 117;
+    settings.fgDynamicMaxCount = 3;
+    settings.enableSmoothMotion = true;
+    settings.smoothMotionGraphicsQueue = true;
     settings.enableProtonHDR = true;
     settings.protonVersion = "proton-cachyos-11.0-20260703-slr-x86_64";
     settings.executablePath = "/games/thing/thing.exe";
@@ -159,7 +164,31 @@ void TstDlssSettings::availableOptionsAreNonEmpty()
     QVERIFY(!DLSSSettings::availableRRModes().isEmpty());
     QVERIFY(!DLSSSettings::availablePresets().isEmpty());
     QVERIFY(!DLSSSettings::availableFGModes().isEmpty());
+    QVERIFY(!DLSSSettings::availableRRPresets().isEmpty());
     QVERIFY(!DLSSSettings::availableFGPresets().isEmpty());
+}
+
+void TstDlssSettings::presetListsMatchTheModels()
+{
+    // Super Resolution: the real models, no placeholders.
+    const QStringList sr = DLSSSettings::availablePresets();
+    QVERIFY(sr.contains("RENDER_PRESET_LATEST"));
+    QVERIFY(sr.contains("RENDER_PRESET_K"));
+    QVERIFY(sr.contains("RENDER_PRESET_M"));
+    QVERIFY(sr.contains("RENDER_PRESET_A"));   // an old DLL still has it
+    QVERIFY(!sr.contains("RENDER_PRESET_G"));
+    QVERIFY(!sr.contains("RENDER_PRESET_N"));
+
+    // Ray Reconstruction has a list of its own: D, E and RR 2's F.
+    const QStringList rr = DLSSSettings::availableRRPresets();
+    QVERIFY(rr.contains("RENDER_PRESET_F"));
+    QVERIFY(rr.contains("RENDER_PRESET_D"));
+    QVERIFY(!rr.contains("RENDER_PRESET_A"));
+    QVERIFY(!rr.contains("RENDER_PRESET_K"));
+
+    // Every list starts with "(App Default)", the value that writes nothing.
+    for (const QStringList& list : {sr, rr, DLSSSettings::availableFGPresets()})
+        QCOMPARE(list.first(), QString());
 }
 
 QTEST_MAIN(TstDlssSettings)
