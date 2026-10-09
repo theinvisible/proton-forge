@@ -73,7 +73,11 @@ public:
     QString executablePath;
 
     // Proton Version Selection
-    QString protonVersion;  // Empty/"auto" = latest CachyOS, "latest-ge" = latest GE, or specific version folder name
+    // Empty/"auto" = Steam's per-game choice, else ProtonForge's default;
+    // "latest-cachyos" / "latest-ge" / "steam-proton" = newest of that kind;
+    // otherwise a folder name in compatibilitytools.d or an absolute path.
+    // A choice that no longer resolves falls back to "auto".
+    QString protonVersion;
 
     // Custom launch parameters — free-form extra options appended to the Steam
     // launch string. Holds everything ProtonForge doesn't model (e.g. game args

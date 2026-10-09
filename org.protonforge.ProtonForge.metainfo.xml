@@ -67,6 +67,11 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.0" date="2026-08-11">
+      <description>
+        <p>GOG support: sign in, browse and install GOG games, and launch them through Proton next to the Steam library.</p>
+      </description>
+    </release>
     <release version="1.0.3" date="2025-02-05">
       <description>
         <p>Latest release with improved features and bug fixes</p>

@@ -17,6 +17,7 @@
 #include <memory>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
+#include "utils/CompatToolResolver.h"
 #include "network/ProtonDBClient.h"
 
 class DLSSSettingsWidget : public QWidget {
@@ -79,6 +80,7 @@ private:
     void populateExecutableSelector(const Game& game);
     void updateExecutableSelectorWithResults(const QStringList& executables);
     void populateProtonVersionSelector();
+    void refreshResolvedProton();
     QStringList findWindowsExecutables(const QString& installPath) const;
     QStringList findLinuxExecutables(const QString& installPath, std::shared_ptr<std::atomic<bool>> cancelFlag = nullptr) const;
     QString findBestExecutable(const Game& game, const QStringList& executables) const;
@@ -106,6 +108,7 @@ private:
 
     // Feature gating warnings (driver/Proton requirements not met)
     QLabel* m_featureWarnings;
+    QLabel* m_resolvedProtonLabel;
 
     // Group boxes whose contents are Proton-only in their entirety, kept so
     // applyPlatformGating() can grey the whole box (title included) rather
@@ -190,6 +193,8 @@ private:
     // DXVK_CONFIG entries from imported launch options). settings() builds a
     // fresh DLSSSettings from the widgets, so without these an edit to any
     // control would silently drop them.
+    // The Proton a launch would use for the current game and selection.
+    CompatToolResolver::ToolInfo m_resolvedProton;
     QString m_vkd3dConfigExtra;
     QString m_dxvkConfigExtra;
     bool m_loading = false;         // setSettings() is writing the widgets

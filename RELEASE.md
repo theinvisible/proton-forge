@@ -16,10 +16,23 @@ project(ProtonForge VERSION 1.0.3 LANGUAGES CXX)
 
 **Required:** the tag has to match this version exactly. `release.yml` and `flatpak-release.yml` both refuse to build a tag `vX.Y.Z` whose commit does not say `project(ProtonForge VERSION X.Y.Z …)` — nothing rewrites the file during the release, so what it says is what every package and every source build at that tag reports. Only plain `vX.Y.Z` tags trigger a release; `v1.2.0-rc1` does not.
 
+### Step 1b: Write the release notes
+
+Two places, both checked by `release.yml` before anything is built — a version
+missing from either is refused:
+
+- **`CHANGELOG.md`:** rename `## [Unreleased]` to `## [1.0.3] - YYYY-MM-DD` and
+  start a new, empty `## [Unreleased]` above it. That section becomes the top of
+  the GitHub release body (`packaging/changelog-section.sh` extracts it; run it
+  locally to see exactly what will be published).
+- **`org.protonforge.ProtonForge.metainfo.xml`:** add a
+  `<release version="1.0.3" date="YYYY-MM-DD">` entry at the top of `<releases>`,
+  with a one-paragraph summary — this is what Flathub and software centres show.
+
 ### Step 2: Commit Changes
 
 ```bash
-git add CMakeLists.txt
+git add CMakeLists.txt CHANGELOG.md org.protonforge.ProtonForge.metainfo.xml
 git commit -m "Bump version to 1.0.3"
 git push origin master
 ```
@@ -50,7 +63,8 @@ Once the tag is pushed, GitHub Actions will automatically:
 
 ### Step 5: Edit Release Notes (Optional)
 
-After the automatic release is created:
+The body is already this version's `CHANGELOG.md` section, the installation
+instructions and GitHub's list of merged PRs. To add to it afterwards:
 
 1. Go to: https://github.com/theinvisible/proton-forge/releases
 2. Find your new release
@@ -174,7 +188,9 @@ Before creating a new release:
 - [ ] The distribution matrix passes — this one is **not** run by CI, so a release
       is the point at which it matters:
       `tests/steam-lab/steamlab test 20_deb_install 50_real_steam`
-- [ ] CHANGELOG updated (if you have one)
+- [ ] `CHANGELOG.md`: `[Unreleased]` became `[X.Y.Z] - date`; anything users must
+      do themselves (e.g. re-writing launch options to Steam) is said at the top
+- [ ] `org.protonforge.ProtonForge.metainfo.xml` has a `<release version="X.Y.Z">` entry
 - [ ] Version bumped in `CMakeLists.txt`
 - [ ] README updated if needed
 - [ ] Commits pushed to master

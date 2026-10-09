@@ -344,7 +344,15 @@ int cmdListGames()
         // Whatever this game's launcher already has stored, if it stores
         // anything. Launchers that do not simply return nothing.
         const auto launcher = lm.launcher(game.launcher());
-        o["launchOptions"] = launcher ? launcher->readLaunchOptions(game) : QString();
+        const QString stored = launcher ? launcher->readLaunchOptions(game) : QString();
+        o["launchOptions"] = stored;
+        // The GUI's "Steam has different launch options" hint, for scripts:
+        // only meaningful where ProtonForge has settings to compare and the
+        // launcher stores launch options at all.
+        if (o["hasSettings"].toBool() && game.traits().supportsLaunchOptionsIO) {
+            o["launchOptionsCurrent"] = EnvBuilder::sameLaunchOptions(
+                stored, EnvBuilder::buildLaunchOptions(sm.getSettings(game.settingsKey())));
+        }
         arr.append(o);
     }
     printJson(arr);

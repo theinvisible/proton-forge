@@ -855,9 +855,31 @@ Two more, found while fixing it:
 * **The settings widget dropped `vkd3dConfigExtra`** on the first edit after an
   import: `settings()` builds a fresh object from the controls, and that field has
   none.
+* **Two resolvers that disagreed.** The compatibility warnings asked
+  `ProtonManager::resolveSelected()` which Proton was in play; a launch asked
+  `GameRunner::findProtonPath()`. They differed for "auto" (only the launch
+  honoured Steam's per-game choice), for "Latest GE" with no GE installed and for
+  a selected version that had since been uninstalled. `resolveSelected()` is gone;
+  the warnings use `GameRunner::resolveProtonTool()`, the launch's own answer.
+
+And one consequence that is not a defect but needed saying: nothing writes to
+Steam by itself, so every string written by an earlier version stays in Steam
+with the dead variables until the user writes again. `CHANGELOG.md` says so at
+the top, and `40_launchopts` e7 pins the CLI's `launchOptionsCurrent`. A hint in
+the settings panel was tried and removed: for someone who only launches from
+ProtonForge, Steam's copy does not matter, and the warning only confused.
 
 ### Also found, and fixed
 
+* **The `.deb` had no SVG plugin on trixie and Ubuntu 26.04.** Qt SVG 6.7.2-5
+  moved `libqsvg.so` from `libqt6svg6` into a new `qt6-svg-plugins`, so the
+  `Depends: libqt6svg6` added for the AppImage work installed the library and no
+  plugin — blank icons on a release target. `20_deb_install` could not say so at
+  first: its offline images had no way to resolve a dependency the `-dev`
+  packages do not pull in, and every install failed outright. The images now
+  *download* such runtime-only packages and keep the apt lists (installing them
+  would defeat the check), and the package depends on
+  `qt6-svg-plugins | libqt6svg6 (<< 6.7.2-5~)`.
 * **Two ZIP fixtures were never committed.** `.gitignore` has a blanket `*.zip`
   for release artifacts, which silently swallowed
   `tests/steam-lab/fixtures/gog/{zip64,multipart}.zip`. They existed in the

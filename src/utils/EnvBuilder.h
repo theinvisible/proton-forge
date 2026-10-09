@@ -49,6 +49,11 @@ public:
     // Build DXVK_NVAPI_DRS_SETTINGS value
     static QString buildDRSSettings(const DLSSSettings& settings);
 
+    // Whether two launch-options strings say the same thing as far as Steam is
+    // concerned: whitespace is normalised, and an empty string is the same as
+    // a bare "%command%" (Steam runs the game unchanged either way).
+    static bool sameLaunchOptions(const QString& a, const QString& b);
+
     // Inverse of buildLaunchOptions: map a raw Steam launch-options string back
     // onto DLSSSettings. Recognised KEY=VALUE env vars set the matching field;
     // the "%command%" token and everything after it, plus any unrecognised

@@ -54,6 +54,8 @@ private slots:
     void priorityHighIsKeptAsCustom();
     void hdrImportsFromDxvkHdr();
     void d7vkImportsFromEitherName();
+    void sameLaunchOptions_data();
+    void sameLaunchOptions();
 
 private:
     // Every option turned on, so a test can see the full set of variables
@@ -807,6 +809,31 @@ void TstEnvBuilder::d7vkImportsFromEitherName()
     QVERIFY(reparse("PROTON_USE_D7VK=1 %command%", DLSSSettings()).protonUseD7VK);
     QVERIFY(reparse("PROTON_D7VK_DDRAW=1 %command%", DLSSSettings()).protonUseD7VK);
     QVERIFY(!reparse("PROTON_D7VK_DDRAW=0 %command%", DLSSSettings()).protonUseD7VK);
+}
+
+void TstEnvBuilder::sameLaunchOptions_data()
+{
+    QTest::addColumn<QString>("a");
+    QTest::addColumn<QString>("b");
+    QTest::addColumn<bool>("same");
+
+    QTest::newRow("identical")          << "FOO=1 %command%" << "FOO=1 %command%" << true;
+    QTest::newRow("whitespace")         << "  FOO=1   %command% " << "FOO=1 %command%" << true;
+    QTest::newRow("empty is %command%") << "" << "%command%" << true;
+    QTest::newRow("blank is %command%") << "   " << "%command%" << true;
+    QTest::newRow("old form")           << "DXVK_FRAME_RATE=60 %command%"
+                                        << "DXVK_CONFIG=dxvk.maxFrameRate=60 VKD3D_FRAME_RATE=60 %command%"
+                                        << false;
+    QTest::newRow("empty vs options")   << "" << "PROTON_LOG=1 %command%" << false;
+}
+
+void TstEnvBuilder::sameLaunchOptions()
+{
+    QFETCH(QString, a);
+    QFETCH(QString, b);
+    QFETCH(bool, same);
+    QCOMPARE(EnvBuilder::sameLaunchOptions(a, b), same);
+    QCOMPARE(EnvBuilder::sameLaunchOptions(b, a), same);
 }
 
 QTEST_MAIN(TstEnvBuilder)

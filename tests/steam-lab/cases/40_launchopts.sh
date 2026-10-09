@@ -262,6 +262,24 @@ GAMES="$(app_cli --list-games)"
 assert_json_contains "with the frame cap and the user's entry merged" "$GAMES" \
     "$READBACK" 'DXVK_CONFIG="dxvk.maxFrameRate=60;dxgi.syncInterval=0"'
 
+part "e7) a string from an older ProtonForge shows as out of date"
+
+# Nothing writes to Steam on its own. A user whose Steam still has what an
+# older version wrote — DXVK_FRAME_RATE, which DXVK 3.0 no longer reads — has
+# to be told, which is what launchOptionsCurrent (and the GUI hint) are for.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" >/dev/null
+LOCALCONFIG="$(fx_localconfig "$NATIVE" "$APPID=DXVK_FRAME_RATE=120 VKD3D_FRAME_RATE=120 %command%")"
+fx_settings "Steam:$APPID={\"enableFrameRateLimit\": true, \"targetFrameRate\": 120}" >/dev/null
+
+CURRENT='[g.get("launchOptionsCurrent") for g in d if g["appId"]=="'"$APPID"'"][0]'
+assert_json "the old string is reported as out of date" "$(app_cli --list-games)" "$CURRENT" "false"
+
+app_cli --apply "$APPID" >/dev/null
+assert_contains "applying writes the new form" "$LOCALCONFIG" 'dxvk.maxFrameRate=120'
+assert_json "and then it is current" "$(app_cli --list-games)" "$CURRENT" "true"
+
 # ---------------------------------------------------------------------------
 part "f) the file is never left truncated"
 

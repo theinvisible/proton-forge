@@ -212,7 +212,9 @@ QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& cu
     }
 
     // NVAPI is on by default in every current Proton; PROTON_ENABLE_NVAPI is
-    // read by none of them any more. Only turning it off needs saying.
+    // read by none of them any more. Only turning it off needs saying, and
+    // PROTON_DISABLE_NVAPI is read by Valve's Proton 11, Proton-CachyOS and
+    // GE-Proton (10-25 onward).
     if (!s.enableNVAPI) set("PROTON_DISABLE_NVAPI", one);
     if (s.enableNGXUpdater) set("PROTON_ENABLE_NGX_UPDATER", one);
     if (s.enableReflex) set("DXVK_NVAPI_VKREFLEX", one);
@@ -553,6 +555,15 @@ QProcessEnvironment EnvBuilder::buildEnvironment(const DLSSSettings& settings)
     }
 
     return env;
+}
+
+bool EnvBuilder::sameLaunchOptions(const QString& a, const QString& b)
+{
+    const auto normalised = [](const QString& s) {
+        const QString t = s.simplified();
+        return t.isEmpty() ? QStringLiteral("%command%") : t;
+    };
+    return normalised(a) == normalised(b);
 }
 
 EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& raw, const DLSSSettings& base)

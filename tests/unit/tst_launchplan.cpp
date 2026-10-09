@@ -32,9 +32,13 @@ private slots:
     void findsProtonInSteamCompatToolsDir();
     void findsNothingWhenNoProtonIsInstalled();
     void latestGePicksNumericallyNewest();
+    void latestCachyOSIgnoresSteamMapping();
     void autoPicksNewestCachyOS();
     void mappingResolvesInternalNameFromVdf();
     void mappingResolvesValveInSecondaryLibrary();
+    void resolvedToolFollowsSteamMapping();
+    void resolvedToolIsInvalidWithNothingInstalled();
+    void resolvedToolForUninstalledSelectionFallsBack();
 
     void aNonSteamGameGetsNoSteamEnvironment();
     void aNonSteamGameNeverGetsTheOverlayEvenWithSteamInstalled();
@@ -214,6 +218,29 @@ void TstLaunchPlan::latestGePicksNumericallyNewest()
     QCOMPARE(runner.findProtonPath(Game(), settings), compat + "/GE-Proton11-7");
 }
 
+void TstLaunchPlan::latestCachyOSIgnoresSteamMapping()
+{
+    // "Latest Proton-CachyOS" is an explicit choice: the newest CachyOS by
+    // version, even where Steam has mapped the game to something else —
+    // which is what tells it apart from "Automatic".
+    makeSteamRoot(nativeRoot());
+    const QString compat = nativeRoot() + "/compatibilitytools.d";
+    makeProton(compat + "/proton-cachyos-10.0-20260127-slr-x86_64");
+    makeProton(compat + "/proton-cachyos-11.0-20260703-slr-x86_64");
+    makeProton(compat + "/GE-Proton11-7");
+    mapCompatTool(nativeRoot(), "1245620", "GE-Proton11-7");
+
+    DLSSSettings settings;
+    settings.protonVersion = "latest-cachyos";
+
+    GameRunner runner;
+    QCOMPARE(runner.findProtonPath(steamGame("1245620"), settings),
+             compat + "/proton-cachyos-11.0-20260703-slr-x86_64");
+
+    // Automatic follows Steam.
+    QCOMPARE(runner.findProtonPath(steamGame("1245620"), DLSSSettings()), compat + "/GE-Proton11-7");
+}
+
 void TstLaunchPlan::autoPicksNewestCachyOS()
 {
     // The default used to take the first match in ascending name order — the
@@ -263,6 +290,53 @@ void TstLaunchPlan::mappingResolvesValveInSecondaryLibrary()
     // An alias resolves the same way.
     mapCompatTool(nativeRoot(), "1245620", "proton-stable");
     QCOMPARE(runner.findProtonPath(steamGame("1245620"), DLSSSettings()), valve);
+}
+
+void TstLaunchPlan::resolvedToolFollowsSteamMapping()
+{
+    // The compatibility warnings used to assume "auto" meant ProtonForge's
+    // default (newest CachyOS) while a launch used Steam's per-game choice.
+    // resolveProtonTool() is the launch's own answer, described.
+    makeSteamRoot(nativeRoot());
+    makeProton(nativeRoot() + "/compatibilitytools.d/proton-cachyos-11.0-20260703-slr-x86_64");
+    const QString valve = nativeRoot() + "/steamapps/common/Proton 11.0";
+    makeProton(valve);
+    makeFile(valve + "/version", "1788504981 proton-11.0-2c-x86_64\n");
+    mapCompatTool(nativeRoot(), "1245620", "proton_11");
+
+    GameRunner runner;
+    const CompatToolResolver::ToolInfo t = runner.resolveProtonTool(steamGame("1245620"), DLSSSettings());
+    QCOMPARE(t.path, valve);
+    QCOMPARE(t.kind, CompatToolResolver::Kind::Valve);
+    QCOMPARE(t.version, QVersionNumber(11, 0, 2));
+    QCOMPARE(CompatToolResolver::forkOf(t.kind), FeatureGate::Fork::Valve);
+
+    // Without the mapping (or for a game that is not a Steam game) it is the
+    // default choice again.
+    const CompatToolResolver::ToolInfo other = runner.resolveProtonTool(Game(), DLSSSettings());
+    QCOMPARE(other.kind, CompatToolResolver::Kind::CachyOS);
+}
+
+void TstLaunchPlan::resolvedToolIsInvalidWithNothingInstalled()
+{
+    GameRunner runner;
+    QVERIFY(!runner.resolveProtonTool(Game(), DLSSSettings()).isValid());
+}
+
+void TstLaunchPlan::resolvedToolForUninstalledSelectionFallsBack()
+{
+    // A version chosen once and uninstalled since: a launch quietly falls back,
+    // so the warnings must describe the fallback, not the name in the setting.
+    const QString cachyos = home() + "/.steam/root/compatibilitytools.d/proton-cachyos-11.0-20260703-slr-x86_64";
+    makeProton(cachyos);
+
+    DLSSSettings settings;
+    settings.protonVersion = "GE-Proton9-20";
+
+    GameRunner runner;
+    const CompatToolResolver::ToolInfo t = runner.resolveProtonTool(Game(), settings);
+    QCOMPARE(t.path, runner.findProtonPath(Game(), settings));
+    QCOMPARE(t.kind, CompatToolResolver::Kind::CachyOS);
 }
 
 void TstLaunchPlan::aNonSteamGameGetsNoSteamEnvironment()

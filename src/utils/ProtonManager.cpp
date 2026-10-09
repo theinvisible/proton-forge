@@ -3,7 +3,6 @@
 #include "SteamPaths.h"
 #include "launchers/SteamLauncher.h"
 #include <QDir>
-#include <QFileInfo>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -109,41 +108,6 @@ QList<CompatToolResolver::ToolInfo> ProtonManager::installedTools() const
         compatDirs << steamCompat;
 
     return scanCompatDirs(compatDirs) + scanLibraries(SteamLauncher::libraryPaths());
-}
-
-ProtonManager::ResolvedProton ProtonManager::resolveSelected(const QString& key) const
-{
-    using namespace CompatToolResolver;
-    const QString k = key.trimmed();
-
-    const auto fromTool = [](const ToolInfo& t) -> ResolvedProton {
-        if (!t.isValid()) return {};
-        return {t.version, !t.version.isNull(), forkOf(t.kind)};
-    };
-
-    // "auto" / empty -> what a launch would pick without a Steam mapping.
-    if (k.isEmpty() || k.compare("auto", Qt::CaseInsensitive) == 0)
-        return fromTool(defaultChoice(installedTools()));
-
-    if (k.compare("latest-ge", Qt::CaseInsensitive) == 0)
-        return fromTool(newest(installedTools(), Kind::GE));
-
-    if (k.compare("steam-proton", Qt::CaseInsensitive) == 0)
-        return fromTool(latestSteam(scanLibraries(SteamLauncher::libraryPaths())));
-
-    // Absolute paths (the selector stores Valve Protons this way) and folder
-    // names under our install directory: inspect what is really there.
-    const QString path = k.startsWith('/') ? k : protonCachyOSPath() + "/" + k;
-    const ToolInfo installed = inspect(path);
-    if (installed.isValid()) return fromTool(installed);
-
-    // Not (or no longer) installed: the name alone still tells the forks apart.
-    const Kind kind = classify(QFileInfo(k).fileName());
-    QVersionNumber v;
-    if (kind == Kind::CachyOS) v = parseCachyOS(k);
-    else if (kind == Kind::GE) v = parseGE(k);
-    else return {};
-    return {v, !v.isNull(), forkOf(kind)};
 }
 
 QVersionNumber ProtonManager::parseVersion(const QString& fileName) const

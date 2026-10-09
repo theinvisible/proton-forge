@@ -48,19 +48,6 @@ public:
     // Scanned on each call — cheap (a directory listing per root).
     QList<CompatToolResolver::ToolInfo> installedTools() const;
 
-    struct ResolvedProton {
-        QVersionNumber version;          // null when unknown
-        bool known = false;              // false -> feature gating skips Proton version checks
-        FeatureGate::Fork fork = FeatureGate::Fork::Unknown;  // may be known without a version
-    };
-
-    // Resolve a per-game protonVersion selection key ("", "auto", "latest-ge",
-    // "steam-proton", an absolute path, or a folder name) to a comparable
-    // version number plus fork for feature gating. `known` is false when the
-    // version can't be determined (nothing installed, Proton Experimental,
-    // a Valve build without a version file).
-    ResolvedProton resolveSelected(const QString& key) const;
-
     // Check for available updates
     void checkForUpdates();
 

@@ -102,8 +102,10 @@ const Requirement& requirementFor(Feature feature)
         // drivers have it from 595.45.04. Game fixes landed in 610.57.04.
         r.minDriver = QVersionNumber(595, 44, 2);
         r.minProton = QVersionNumber(11);
-        // The flag exists only in vkd3d-proton master, which the forks and
-        // Experimental ship but Valve's numbered 11.0 releases do not.
+        // The flag exists only in vkd3d-proton master (5f319d32, 2026-05-27),
+        // which the forks and Experimental ship but Valve's numbered 11.0
+        // releases do not. GE has it from 11-1 (vkd3d bee300e4) and no 10.x
+        // does; CachyOS from 11.0-20260521 (vkd3d 110e8bd4).
         r.minCachyOS = QVersionNumber(11, 0, 20260521);
         r.minGE = QVersionNumber(11, 1);
         r.note = QStringLiteral("NVIDIA driver ≥ 595.44.02 (≥ 610.57 recommended), "
@@ -124,6 +126,9 @@ const Requirement& requirementFor(Feature feature)
         r.note = QStringLiteral("PROTON_NO_NTSYNC needs Proton ≥ 11 (NTSync is opt-in before that)");
         return r;
     }();
+    // GE: the proton script switches it on from 10-26, and umu-protonfixes'
+    // upscalers.py reads any value other than 0/1 as the DLL version — an
+    // unknown one falls back to the newest in its manifest. Valve: absent.
     static const Requirement dlssUpgrade = [] {
         Requirement r;
         r.minCachyOS = QVersionNumber(0);

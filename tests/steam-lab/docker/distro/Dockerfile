@@ -124,6 +124,29 @@ RUN set -u; \
             || echo "steam-launcher could not be fetched — 50_real_steam will skip that part"; \
     fi
 
+# ------------------------------------------------- runtime-only dependencies
+#
+# The containers run with --network none, so `apt-get install ./pkg.deb` can
+# only resolve a dependency that is already on board. Most runtime libraries
+# arrive as dependencies of the -dev packages above; the ones that do not —
+# today the Qt SVG image plugin, which only the running app needs — are
+# *downloaded* here but not installed, and the package lists are kept for apt
+# to resolve against offline. Installing them instead would let 20_deb_install
+# pass without the package declaring them, which is exactly what it checks
+# ("installing the package brought the SVG plugin along"). docker-clean would
+# delete the downloads after the next apt run, so it goes. A new runtime-only
+# entry in debian/control's Depends belongs in this list. Last layer on purpose:
+# the steamcmd layer above clears the lists again.
+#
+# The SVG plugin moved from libqt6svg6 into qt6-svg-plugins with Qt SVG
+# 6.7.2-5 (trixie, resolute); older distributions only have the former, which
+# is why debian/control names both as alternatives.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
+    && pkgs=libqt6svg6 \
+    && if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then pkgs="$pkgs qt6-svg-plugins"; fi \
+    && apt-get install -y --no-install-recommends --download-only $pkgs
+
 # The agent script is deliberately NOT copied in. It is test logic that changes
 # far more often than this image does, and baking it in means every edit needs a
 # rebuild — or worse, silently runs the stale copy. The repository is already

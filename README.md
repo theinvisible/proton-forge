@@ -35,7 +35,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 
 ### Proton Management
 - **Automatic Updates**: Check for and install Proton-CachyOS and Proton-GE updates
-- **Version Selection**: Choose specific Proton versions per game
+- **Version Selection**: Choose specific Proton versions per game, or "Automatic" — Steam's own choice for the game, else the newest installed Proton — and see which one it resolves to
 - **Version Browser**: Browse and install any available Proton release
 - **Smart Notifications**: Get notified about new versions, with intelligent "don't ask again" for dismissed updates
 - **Delete Versions**: Remove unused Proton installations to save disk space

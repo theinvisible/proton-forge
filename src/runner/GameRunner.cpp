@@ -1,7 +1,6 @@
 #include "GameRunner.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
-#include "utils/CompatToolResolver.h"
 #include "utils/SteamPaths.h"
 #include "utils/SteamClient.h"
 #include "parsers/VDFParser.h"
@@ -200,7 +199,14 @@ QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& setting
     if (!settings.protonVersion.isEmpty()) {
         // Handle special values
         if (settings.protonVersion == "auto") {
-            // Use latest CachyOS - fall through to default logic
+            // Steam's per-game choice, then the default — below.
+        } else if (settings.protonVersion == "latest-cachyos") {
+            // Newest Proton-CachyOS by version, whatever Steam has mapped.
+            const QString protonPath = CompatToolResolver::newest(
+                ProtonManager::instance().installedTools(), CompatToolResolver::Kind::CachyOS).path;
+            if (!protonPath.isEmpty()) {
+                return protonPath;
+            }
         } else if (settings.protonVersion == "latest-ge") {
             // Newest GE-Proton by version: "GE-Proton11-7" over "GE-Proton9-20".
             const QString protonPath = CompatToolResolver::newest(
@@ -241,6 +247,12 @@ QString GameRunner::findProtonPath(const Game& game, const DLSSSettings& setting
 
     // Fall back to default Proton (latest CachyOS)
     return findDefaultProton();
+}
+
+CompatToolResolver::ToolInfo GameRunner::resolveProtonTool(const Game& game, const DLSSSettings& settings)
+{
+    const QString path = findProtonPath(game, settings);
+    return path.isEmpty() ? CompatToolResolver::ToolInfo() : CompatToolResolver::inspect(path);
 }
 
 QStringList GameRunner::findExecutables(const QString& installPath) const

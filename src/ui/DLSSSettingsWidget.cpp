@@ -197,7 +197,10 @@ void DLSSSettingsWidget::setupUI()
 
     // Proton version selector (container widget for easy show/hide)
     m_protonSelectorContainer = new QWidget(headerCard);
-    QHBoxLayout* protonLayout = new QHBoxLayout(m_protonSelectorContainer);
+    QVBoxLayout* protonColumn = new QVBoxLayout(m_protonSelectorContainer);
+    protonColumn->setContentsMargins(0, 0, 0, 0);
+    protonColumn->setSpacing(2);
+    QHBoxLayout* protonLayout = new QHBoxLayout();
     protonLayout->setContentsMargins(0, 0, 0, 0);
     QLabel* protonLabel = new QLabel("Proton:", m_protonSelectorContainer);
     protonLabel->setStyleSheet("font-size: 12px; color: #999;");
@@ -206,11 +209,32 @@ void DLSSSettingsWidget::setupUI()
 
     m_protonVersionSelector = new QComboBox(m_protonSelectorContainer);
     m_protonVersionSelector->setStyleSheet("font-size: 11px;");
-    m_protonVersionSelector->setToolTip("Select which Proton version to use");
+    m_protonVersionSelector->setToolTip(
+        "Select which Proton version to use.\n\n"
+        "Automatic picks, in this order: the compatibility tool Steam has set "
+        "for this game, the newest Proton-CachyOS, the newest GE-Proton, "
+        "Proton Experimental, the newest Proton release from Valve.\n\n"
+        "The \"Latest …\" entries always take the newest installed build of "
+        "that kind, ignoring Steam's choice. A selection that is no longer "
+        "installed falls back to Automatic.");
     m_protonVersionSelector->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    // Resolve first: onSettingChanged() evaluates the warnings against it.
+    connect(m_protonVersionSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this]() {
+        if (!m_loading) refreshResolvedProton();
+    });
     connect(m_protonVersionSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DLSSSettingsWidget::onSettingChanged);
     protonLayout->addWidget(m_protonVersionSelector, 1);
+    protonColumn->addLayout(protonLayout);
+
+    // What the selection actually resolves to — "Automatic" can mean four
+    // different things, and a selected version may have been uninstalled.
+    m_resolvedProtonLabel = new QLabel(m_protonSelectorContainer);
+    m_resolvedProtonLabel->setStyleSheet("font-size: 11px; color: #888;");
+    m_resolvedProtonLabel->setContentsMargins(81, 0, 0, 0);  // under the combo, past "Proton:"
+    m_resolvedProtonLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    protonColumn->addWidget(m_resolvedProtonLabel);
     gameInfoLayout->addWidget(m_protonSelectorContainer);
 
     // Executable selector
@@ -280,6 +304,7 @@ void DLSSSettingsWidget::setupUI()
         "font-family: monospace; background-color: #1a1a1a; border: 1px solid #4a4a4a; "
         "border-radius: 4px; color: #c0c0c0; padding: 6px;");
     previewLayout->addWidget(m_launchCommandPreview);
+
     mainLayout->addWidget(previewGroup);
 
     // Action buttons
@@ -802,7 +827,8 @@ QGroupBox* DLSSSettingsWidget::createUpgradeGroup()
     m_dlssVersion->setToolTip(
         "Pin a specific DLSS version, e.g. 310.9.1 — written as "
         "PROTON_DLSS_UPGRADE=<version>.\n\n"
-        "Empty: the newest version Proton knows (PROTON_DLSS_UPGRADE=1).\n\n"
+        "Empty: the newest version Proton knows (PROTON_DLSS_UPGRADE=1). "
+        "A version Proton does not know falls back to the newest one.\n\n"
         "Requires: Proton-CachyOS or GE-Proton 10-26+.");
     versionRow->addWidget(m_dlssVersion, 1);
     layout->addLayout(versionRow);
@@ -1288,12 +1314,16 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     if (protonIndex >= 0) {
         m_protonVersionSelector->setCurrentIndex(protonIndex);
     } else {
-        m_protonVersionSelector->setCurrentIndex(0);  // Default to "Latest Proton-CachyOS"
+        m_protonVersionSelector->setCurrentIndex(0);  // Default to "Automatic"
     }
     m_protonVersionSelector->blockSignals(false);
 
     blockSignalsForAll(false);
     m_loading = false;
+
+    // The warnings below evaluate against it, and it depends on the game, the
+    // selection and Steam's per-game mapping — all of which just changed.
+    refreshResolvedProton();
 
     // Update launch command preview
     updateLaunchCommand(EnvBuilder::buildLaunchOptions(settings));
@@ -1502,6 +1532,25 @@ void DLSSSettingsWidget::applyPlatformGating(const Game& game)
     }
 }
 
+void DLSSSettingsWidget::refreshResolvedProton()
+{
+    // Asks the launch path itself, so the warnings can never be about a
+    // different Proton than the one a launch would start. Not called per
+    // keystroke: for a Steam game it parses config.vdf, and only the game,
+    // the selection or the installed Protons can change the answer.
+    DLSSSettings selection;
+    selection.protonVersion = m_protonVersionSelector->currentData().toString();
+    m_resolvedProton = GameRunner().resolveProtonTool(m_currentGame, selection);
+
+    if (m_resolvedProton.isValid()) {
+        m_resolvedProtonLabel->setText(QStringLiteral("→ %1").arg(m_resolvedProton.dirName));
+        m_resolvedProtonLabel->setToolTip(m_resolvedProton.path);
+    } else {
+        m_resolvedProtonLabel->setText(QStringLiteral("→ no Proton installed"));
+        m_resolvedProtonLabel->setToolTip(QString());
+    }
+}
+
 void DLSSSettingsWidget::updateFeatureWarnings()
 {
     using namespace FeatureGate;
@@ -1509,11 +1558,11 @@ void DLSSSettingsWidget::updateFeatureWarnings()
     Context ctx;
     ctx.driver = GpuInfoCache::instance().nvidiaDriverVersion();
     ctx.gpu = GpuInfoCache::instance().gpuGeneration();
-    const ProtonManager::ResolvedProton rp = ProtonManager::instance().resolveSelected(
-        m_protonVersionSelector->currentData().toString());
-    ctx.proton = rp.version;
-    ctx.protonKnown = rp.known;
-    ctx.fork = rp.fork;
+    // The Proton a launch would really use (see refreshResolvedProton()).
+    ctx.proton = m_resolvedProton.version;
+    ctx.protonKnown = m_resolvedProton.isValid() && !m_resolvedProton.version.isNull();
+    ctx.fork = m_resolvedProton.isValid() ? CompatToolResolver::forkOf(m_resolvedProton.kind)
+                                          : Fork::Unknown;
 
     QStringList lines;
 
@@ -1813,12 +1862,6 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
         m_protonVersionSelector->addItem(displayName, data);
     };
 
-    // ── Automatic / Latest ──────────────────────────────────────────────────
-    addGroupHeader("— Automatic —");
-    addVersionItem("Latest Proton-CachyOS (Recommended)", "auto");
-    addVersionItem("Latest Proton-GE", "latest-ge");
-    addVersionItem("Latest Steam Proton", "steam-proton");
-
     // ── Discover installed versions ─────────────────────────────────────────
     // Newest first by version, not by name: sorting names put GE-Proton9-20
     // above GE-Proton11-7.
@@ -1827,6 +1870,20 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
         sortedNewestFirst(scanCompatDirs({ProtonManager::protonCachyOSPath()}));
     const QList<ToolInfo> steamTools =
         scanLibraries(SteamLauncher::libraryPaths());
+    // What findProtonPath() resolves the "Latest …" entries against.
+    const QList<ToolInfo> installed = ProtonManager::instance().installedTools();
+
+    // ── Automatic / Latest ──────────────────────────────────────────────────
+    // A "Latest …" entry only when there is something of that kind to be the
+    // latest of — otherwise picking it would silently launch something else.
+    addGroupHeader("— Automatic —");
+    addVersionItem("Automatic (Recommended)", "auto");
+    if (newest(installed, Kind::CachyOS).isValid())
+        addVersionItem("Latest Proton-CachyOS", "latest-cachyos");
+    if (newest(installed, Kind::GE).isValid())
+        addVersionItem("Latest Proton-GE", "latest-ge");
+    if (latestSteam(steamTools).isValid())
+        addVersionItem("Latest Steam Proton", "steam-proton");
 
     // ── Proton-CachyOS ─────────────────────────────────────────────────────
     // Stored as the bare folder name; findProtonPath() resolves it against

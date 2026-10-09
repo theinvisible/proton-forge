@@ -8,6 +8,7 @@
 #include <QStringList>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
+#include "utils/CompatToolResolver.h"
 
 class QTimer;
 
@@ -63,6 +64,11 @@ public:
 
     // Proton detection
     QString findProtonPath(const Game& game, const DLSSSettings& settings = DLSSSettings());
+    // The same choice, described: kind (fork) and version of the Proton a
+    // launch would use. Invalid when none would be found. This is what the
+    // compatibility warnings evaluate against, so they can never disagree
+    // with the launch about which Proton is in play.
+    CompatToolResolver::ToolInfo resolveProtonTool(const Game& game, const DLSSSettings& settings);
     QString findGameExecutable(const Game& game);
     // The prefix location now lives on the Game (Game::compatDataPath()); the
     // launcher that discovered it knows where it put it, and deriving it here
