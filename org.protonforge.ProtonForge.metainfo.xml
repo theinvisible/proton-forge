@@ -67,6 +67,11 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.2.0" date="2026-10-09">
+      <description>
+        <p>Proton 11 and DLSS 4.5: launch options follow what current Proton, DXVK and DXVK-NVAPI actually read (write them to Steam again once), direct launches pick the right Proton including Steam's per-game choice, and the DLSS panel gains Dynamic Multi-Frame Generation, Ray Reconstruction 2, described render presets, a pinned DLSS upgrade version, Smooth Motion overlay compatibility, D3D12 shader extensions and GPU-aware compatibility warnings.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-08-11">
       <description>
         <p>GOG support: sign in, browse and install GOG games, and launch them through Proton next to the Steam library.</p>

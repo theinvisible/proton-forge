@@ -22,6 +22,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 - **Ray Reconstruction (RR)**: Fine-tune ray tracing denoising
 - **Frame Generation (FG)**: Control DLSS Frame Generation — Multi-Frame Generation up to 6x, the FG mode (On/Off/Auto/Dynamic, with a target frame rate and maximum frame count for Dynamic Multi-Frame Generation on RTX 50) and an FG render preset
 - **NVIDIA Reflex**: Lower input latency in Vulkan games (DXVK_NVAPI_VKREFLEX) — the recommended companion to Frame Generation and Smooth Motion
+- **D3D12 NVIDIA Shader Extensions** (experimental): Shader Execution Reordering for ray/path tracing in DirectX 12 games (DXVK_NVAPI_D3D12_NV_SHADER_EXTN, DXVK-NVAPI 0.9.2 + vkd3d-proton 3.0.1)
 - **Custom Scaling Ratios**: Set precise render resolution percentages
 - **Render Presets**: Pick the DLSS model preset separately for Super Resolution (DLSS 4 transformer J/K, DLSS 4.5 L/M, legacy CNN), Ray Reconstruction (D/E, and F for Ray Reconstruction 2) and Frame Generation — or "Recommended" to let the driver pick per quality mode. Every entry says what it is for and whether it is deprecated
 - **Compatibility Warnings**: Options that require a newer NVIDIA driver or Proton version are flagged with a non-blocking warning based on your detected driver and the selected Proton version

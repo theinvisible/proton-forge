@@ -471,6 +471,18 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
         "Sets VKD3D_CONFIG=descriptor_heap.");
     layout->addWidget(m_enableVkd3dDescriptorHeap);
 
+    m_enableD3D12ShaderExtensions = new QCheckBox("D3D12 NVIDIA Shader Extensions (experimental)", this);
+    m_enableD3D12ShaderExtensions->setToolTip(
+        "Let DirectX 12 games use NVIDIA's shader extensions — today that means "
+        "Shader Execution Reordering (SER), which speeds up ray and path tracing.\n\n"
+        "Benefits e.g. Alan Wake 2, Cyberpunk 2077 (with some known issues) and many "
+        "Unreal Engine 5 titles such as Black Myth: Wukong. Experimental — DXVK-NVAPI "
+        "describes it as a troubleshooting tweak, so test per game.\n\n"
+        "Requires: DXVK-NVAPI 0.9.2 and vkd3d-proton 3.0.1 (Valve Proton 11.0-2, "
+        "current Proton-CachyOS / GE-Proton).\n\n"
+        "Sets DXVK_NVAPI_D3D12_NV_SHADER_EXTN=1.");
+    layout->addWidget(m_enableD3D12ShaderExtensions);
+
     m_showIndicator = new QCheckBox("Show DLSS Indicator (PROTON_DLSS_INDICATOR)", this);
     m_showIndicator->setToolTip(
         "Display an on-screen DLSS status indicator in-game.\n\n"
@@ -485,6 +497,7 @@ QGroupBox* DLSSSettingsWidget::createGeneralGroup()
     connect(m_enableReflex, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableVkd3dLowLatency, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_enableVkd3dDescriptorHeap, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
+    connect(m_enableD3D12ShaderExtensions, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
     connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
 
     return group;
@@ -1293,6 +1306,7 @@ void DLSSSettingsWidget::blockSignalsForAll(bool block)
     m_enableNGXUpdater->blockSignals(block);
     m_enableReflex->blockSignals(block);
     m_enableVkd3dLowLatency->blockSignals(block);
+    m_enableD3D12ShaderExtensions->blockSignals(block);
     m_enableVkd3dDescriptorHeap->blockSignals(block);
     m_enablePrimeOffload->blockSignals(block);
     m_showIndicator->blockSignals(block);
@@ -1345,6 +1359,7 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
     m_enableNGXUpdater->setChecked(settings.enableNGXUpdater);
     m_enableReflex->setChecked(settings.enableReflex);
     m_enableVkd3dLowLatency->setChecked(settings.enableVkd3dLowLatency);
+    m_enableD3D12ShaderExtensions->setChecked(settings.enableD3D12ShaderExtensions);
     m_enableVkd3dDescriptorHeap->setChecked(settings.enableVkd3dDescriptorHeap);
     m_enablePrimeOffload->setChecked(settings.enablePrimeRenderOffload);
     m_showIndicator->setChecked(settings.showIndicator);
@@ -1477,6 +1492,7 @@ DLSSSettings DLSSSettingsWidget::settings() const
     settings.enableNGXUpdater = m_enableNGXUpdater->isChecked();
     settings.enableReflex = m_enableReflex->isChecked();
     settings.enableVkd3dLowLatency = m_enableVkd3dLowLatency->isChecked();
+    settings.enableD3D12ShaderExtensions = m_enableD3D12ShaderExtensions->isChecked();
     settings.enableVkd3dDescriptorHeap = m_enableVkd3dDescriptorHeap->isChecked();
     settings.vkd3dConfigExtra = m_vkd3dConfigExtra;
     settings.enablePrimeRenderOffload = m_enablePrimeOffload->isChecked();
@@ -1637,6 +1653,7 @@ void DLSSSettingsWidget::applyPlatformGating(const Game& game)
         { m_enableNGXUpdater,         "PROTON_ENABLE_NGX_UPDATER" },
         { m_enableReflex,             "DXVK_NVAPI_VKREFLEX" },
         { m_enableVkd3dLowLatency,    "PROTON_VKD3D_LOWLATENCY" },
+        { m_enableD3D12ShaderExtensions, "DXVK_NVAPI_D3D12_NV_SHADER_EXTN" },
         { m_enableVkd3dDescriptorHeap,"VKD3D_CONFIG" },
         { m_showIndicator,            "PROTON_DLSS_INDICATOR" },
 
@@ -1744,6 +1761,8 @@ void DLSSSettingsWidget::updateFeatureWarnings()
     check(m_enableReflex, m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
     check(m_enableVkd3dLowLatency, m_enableVkd3dLowLatency->isChecked(), Feature::Vkd3dLowLatency, "VKD3D Low Latency");
     check(m_enableVkd3dDescriptorHeap, m_enableVkd3dDescriptorHeap->isChecked(), Feature::Vkd3dDescriptorHeap, "VKD3D Descriptor Heap");
+    check(m_enableD3D12ShaderExtensions, m_enableD3D12ShaderExtensions->isChecked(),
+          Feature::D3D12ShaderExtensions, "D3D12 Shader Extensions");
     check(m_protonUseD7VK, m_protonUseD7VK->isChecked(), Feature::D7vk, "D7VK");
     check(m_disableAutoHDR, m_disableAutoHDR->isChecked(), Feature::DisableAutoHdr, "Disable auto-HDR");
     const QString ntsync = m_ntsyncMode->currentData().toString();

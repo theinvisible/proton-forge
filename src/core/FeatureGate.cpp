@@ -76,6 +76,15 @@ const Requirement& requirementFor(Feature feature)
         r.gpuNote = QStringLiteral("Dynamic Multi-Frame Generation needs an RTX 50 GPU");
         return r;
     }();
+    // NVIDIA shader extensions in D3D12 (Shader Execution Reordering): reported
+    // by DXVK-NVAPI 0.9.2, implemented by vkd3d-proton 3.0.1 — both in Valve's
+    // Proton from 11.0-2, both tracked by the forks.
+    static const Requirement d3d12ShaderExtensions = [] {
+        Requirement r = dlssgMode;
+        r.note = QStringLiteral("DXVK-NVAPI ≥ 0.9.2 and vkd3d-proton ≥ 3.0.1 "
+                                "(Proton ≥ 10, Valve Proton ≥ 11.0-2)");
+        return r;
+    }();
     static const Requirement reflex = [] {
         Requirement r;
         r.minProton = QVersionNumber(9);
@@ -157,6 +166,7 @@ const Requirement& requirementFor(Feature feature)
         case Feature::RayReconstruction: return rayReconstruction;
         case Feature::DlssgMode:         return dlssgMode;
         case Feature::DynamicFrameGen:   return dynamicFrameGen;
+        case Feature::D3D12ShaderExtensions: return d3d12ShaderExtensions;
         case Feature::FgPreset:          return fgPreset;
         case Feature::Reflex:            return reflex;
         case Feature::Vkd3dLowLatency:   return vkd3dLowLatency;

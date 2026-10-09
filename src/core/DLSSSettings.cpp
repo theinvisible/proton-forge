@@ -11,6 +11,7 @@ QJsonObject DLSSSettings::toJson() const
     json["enableVkd3dLowLatency"] = enableVkd3dLowLatency;
     json["enablePrimeRenderOffload"] = enablePrimeRenderOffload;
     json["enableVkd3dDescriptorHeap"] = enableVkd3dDescriptorHeap;
+    json["enableD3D12ShaderExtensions"] = enableD3D12ShaderExtensions;
     if (!vkd3dConfigExtra.isEmpty()) {
         json["vkd3dConfigExtra"] = vkd3dConfigExtra;
     }
@@ -96,6 +97,7 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
     settings.enableVkd3dLowLatency = json["enableVkd3dLowLatency"].toBool(false);
     settings.enablePrimeRenderOffload = json["enablePrimeRenderOffload"].toBool(false);
     settings.enableVkd3dDescriptorHeap = json["enableVkd3dDescriptorHeap"].toBool(false);
+    settings.enableD3D12ShaderExtensions = json["enableD3D12ShaderExtensions"].toBool(false);
     settings.vkd3dConfigExtra = json["vkd3dConfigExtra"].toString();
 
     // Super Resolution
@@ -253,6 +255,7 @@ bool DLSSSettings::operator==(const DLSSSettings& other) const
            enableVkd3dLowLatency == other.enableVkd3dLowLatency &&
            enablePrimeRenderOffload == other.enablePrimeRenderOffload &&
            enableVkd3dDescriptorHeap == other.enableVkd3dDescriptorHeap &&
+           enableD3D12ShaderExtensions == other.enableD3D12ShaderExtensions &&
            vkd3dConfigExtra == other.vkd3dConfigExtra &&
            srOverride == other.srOverride &&
            srMode == other.srMode &&

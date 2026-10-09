@@ -90,6 +90,7 @@ enum class Feature {
     RayReconstruction,
     DlssgMode,
     DynamicFrameGen,
+    D3D12ShaderExtensions,
     FgPreset,
     Reflex,
     Vkd3dLowLatency,

@@ -6,6 +6,8 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-09
+
 ### Action needed: write your launch options to Steam again
 
 Proton 11 and DXVK 3.0 stopped reading several variables ProtonForge used to
@@ -70,6 +72,10 @@ rewritten in the new form on the next write.
   small performance cost.
 - A warning when Smooth Motion and the DLSS Frame Generation override are both
   on — NVIDIA advises against combining them.
+- **D3D12 NVIDIA Shader Extensions** (`DXVK_NVAPI_D3D12_NV_SHADER_EXTN=1`,
+  experimental): Shader Execution Reordering for DirectX 12 ray and path
+  tracing, e.g. in Alan Wake 2, Cyberpunk 2077 and many Unreal Engine 5 games.
+  Needs DXVK-NVAPI 0.9.2 and vkd3d-proton 3.0.1 (Valve Proton 11.0-2+).
 
 ### Fixed
 

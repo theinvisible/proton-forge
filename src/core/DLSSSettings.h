@@ -16,6 +16,9 @@ public:
     bool enableVkd3dLowLatency = false;  // PROTON_VKD3D_LOWLATENCY=1 (CachyOS ≥ 11.0-20260703)
     bool enablePrimeRenderOffload = false;  // __NV_PRIME_RENDER_OFFLOAD trio for hybrid iGPU+dGPU systems
     bool enableVkd3dDescriptorHeap = false;  // VKD3D_CONFIG=descriptor_heap (experimental, driver ≥ 595.44.02)
+    // DXVK_NVAPI_D3D12_NV_SHADER_EXTN=1: NVIDIA shader extensions in D3D12
+    // (Shader Execution Reordering). Experimental, DXVK-NVAPI 0.9.2 + vkd3d-proton 3.0.1.
+    bool enableD3D12ShaderExtensions = false;
     // Other VKD3D_CONFIG flags (e.g. "dxr") round-tripped from imported launch
     // options so enabling descriptor_heap doesn't clobber them. Not in the UI.
     QString vkd3dConfigExtra;

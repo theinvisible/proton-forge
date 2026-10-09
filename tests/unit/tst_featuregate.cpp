@@ -45,7 +45,7 @@ void TstFeatureGate::everyFeatureHasARequirement()
     // gating nothing — so assert every one of them carries something.
     const QList<Feature> all = {
         Feature::SmoothMotion, Feature::MultiFrameGen, Feature::RayReconstruction,
-        Feature::DlssgMode, Feature::DynamicFrameGen, Feature::FgPreset, Feature::Reflex,
+        Feature::DlssgMode, Feature::DynamicFrameGen, Feature::D3D12ShaderExtensions, Feature::FgPreset, Feature::Reflex,
         Feature::Vkd3dLowLatency, Feature::D7vk, Feature::DisableAutoHdr,
         Feature::Vkd3dDescriptorHeap, Feature::FrameGen, Feature::NtsyncOptIn,
         Feature::NtsyncDisable, Feature::DlssUpgrade, Feature::DlssUpgradeVersion,
@@ -411,6 +411,10 @@ void TstFeatureGate::realFeatures_data()
     row("dlssg mode on Valve 11.0-1", Feature::DlssgMode,
         {}, QVersionNumber(11, 0, 1), Fork::Valve, Status::BelowMinProton);
     row("dlssg mode on Valve 11.0-2", Feature::DlssgMode,
+        {}, valve11_2, Fork::Valve, Status::Supported);
+    row("shader extensions on Valve 11.0-1", Feature::D3D12ShaderExtensions,
+        {}, QVersionNumber(11, 0, 1), Fork::Valve, Status::BelowMinProton);
+    row("shader extensions on Valve 11.0-2", Feature::D3D12ShaderExtensions,
         {}, valve11_2, Fork::Valve, Status::Supported);
     row("fg preset on GE 10", Feature::FgPreset,
         {}, QVersionNumber(10, 34), Fork::GE, Status::Supported);

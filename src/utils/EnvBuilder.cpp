@@ -49,6 +49,7 @@ const QHash<QString, EnvBuilder::VarScope>& varScopeTable()
         // DLSS SR/RR/FG override travels in DXVK_NVAPI_DRS_SETTINGS.
         {"DXVK_NVAPI_DRS_SETTINGS",        EnvBuilder::VarScope::ProtonOnly},
         {"DXVK_NVAPI_VKREFLEX",            EnvBuilder::VarScope::ProtonOnly},
+        {"DXVK_NVAPI_D3D12_NV_SHADER_EXTN", EnvBuilder::VarScope::ProtonOnly},
 
         // DXVK / vkd3d-proton.
         {"DXVK_HDR",                       EnvBuilder::VarScope::ProtonOnly},
@@ -221,6 +222,7 @@ QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& cu
     if (!s.enableNVAPI) set("PROTON_DISABLE_NVAPI", one);
     if (s.enableNGXUpdater) set("PROTON_ENABLE_NGX_UPDATER", one);
     if (s.enableReflex) set("DXVK_NVAPI_VKREFLEX", one);
+    if (s.enableD3D12ShaderExtensions) set("DXVK_NVAPI_D3D12_NV_SHADER_EXTN", one);
     if (s.enableVkd3dLowLatency) set("PROTON_VKD3D_LOWLATENCY", one);
 
     const QString vkd3dConfig = joinNonEmpty(vkd3dConfigValue(s), customVkd3d, ',');
@@ -348,6 +350,7 @@ bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
     if (key == "__NV_PRIME_RENDER_OFFLOAD") { s.enablePrimeRenderOffload = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_NGX_UPDATER") { s.enableNGXUpdater = (value != "0"); return true; }
     if (key == "DXVK_NVAPI_VKREFLEX") { s.enableReflex = (value != "0"); return true; }
+    if (key == "DXVK_NVAPI_D3D12_NV_SHADER_EXTN") { s.enableD3D12ShaderExtensions = (value != "0"); return true; }
     if (key == "PROTON_VKD3D_LOWLATENCY") { s.enableVkd3dLowLatency = (value != "0"); return true; }
     if (key == "PROTON_DLSS_UPGRADE") {
         s.dlssUpgrade = (value != "0");
@@ -608,6 +611,7 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     s.enableNVAPI = true;   // on unless the string turns it off
     s.enableNGXUpdater = false;
     s.enableReflex = false;
+    s.enableD3D12ShaderExtensions = false;
     s.enableVkd3dLowLatency = false;
     s.enablePrimeRenderOffload = false;
     s.enableVkd3dDescriptorHeap = false; s.vkd3dConfigExtra.clear();

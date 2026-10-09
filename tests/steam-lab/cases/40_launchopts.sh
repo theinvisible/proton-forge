@@ -77,6 +77,7 @@ for combo in \
     "--set rrOverride=true --set rrPreset=RENDER_PRESET_F" \
     "--set enableSmoothMotion=true --set smoothMotionGraphicsQueue=true" \
     "--set enableReflex=true --set protonUseNTSync=true --set protonLog=true" \
+    "--set enableD3D12ShaderExtensions=true --set enableVkd3dDescriptorHeap=true" \
     "--set enableSmoothMotion=true --set disableAutoHDR=true" \
     "--set dlssUpgrade=true --set showIndicator=true --set enableMangoHud=true" \
     "--set dlssUpgrade=true --set dlssVersion=310.9.1" \

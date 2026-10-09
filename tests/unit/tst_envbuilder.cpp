@@ -72,6 +72,7 @@ private:
         s.enableReflex = true;
         s.enableVkd3dLowLatency = true;
         s.enableVkd3dDescriptorHeap = true;
+        s.enableD3D12ShaderExtensions = true;
         s.dlssUpgrade = true;
         s.showIndicator = true;
         s.srOverride = true;
@@ -120,6 +121,7 @@ void TstEnvBuilder::emitsKnownVariables_data()
     QTest::newRow("ngx updater")     << "enableNGXUpdater"        << "PROTON_ENABLE_NGX_UPDATER=1";
     QTest::newRow("reflex")          << "enableReflex"            << "DXVK_NVAPI_VKREFLEX=1";
     QTest::newRow("vkd3d lowlatency")<< "enableVkd3dLowLatency"   << "PROTON_VKD3D_LOWLATENCY=1";
+    QTest::newRow("d3d12 shader extn")<< "enableD3D12ShaderExtensions" << "DXVK_NVAPI_D3D12_NV_SHADER_EXTN=1";
     QTest::newRow("dlss upgrade")    << "dlssUpgrade"             << "PROTON_DLSS_UPGRADE=1";
     QTest::newRow("indicator")       << "showIndicator"           << "PROTON_DLSS_INDICATOR=1";
     QTest::newRow("smooth motion")   << "enableSmoothMotion"      << "NVPRESENT_ENABLE_SMOOTH_MOTION=1";
@@ -313,6 +315,7 @@ void TstEnvBuilder::absenceMeansOff()
     // off — otherwise a user who cleared an option in Steam gets it back.
     DLSSSettings base;
     base.enableReflex = true;
+    base.enableD3D12ShaderExtensions = true;
     base.protonLog = true;
     base.enableSmoothMotion = true;
     base.enableProtonHDR = true;
@@ -323,6 +326,7 @@ void TstEnvBuilder::absenceMeansOff()
     const DLSSSettings parsed = reparse("%command%", base);
 
     QVERIFY(!parsed.enableReflex);
+    QVERIFY(!parsed.enableD3D12ShaderExtensions);
     QVERIFY(!parsed.protonLog);
     QVERIFY(!parsed.enableSmoothMotion);
     QVERIFY(!parsed.enableProtonHDR);
@@ -679,6 +683,7 @@ void TstEnvBuilder::dlssOverridesAreProtonOnly()
     // given these settings at all.
     QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_DRS_SETTINGS"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_VKREFLEX"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_D3D12_NV_SHADER_EXTN"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("PROTON_DISABLE_NVAPI"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("VKD3D_CONFIG"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("DXVK_CONFIG"), EnvBuilder::VarScope::ProtonOnly);
