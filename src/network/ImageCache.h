@@ -13,11 +13,26 @@ class ImageCache : public QObject {
 public:
     static ImageCache& instance();
 
+    // Visible: the list shows the image as loading until the new one is in.
+    // Silent: the old image stays on screen until it is replaced — for the
+    // background refresh, which should not make the library flicker.
+    enum class RefreshMode { Visible, Silent };
+
     // Get cached image or trigger fetch
     QPixmap getImage(const QString& url, const QSize& size = QSize());
 
     // Check if image is cached
     bool hasImage(const QString& url) const;
+
+    // Download the image again even though it is cached, and retry one that
+    // failed. The cached copy is replaced only once the new one is in: if the
+    // download fails, the old image stays and the URL is not marked failed.
+    // A download already running for the URL counts as this refresh.
+    void refresh(const QString& url, RefreshMode mode = RefreshMode::Visible);
+
+    // True when the cached file is older than maxAgeSecs. An image that is not
+    // cached at all is not stale — getImage() fetches it anyway.
+    bool isStale(const QString& url, qint64 maxAgeSecs) const;
 
     // True if a fetch for this URL failed this session (no retry until restart)
     bool hasFailed(const QString& url) const { return m_failedUrls.contains(url); }
@@ -31,6 +46,11 @@ public:
 signals:
     void imageReady(const QString& url);
     void imageFailed(const QString& url);
+    // Only for refresh(): started (Visible mode only) and finished, whether or
+    // not it succeeded. A failed refresh with a cached copy emits no
+    // imageFailed — the copy is still good.
+    void refreshStarted(const QString& url);
+    void refreshFinished(const QString& url, bool ok);
 
 private:
     ImageCache();
@@ -48,6 +68,7 @@ private:
     QMap<QString, QPixmap> m_memoryCache;
     QSet<QString> m_pendingRequests;
     QSet<QString> m_failedUrls;
+    QSet<QString> m_refreshing;    // pending downloads a refresh() asked for
 };
 
 #endif // IMAGECACHE_H

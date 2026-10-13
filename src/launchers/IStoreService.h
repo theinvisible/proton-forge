@@ -182,9 +182,9 @@ public:
     // network call. Asynchronous; announces itself with
     // installedMetadataChanged().
     //
-    // The default does nothing, and for a store whose artwork URL falls out of
-    // its own id that is a complete answer rather than a stub — Steam builds
-    // its banner URL from the appid and has nothing to ask anyone.
+    // The default does nothing. Steam uses it: its banners are either in the
+    // Steam client's local cache or found on demand, when one fails to load
+    // (SteamStoreService::onArtworkFailed) — there is nothing to ask up front.
     virtual void refreshInstalledArtwork() {}
 
     // Whether an install of this id is running or queued right now. The dialog

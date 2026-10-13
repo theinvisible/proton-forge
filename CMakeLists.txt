@@ -82,6 +82,7 @@ set(CORE_SOURCES
     src/gog/ZipReader.cpp
     src/gog/GogOfflineClient.cpp
     src/launchers/SteamStoreService.cpp
+    src/launchers/SteamArtwork.cpp
     src/network/JsonDiskCache.cpp
     src/network/ImageCache.cpp
     src/network/ProtonDBClient.cpp
@@ -156,6 +157,7 @@ set(CORE_HEADERS
     src/gog/GogOfflineClient.h
     src/launchers/IStoreService.h
     src/launchers/SteamStoreService.h
+    src/launchers/SteamArtwork.h
     src/network/JsonDiskCache.h
     src/network/ImageCache.h
     src/network/ProtonDBClient.h

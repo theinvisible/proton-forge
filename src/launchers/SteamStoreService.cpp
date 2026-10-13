@@ -1,5 +1,7 @@
 #include "SteamStoreService.h"
 #include "core/SecretStore.h"
+#include "launchers/SteamArtwork.h"
+#include "network/ImageCache.h"
 #include "network/JsonDiskCache.h"
 #include "parsers/VDFParser.h"
 #include "utils/SteamPaths.h"
@@ -11,6 +13,7 @@
 #include <QNetworkReply>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -45,6 +48,80 @@ QString canonicalFeature(const QString& category)
 SteamStoreService::SteamStoreService()
     : m_networkManager(new QNetworkAccessManager(this))
 {
+    connect(&ImageCache::instance(), &ImageCache::imageFailed, this,
+            &SteamStoreService::onArtworkFailed);
+}
+
+void SteamStoreService::onArtworkFailed(const QString& url)
+{
+    const QString appId = SteamArtwork::appIdFromUrl(url);
+    if (appId.isEmpty() || m_artworkLookedUp.contains(appId)) {
+        return;
+    }
+    m_artworkLookedUp.insert(appId);
+    m_artworkQueue.enqueue(appId);
+    startArtworkLookups();
+}
+
+void SteamStoreService::startArtworkLookups()
+{
+    // The store dialog can list hundreds of owned titles, and the endpoint is
+    // rate-limited per IP: a handful at a time, never the whole list at once.
+    constexpr int kMaxInFlight = 4;
+    while (m_artworkInFlight < kMaxInFlight && !m_artworkQueue.isEmpty()) {
+        const QString appId = m_artworkQueue.dequeue();
+        ++m_artworkInFlight;
+
+        // Always the network: if a cached answer's URL is what failed, that
+        // answer is out of date. Same query as fetchDetails(), so the answer
+        // is cached where both look for it.
+        QUrl url(QStringLiteral("https://store.steampowered.com/api/appdetails"));
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("appids"), appId);
+        query.addQueryItem(QStringLiteral("l"), QStringLiteral("english"));
+        url.setQuery(query);
+
+        QNetworkRequest request(url);
+        request.setRawHeader("User-Agent", "ProtonForge");
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                             QNetworkRequest::NoLessSafeRedirectPolicy);
+
+        const QString before = SteamArtwork::storeHeaderUrl(appId);
+        QNetworkReply* reply = m_networkManager->get(request);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, appId, before]() {
+            reply->deleteLater();
+            --m_artworkInFlight;
+
+            if (reply->error() == QNetworkReply::NoError) {
+                const QByteArray body = reply->readAll();
+                const QString header = SteamArtwork::headerFromAppDetails(body, appId);
+                if (!header.isEmpty()) {
+                    JsonDiskCache::save(SteamArtwork::appDetailsCachePath(appId), body);
+                    if (header != before) {
+                        m_artworkChanged = true;
+                    }
+                }
+            }
+
+            if (m_artworkInFlight == 0 && m_artworkQueue.isEmpty()) {
+                if (m_artworkChanged) {
+                    // One rediscovery for the whole batch, the GOG idiom.
+                    m_artworkChanged = false;
+                    emit installedMetadataChanged();
+                }
+            } else {
+                startArtworkLookups();
+            }
+        });
+    }
+}
+
+QList<StoreEntry> SteamStoreService::withResolvedArtwork(QList<StoreEntry> entries)
+{
+    for (StoreEntry& entry : entries) {
+        entry.imageUrl = SteamArtwork::resolve(entry.id);
+    }
+    return entries;
 }
 
 bool SteamStoreService::isAuthenticated() const
@@ -59,13 +136,6 @@ QString SteamStoreService::authenticationHint() const
     return QStringLiteral(
         "Steam has no sign-in here. Add your Steam Web API key in Settings → Steam "
         "to see the games you own but have not installed.");
-}
-
-QString SteamStoreService::headerImageUrl(const QString& appId)
-{
-    // The same CDN pattern SteamLauncher already uses for installed games, so
-    // ImageCache treats both identically.
-    return QStringLiteral("https://steamcdn-a.akamaihd.net/steam/apps/%1/header.jpg").arg(appId);
 }
 
 QString SteamStoreService::steamIdFromLoginUsers(const QByteArray& vdf)
@@ -137,7 +207,8 @@ QList<StoreEntry> SteamStoreService::parseOwnedGames(const QByteArray& json, int
         StoreEntry entry;
         entry.id = appId;
         entry.title = game.value(QStringLiteral("name")).toString();
-        entry.imageUrl = headerImageUrl(appId);
+        // Pure, so the CDN scheme; fetchLibrary() swaps in the resolved banner.
+        entry.imageUrl = SteamArtwork::legacyUrl(appId);
         entry.storeUrl = QStringLiteral("https://store.steampowered.com/app/%1").arg(appId);
         // We never install a Steam game ourselves; the client does.
         entry.installUrl = QStringLiteral("steam://install/%1").arg(appId);
@@ -260,8 +331,7 @@ void SteamStoreService::fetchDetails(const QString& id)
         return;
     }
 
-    const QString cachePath =
-        JsonDiskCache::filePath(kCacheArea, QStringLiteral("appdetails-") + id);
+    const QString cachePath = SteamArtwork::appDetailsCachePath(id);
 
     QByteArray cached;
     if (JsonDiskCache::load(cachePath, cached, kDetailsTtlSecs)) {
@@ -329,7 +399,7 @@ void SteamStoreService::fetchLibrary()
         int count = 0;
         const QList<StoreEntry> entries = parseOwnedGames(cached, &count);
         if (!entries.isEmpty()) {
-            emit libraryReady(entries);
+            emit libraryReady(withResolvedArtwork(entries));
             return;
         }
     }
@@ -376,6 +446,6 @@ void SteamStoreService::fetchLibrary()
         }
 
         JsonDiskCache::save(cachePath, body);
-        emit libraryReady(entries);
+        emit libraryReady(withResolvedArtwork(entries));
     });
 }

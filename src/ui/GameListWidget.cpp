@@ -353,6 +353,10 @@ GameListWidget::GameListWidget(QWidget* parent)
     connect(m_listWidget, &QListWidget::currentItemChanged, this, &GameListWidget::onCurrentItemChanged);
     connect(&ImageCache::instance(), &ImageCache::imageReady, this, &GameListWidget::onImageReady);
     connect(&ImageCache::instance(), &ImageCache::imageFailed, this, &GameListWidget::onImageFailed);
+    connect(&ImageCache::instance(), &ImageCache::refreshStarted, this,
+            &GameListWidget::onRefreshStarted);
+    connect(&ImageCache::instance(), &ImageCache::refreshFinished, this,
+            &GameListWidget::onRefreshFinished);
     connect(m_listWidget, &QListWidget::customContextMenuRequested, this, &GameListWidget::showContextMenu);
 }
 
@@ -546,6 +550,30 @@ void GameListWidget::onImageFailed(const QString& url)
     finishImage(url, false);
 }
 
+void GameListWidget::onRefreshStarted(const QString& url)
+{
+    // Back to the shimmer the list shows while artwork loads, so a refresh is
+    // visible even when the new image turns out identical to the old one.
+    for (int i = 0; i < m_listWidget->count(); ++i) {
+        QListWidgetItem* item = m_listWidget->item(i);
+        if (item->data(RoleImageUrl).toString() == url) {
+            item->setData(RoleImageLoaded, false);
+            item->setData(RoleImageFailed, false);
+        }
+    }
+    ensureShimmerRunning();
+    m_listWidget->viewport()->update();
+}
+
+void GameListWidget::onRefreshFinished(const QString& url, bool ok)
+{
+    // Success already arrived as imageReady. A failure that kept the old image
+    // emits nothing else, so the item has to be told it has a picture again.
+    if (!ok && ImageCache::instance().hasImage(url)) {
+        finishImage(url, true);
+    }
+}
+
 void GameListWidget::finishImage(const QString& url, bool success)
 {
     bool anyPending = false;
@@ -609,9 +637,15 @@ void GameListWidget::showContextMenu(const QPoint& pos)
         openCompatDataAction->setEnabled(QDir(compatDataPath).exists());
     }
 
+    menu.addSeparator();
+    QAction* refreshArtworkAction = menu.addAction(QIcon(":/icons/refresh.svg"), "Refresh Artwork");
+    refreshArtworkAction->setEnabled(!game.imageUrl().isEmpty());
+
     QAction* selectedAction = menu.exec(m_listWidget->mapToGlobal(pos));
 
-    if (selectedAction == openLocationAction) {
+    if (selectedAction == refreshArtworkAction) {
+        emit artworkRefreshRequested({game});
+    } else if (selectedAction == openLocationAction) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(game.installPath()));
     } else if (selectedAction == openCompatDataAction && openCompatDataAction) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(compatDataPath));

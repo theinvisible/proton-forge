@@ -2,6 +2,7 @@
 #include "launchers/LauncherManager.h"
 #include "launchers/SteamLauncher.h"
 #include "launchers/IStoreService.h"
+#include "network/ImageCache.h"
 #include "core/SettingsManager.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
@@ -74,6 +75,20 @@ MainWindow::MainWindow(QWidget* parent)
             store->refreshInstalledArtwork();
         }
     }
+
+    // Artwork is refreshed once a day per image. Checked half a minute after
+    // start — not competing with discovery and the Proton update check — and
+    // then hourly, which only loads what has turned a day old since, so a
+    // window left open for days stays current too.
+    connect(&ImageCache::instance(), &ImageCache::refreshFinished, this,
+            &MainWindow::onArtworkRefreshFinished);
+    connect(m_gameList, &GameListWidget::artworkRefreshRequested, this,
+            &MainWindow::refreshArtwork);
+    QTimer::singleShot(30 * 1000, this, &MainWindow::refreshStaleArtwork);
+    auto* artworkTimer = new QTimer(this);
+    artworkTimer->setInterval(60 * 60 * 1000);
+    connect(artworkTimer, &QTimer::timeout, this, &MainWindow::refreshStaleArtwork);
+    artworkTimer->start();
 
     // Kick off a one-shot background driver detection so feature gating in the
     // settings panel can compare against the real NVIDIA driver version.
@@ -285,6 +300,10 @@ void MainWindow::setupMenuBar()
     QMenu* libraryMenu = menuBar()->addMenu("&Library");
     QAction* storesAction = libraryMenu->addAction(QIcon(":/icons/package.svg"), "Game &Stores...");
     connect(storesAction, &QAction::triggered, this, &MainWindow::showStoreLibrary);
+    QAction* refreshArtworkAction =
+        libraryMenu->addAction(QIcon(":/icons/refresh.svg"), "Refresh &Artwork");
+    connect(refreshArtworkAction, &QAction::triggered, this,
+            [this]() { refreshArtwork(m_gameList->games()); });
 
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
 
@@ -937,6 +956,89 @@ void MainWindow::closeEvent(QCloseEvent* event)
         }
     }
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::refreshArtwork(const QList<Game>& games)
+{
+    // A store whose artwork URL had to be looked up (GOG) fills in the ones it
+    // is still missing; the list reloads itself when that arrives.
+    for (const auto& launcher : LauncherManager::instance().launchers()) {
+        if (IStoreService* store = launcher->storeService()) {
+            store->refreshInstalledArtwork();
+        }
+    }
+
+    QSet<QString> urls;
+    for (const Game& game : games) {
+        if (!game.imageUrl().isEmpty()) {
+            urls.insert(game.imageUrl());
+        }
+    }
+    if (urls.isEmpty()) {
+        return;
+    }
+
+    // A new request while one is still running joins it.
+    if (m_artworkPending.isEmpty()) {
+        m_artworkRequested = 0;
+        m_artworkFailed = 0;
+    }
+    m_artworkRequested += urls.size();
+    m_artworkPending.unite(urls);
+    statusBar()->showMessage(urls.size() == 1
+        ? QStringLiteral("Refreshing artwork...")
+        : QStringLiteral("Refreshing artwork for %1 games...").arg(urls.size()));
+    for (const QString& url : urls) {
+        ImageCache::instance().refresh(url);
+    }
+}
+
+void MainWindow::refreshStaleArtwork()
+{
+    constexpr qint64 Day = 24 * 60 * 60;
+
+    for (const auto& launcher : LauncherManager::instance().launchers()) {
+        if (IStoreService* store = launcher->storeService()) {
+            store->refreshInstalledArtwork();
+        }
+    }
+
+    ImageCache& cache = ImageCache::instance();
+    QSet<QString> seen;
+    for (const Game& game : m_gameList->games()) {
+        const QString url = game.imageUrl();
+        if (url.isEmpty() || seen.contains(url)) {
+            continue;
+        }
+        seen.insert(url);
+        if (cache.isStale(url, Day)) {
+            cache.refresh(url, ImageCache::RefreshMode::Silent);
+        }
+    }
+}
+
+void MainWindow::onArtworkRefreshFinished(const QString& url, bool ok)
+{
+    // Only what a manual refresh asked for is counted; the daily one is silent.
+    if (!m_artworkPending.remove(url)) {
+        return;
+    }
+    if (!ok) {
+        ++m_artworkFailed;
+    }
+    if (!m_artworkPending.isEmpty()) {
+        return;
+    }
+
+    if (m_artworkFailed == 0) {
+        statusBar()->showMessage(QStringLiteral("Artwork refreshed"), 5000);
+    } else {
+        statusBar()->showMessage(
+            QStringLiteral("Artwork refreshed — %1 of %2 could not be downloaded; "
+                           "images already shown were kept")
+                .arg(m_artworkFailed).arg(m_artworkRequested),
+            8000);
+    }
 }
 
 void MainWindow::showStoreLibrary()

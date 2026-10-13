@@ -10,6 +10,8 @@ set(UNIT_TESTS
     tst_vdfparser
     tst_featuregate
     tst_featurewarnings
+    tst_imagecache
+    tst_steamartwork
     tst_dlsssettings
     tst_protondbid
     tst_launchoptionextractor

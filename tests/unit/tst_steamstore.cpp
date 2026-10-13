@@ -9,6 +9,7 @@
 
 #include <QTest>
 
+#include "launchers/SteamArtwork.h"
 #include "launchers/SteamStoreService.h"
 
 class TstSteamStore : public QObject
@@ -27,7 +28,7 @@ private slots:
     void refusesToGuessBetweenAccounts();
     void handlesAMissingOrEmptyLoginUsers();
 
-    void headerImageMatchesTheInstalledGamePattern();
+    void ownedGamesStartFromTheCdnScheme();
 
     void parsesAppDetails();
     void reportsAnUnknownAppAsHavingNoDetails();
@@ -210,13 +211,18 @@ void TstSteamStore::handlesAMissingOrEmptyLoginUsers()
     }
 }
 
-void TstSteamStore::headerImageMatchesTheInstalledGamePattern()
+void TstSteamStore::ownedGamesStartFromTheCdnScheme()
 {
-    // Same CDN URL SteamLauncher builds for installed games, so an owned-but-
-    // not-installed row and an installed one share a cache entry rather than
-    // downloading the same picture twice.
-    QCOMPARE(SteamStoreService::headerImageUrl("1245620"),
+    // The parser stays pure: the CDN scheme, which fetchLibrary() then swaps
+    // for SteamArtwork::resolve() — the same call discovery makes, so an
+    // owned-but-not-installed row and an installed one share a cache entry.
+    const QList<StoreEntry> entries = SteamStoreService::parseOwnedGames(
+        R"({"response": {"game_count": 1, "games": [{"appid": 1245620, "name": "ELDEN RING"}]}})",
+        nullptr);
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().imageUrl,
              QStringLiteral("https://steamcdn-a.akamaihd.net/steam/apps/1245620/header.jpg"));
+    QCOMPARE(entries.first().imageUrl, SteamArtwork::legacyUrl("1245620"));
 }
 
 // The storefront's appdetails response, trimmed to the fields the panel uses but

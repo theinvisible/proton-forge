@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QRegularExpression>
 #include <QStandardPaths>
 
@@ -71,9 +72,12 @@ bool load(const QString& path, QByteArray& out, int maxAgeSecs)
 void save(const QString& path, const QByteArray& data)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
-    QFile file(path);
+    // Written aside and swapped in: discovery reads some of these files from
+    // a worker thread, and a half-written one must never be what it sees.
+    QSaveFile file(path);
     if (file.open(QIODevice::WriteOnly)) {
         file.write(data);
+        file.commit();
     }
 }
 

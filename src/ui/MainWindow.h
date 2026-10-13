@@ -5,6 +5,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QLabel>
+#include <QSet>
 #include "GameListWidget.h"
 #include "DLSSSettingsWidget.h"
 #include "SystemInfoDialog.h"
@@ -42,6 +43,12 @@ private slots:
     void showSystemInfo();
     void showSettings();
     void showStoreLibrary();
+    // Library → Refresh Artwork, and a game's context menu: download the
+    // artwork again, visibly, and say how it went in the status bar.
+    void refreshArtwork(const QList<Game>& games);
+    // The daily refresh: every image cached for longer than a day, silently.
+    void refreshStaleArtwork();
+    void onArtworkRefreshFinished(const QString& url, bool ok);
 
 private:
     void setupUI();
@@ -73,6 +80,11 @@ private:
     bool m_dialogInstallActive = false;
     bool m_authWarningShown = false;  // show the expired-token warning at most once per session
     bool m_gamesLoadedThisRefresh = false;  // see refreshGameList()
+
+    // What a manual refresh still waits for, and how much of it failed.
+    QSet<QString> m_artworkPending;
+    int m_artworkRequested = 0;
+    int m_artworkFailed = 0;
 };
 
 #endif // MAINWINDOW_H

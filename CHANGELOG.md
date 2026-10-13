@@ -31,6 +31,10 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
   reads a ratio in — which Ray Reconstruction now offers as well. A Proton
   whose DXVK-NVAPI does not know the ratio yet (Valve's Proton before 10.0-2,
   GE-Proton before 10-4, Proton-CachyOS before 10.0-20250601) gets a warning.
+- **Refresh Artwork** in the Library menu and in a game's right-click menu:
+  downloads the cover art again and retries images that failed to load. A
+  download that fails keeps the image already shown. Cover art also refreshes
+  itself once a day, quietly in the background.
 - The command line reports the same warnings: `featureWarnings` in the JSON of
   `--apply` and `--launch` (also with `--dry-run`), and `warning:` lines on
   stderr for `--print-launch-options`, whose stdout stays the launch string.
@@ -42,6 +46,11 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ### Fixed
 
+- **Newer Steam games had no cover art** (Corsair Cove, Graveyard Keeper 2, many
+  demos and playtests): Steam keeps their artwork under a path that cannot be
+  derived from the app id, so the old address answered "not found". Cover art
+  now comes from the Steam client's own cache when it has one, and otherwise
+  from the Steam store's data — in the library and the Game Stores dialog.
 - **A scaling ratio did nothing** unless the mode was CUSTOM, which ProtonForge
   never wrote. A saved ratio without a mode now gets CUSTOM, so it takes effect
   — the launch string of those games changes, so write them to Steam again if

@@ -1,5 +1,6 @@
 #include "SteamLauncher.h"
 #include "SteamStoreService.h"
+#include "launchers/SteamArtwork.h"
 #include "parsers/VDFParser.h"
 #include "utils/EnvBuilder.h"
 #include "utils/SteamPaths.h"
@@ -270,8 +271,9 @@ Game SteamLauncher::parseAppManifest(const QString& manifestPath, const QString&
     // Windows games have .exe files, native Linux games don't
     game.setIsNativeLinux(!hasExeFiles);
 
-    // Steam CDN header image URL
-    game.setImageUrl(QString("https://steamcdn-a.akamaihd.net/steam/apps/%1/header.jpg").arg(appId));
+    // The banner: Steam's own cached copy, else the store's URL, else the old
+    // CDN scheme (SteamArtwork.h says why the old scheme is no longer enough).
+    game.setImageUrl(SteamArtwork::resolve(appId));
 
     return game;
 }

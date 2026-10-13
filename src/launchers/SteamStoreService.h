@@ -2,6 +2,8 @@
 #define STEAMSTORESERVICE_H
 
 #include <QNetworkAccessManager>
+#include <QQueue>
+#include <QSet>
 #include <QString>
 
 #include "IStoreService.h"
@@ -60,13 +62,25 @@ public:
     // poor first impression when the answer is already on disk.
     static QString steamIdFromLoginUsers(const QByteArray& vdf);
 
-    static QString headerImageUrl(const QString& appId);
-
     // The stored id, or the one detected from the local Steam install.
     static QString resolveSteamId();
 
 private:
+    // A banner failed to load: ask the storefront where this app's banner lives
+    // now. Once per app and session, a few at a time.
+    void onArtworkFailed(const QString& url);
+    void startArtworkLookups();
+
+    // The owned list gets each banner the way discovery does, so the dialog
+    // shows Steam's local copy where there is one — and an installed and an
+    // owned row of the same game share one ImageCache entry.
+    static QList<StoreEntry> withResolvedArtwork(QList<StoreEntry> entries);
+
     QNetworkAccessManager* m_networkManager;
+    QSet<QString> m_artworkLookedUp;     // appids asked about this session
+    QQueue<QString> m_artworkQueue;
+    int m_artworkInFlight = 0;
+    bool m_artworkChanged = false;       // an answer gave a new banner URL
 };
 
 #endif // STEAMSTORESERVICE_H

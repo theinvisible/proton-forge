@@ -1,6 +1,9 @@
 #include "ImageCache.h"
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
 #include <QCryptographicHash>
 #include <QNetworkReply>
 #include <QStandardPaths>
@@ -75,6 +78,26 @@ bool ImageCache::hasImage(const QString& url) const
     return QFile::exists(cacheFilePath(url));
 }
 
+void ImageCache::refresh(const QString& url, RefreshMode mode)
+{
+    if (url.isEmpty()) {
+        return;
+    }
+    m_failedUrls.remove(url);
+    m_refreshing.insert(url);
+    if (mode == RefreshMode::Visible) {
+        emit refreshStarted(url);
+    }
+    fetchImage(url);
+}
+
+bool ImageCache::isStale(const QString& url, qint64 maxAgeSecs) const
+{
+    const QFileInfo info(cacheFilePath(url));
+    return info.exists() &&
+           info.lastModified().secsTo(QDateTime::currentDateTime()) > maxAgeSecs;
+}
+
 void ImageCache::clearCache()
 {
     m_memoryCache.clear();
@@ -101,11 +124,12 @@ QPixmap ImageCache::loadFromDisk(const QString& url) const
 
 void ImageCache::saveToDisk(const QString& url, const QByteArray& data)
 {
-    QString path = cacheFilePath(url);
-    QFile file(path);
+    // Replaced by a refresh while the old file may still be read: write the
+    // new one aside and swap it in, never a half-written image.
+    QSaveFile file(cacheFilePath(url));
     if (file.open(QIODevice::WriteOnly)) {
         file.write(data);
-        file.close();
+        file.commit();
     }
 }
 
@@ -126,22 +150,28 @@ void ImageCache::fetchImage(const QString& url)
     connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
         m_pendingRequests.remove(url);
         reply->deleteLater();
+        const bool wasRefresh = m_refreshing.remove(url);
 
-        if (reply->error() != QNetworkReply::NoError) {
-            m_failedUrls.insert(url);
-            emit imageFailed(url);
-            return;
+        bool ok = false;
+        if (reply->error() == QNetworkReply::NoError) {
+            const QByteArray data = reply->readAll();
+            QPixmap pixmap;
+            if (pixmap.loadFromData(data)) {
+                m_memoryCache[url] = pixmap;
+                saveToDisk(url, data);
+                ok = true;
+                emit imageReady(url);
+            }
         }
 
-        QByteArray data = reply->readAll();
-        QPixmap pixmap;
-        if (pixmap.loadFromData(data)) {
-            m_memoryCache[url] = pixmap;
-            saveToDisk(url, data);
-            emit imageReady(url);
-        } else {
+        // A refresh that fails leaves a cached copy behind, and that copy is
+        // still the right picture — only an image with nothing to show fails.
+        if (!ok && !hasImage(url)) {
             m_failedUrls.insert(url);
             emit imageFailed(url);
+        }
+        if (wasRefresh) {
+            emit refreshFinished(url, ok);
         }
     });
 }

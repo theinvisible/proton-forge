@@ -22,6 +22,9 @@ public:
     void addGame(const Game& game);
     void clear();
 
+    // Every discovered game, whatever the search or source filter shows.
+    QList<Game> games() const { return m_games; }
+
     qreal shimmerPhase() const { return m_shimmerPhase; }
 
     // Whether the per-game source badge is worth drawing. False while only one
@@ -33,6 +36,8 @@ signals:
     void gameSelected(const Game& game);
     void refreshRequested();
     void gameUpdateStatusChanged(const Game& game);
+    // "Refresh Artwork" in a game's context menu.
+    void artworkRefreshRequested(const QList<Game>& games);
 
 private slots:
     void onSearchTextChanged(const QString& text);
@@ -41,6 +46,8 @@ private slots:
     void onCurrentItemChanged(QListWidgetItem* current, QListWidgetItem* previous);
     void onImageReady(const QString& url);
     void onImageFailed(const QString& url);
+    void onRefreshStarted(const QString& url);
+    void onRefreshFinished(const QString& url, bool ok);
     void showContextMenu(const QPoint& pos);
 
 private:
