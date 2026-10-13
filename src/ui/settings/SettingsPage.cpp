@@ -40,14 +40,6 @@ void SettingsPage::setGame(const Game& game)
     }
 }
 
-void SettingsPage::collectWarnings(const FeatureGate::Context& ctx, QStringList& lines) const
-{
-    for (const Flag& f : m_flags) {
-        if (f.feature)
-            check(f.box, f.box->isChecked(), *f.feature, f.warnLabel, ctx, lines);
-    }
-}
-
 QList<QWidget*> SettingsPage::inputWidgets() const
 {
     QList<QWidget*> out;
@@ -63,16 +55,14 @@ QList<QWidget*> SettingsPage::inputWidgets() const
 
 QCheckBox* SettingsPage::bindFlag(QBoxLayout* layout, bool DLSSSettings::* field,
                                   const QString& text, const QString& tooltip,
-                                  const char* envVar,
-                                  std::optional<FeatureGate::Feature> feature,
-                                  const QString& warnLabel)
+                                  const char* envVar)
 {
     auto* box = new QCheckBox(text, this);
     box->setToolTip(tooltip);
     layout->addWidget(box);
     connect(box, &QCheckBox::toggled, this, &SettingsPage::changed);
 
-    m_flags.push_back({box, field, feature, warnLabel.isEmpty() ? text : warnLabel});
+    m_flags.push_back({box, field});
     if (envVar) gate(box, envVar);
     return box;
 }
@@ -80,16 +70,4 @@ QCheckBox* SettingsPage::bindFlag(QBoxLayout* layout, bool DLSSSettings::* field
 void SettingsPage::gate(QWidget* widget, const char* envVar)
 {
     m_gated.push_back({widget, envVar});
-}
-
-void SettingsPage::check(QWidget* control, bool active, FeatureGate::Feature feature,
-                         const QString& label, const FeatureGate::Context& ctx,
-                         QStringList& lines)
-{
-    using namespace FeatureGate;
-    if (!active || !control->isEnabled())
-        return;
-    const Result r = evaluate(requirementFor(feature), ctx);
-    if (r.status != Status::Supported)
-        lines << QString("⚠ %1: %2").arg(label, r.message);
 }

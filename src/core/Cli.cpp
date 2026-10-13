@@ -14,6 +14,8 @@
 #include "launchers/SteamLauncher.h"
 #include "runner/GameRunner.h"
 #include "utils/EnvBuilder.h"
+#include "utils/FeatureWarnings.h"
+#include "utils/GpuInfoCache.h"
 #include "utils/ProtonManager.h"
 #include "utils/SteamClient.h"
 #include "utils/SteamPaths.h"
@@ -396,6 +398,16 @@ int cmdSteamClient()
     return Cli::Ok;
 }
 
+// What the panel's warning banner would say about these settings: the same
+// FeatureWarnings::collect(), against the Proton a launch would use and the GPU
+// facts from probeNow() — sysfs and /proc only, no NVML start-up cost.
+QStringList featureWarningsFor(const Game& game, const DLSSSettings& settings)
+{
+    const CompatToolResolver::ToolInfo proton = GameRunner().resolveProtonTool(game, settings);
+    return FeatureWarnings::collect(
+        settings, FeatureWarnings::inputFor(GpuInfoCache::probeNow(), proton, game));
+}
+
 int cmdPrintLaunchOptions(const QString& appId, const QStringList& overrides)
 {
     Game game;
@@ -409,6 +421,9 @@ int cmdPrintLaunchOptions(const QString& appId, const QStringList& overrides)
         return fail(error, Cli::UsageError);
     }
 
+    // stdout stays exactly the launch string, so scripts can keep using it.
+    for (const QString& warning : featureWarningsFor(game, settings))
+        errs() << "warning: " << warning << Qt::endl;
     printLine(EnvBuilder::buildLaunchOptions(settings));
     return Cli::Ok;
 }
@@ -464,6 +479,7 @@ int cmdApply(const QString& appId, const QStringList& overrides)
     o["launchOptions"] = wanted;
     o["readBack"]      = readBack;
     o["matches"]       = readBack == wanted;
+    o["featureWarnings"] = QJsonArray::fromStringList(featureWarningsFor(game, settings));
     printJson(o);
 
     return applied ? Cli::Ok : Cli::Error;
@@ -536,6 +552,7 @@ int cmdLaunch(const QString& appId, const QStringList& overrides, bool dryRun, i
         const GameRunner::LaunchPlan plan = runner.resolveLaunch(game, settings);
         QJsonObject o = planToJson(plan);
         o["dryRun"] = true;
+        o["featureWarnings"] = QJsonArray::fromStringList(featureWarningsFor(game, settings));
         printJson(o);
         return plan.valid ? Cli::Ok : Cli::Error;
     }
@@ -545,6 +562,9 @@ int cmdLaunch(const QString& appId, const QStringList& overrides, bool dryRun, i
     result["dryRun"]  = false;
     result["pending"] = false;
     result["started"] = false;
+    // Before the launch: the settings are the same, and a game that runs past
+    // the timeout should not have to wait for this.
+    result["featureWarnings"] = QJsonArray::fromStringList(featureWarningsFor(game, settings));
 
     QJsonArray warnings;
     QEventLoop loop;

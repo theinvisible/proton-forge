@@ -59,6 +59,7 @@ set(CORE_SOURCES
     src/utils/ExecutableFinder.cpp
     src/utils/LaunchOptionExtractor.cpp
     src/utils/GpuInfoCache.cpp
+    src/utils/FeatureWarnings.cpp
     src/utils/SteamPaths.cpp
     src/utils/SteamClient.cpp
     src/utils/CPUDetector.cpp
@@ -128,6 +129,7 @@ set(CORE_HEADERS
     src/utils/ExecutableFinder.h
     src/utils/LaunchOptionExtractor.h
     src/utils/GpuInfoCache.h
+    src/utils/FeatureWarnings.h
     src/utils/SteamPaths.h
     src/utils/SteamClient.h
     src/utils/CPUDetector.h

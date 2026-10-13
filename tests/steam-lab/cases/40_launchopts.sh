@@ -324,4 +324,29 @@ assert_eq "--apply on a GOG game fails" "1" "$(app_rc)"
 AFTER="$(md5sum "$LOCALCONFIG" | cut -d" " -f1)"
 assert_eq "and Steam's localconfig.vdf is untouched" "$BEFORE" "$AFTER"
 
+# ---------------------------------------------------------------------------
+part "the CLI reports what the panel's warning banner would"
+
+# FeatureWarnings works on the settings, so the CLI says what the panel says.
+# A Valve Proton and a controller switch only the forks have: a warning that
+# depends on no GPU, so it is the same in a container as on a desktop.
+fx_reset
+NATIVE="$(fx_steam_tree native)"
+fx_add_game "$NATIVE" "$APPID" name="ELDEN RING" >/dev/null
+VALVE="$(fx_valve_proton "$NATIVE" "Proton 10.0" "1750000000 proton-10.0-3-x86_64")"
+
+PLAN="$(app_cli --launch "$APPID" --dry-run --set protonVersion="$VALVE" --set protonPreferSdl=true)"
+assert_json_contains "a dry run lists the feature warnings" "$PLAN" \
+    'd["featureWarnings"]' "Controller via SDL: Valve's Proton has no SDL input switch"
+
+PLAN="$(app_cli --launch "$APPID" --dry-run --set protonVersion="$VALVE")"
+assert_json "and none when nothing needs one" "$PLAN" 'len(d["featureWarnings"])' "0"
+
+ERRLOG="${CASE_OUT_DIR:-$LAB_OUT_DIR}/app-stderr.log"
+OPTS="$(app_cli --print-launch-options "$APPID" --set protonVersion="$VALVE" --set protonPreferSdl=true)"
+assert_eq "--print-launch-options keeps stdout to the launch string" \
+    "PROTON_PREFER_SDL=1 %command%" "$OPTS"
+assert_contains "and puts the warning on stderr" "$ERRLOG" \
+    "warning: Controller via SDL: Valve's Proton has no SDL input switch"
+
 case_finish

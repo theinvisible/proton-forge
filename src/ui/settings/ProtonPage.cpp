@@ -61,7 +61,7 @@ ProtonPage::ProtonPage(QWidget* parent)
              "Improves compatibility and performance for very old D3D7-era games.\n\n"
              "Requires: GE-Proton 11-1+ or Proton-CachyOS 11.0+.\n\n"
              "Sets PROTON_USE_D7VK=1 (GE-Proton) and PROTON_D7VK_DDRAW=1 (Proton-CachyOS).",
-             "PROTON_USE_D7VK", FeatureGate::Feature::D7vk, QStringLiteral("D7VK"));
+             "PROTON_USE_D7VK");
 
     bindFlag(layout, &DLSSSettings::protonLog,
              "Enable Logging (PROTON_LOG)",
@@ -103,19 +103,4 @@ void ProtonPage::store(DLSSSettings& settings) const
     const QString controller = m_controllerInput->currentData().toString();
     settings.protonNoSteamInput = (controller == QLatin1String("nosteaminput"));
     settings.protonPreferSdl = (controller == QLatin1String("sdl"));
-}
-
-void ProtonPage::collectWarnings(const FeatureGate::Context& ctx, QStringList& lines) const
-{
-    SettingsPage::collectWarnings(ctx, lines);
-    const QString ntsync = m_ntsyncMode->currentData().toString();
-    check(m_ntsyncMode, ntsync == QLatin1String("on"), FeatureGate::Feature::NtsyncOptIn,
-          "NTSync", ctx, lines);
-    check(m_ntsyncMode, ntsync == QLatin1String("off"), FeatureGate::Feature::NtsyncDisable,
-          "NTSync off", ctx, lines);
-    const QString controller = m_controllerInput->currentData().toString();
-    check(m_controllerInput, controller == QLatin1String("nosteaminput"),
-          FeatureGate::Feature::NoSteamInput, "Controller without Steam Input", ctx, lines);
-    check(m_controllerInput, controller == QLatin1String("sdl"),
-          FeatureGate::Feature::PreferSdl, "Controller via SDL", ctx, lines);
 }

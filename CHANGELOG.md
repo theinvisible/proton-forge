@@ -14,6 +14,26 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
   (`PROTON_PREFER_SDL=1`, for controllers that are not detected or misbehave).
   Proton-CachyOS and GE-Proton (SDL from 10-7, without Steam Input from 10-8 and
   there only with Wayland); Valve's Proton has neither, and says so.
+- **More compatibility warnings**, checked against the Proton the game would
+  really start with:
+  - the DLSS overrides (Super Resolution, Ray Reconstruction, Frame
+    Generation) on a Proton whose DXVK-NVAPI cannot pass them on — Valve's
+    Proton before 10.0-1, GE-Proton before 9-26, Proton-CachyOS before
+    9.0-20250227;
+  - the DLSS indicator, Wayland and HDR on Valve's Proton, which has no switch
+    for any of them;
+  - DLSS on a GTX card;
+  - DLSS, Reflex and the other NVIDIA options on a machine without an NVIDIA
+    GPU (one line for all of them);
+  - `ENABLE_HDR_WSI` with NVIDIA driver 595 or newer, which no longer needs it.
+- The command line reports the same warnings: `featureWarnings` in the JSON of
+  `--apply` and `--launch` (also with `--dry-run`), and `warning:` lines on
+  stderr for `--print-launch-options`, whose stdout stays the launch string.
+
+### Changed
+
+- **Enable All HDR Options** leaves `ENABLE_HDR_WSI` off with NVIDIA driver 595
+  or newer, and counts as "all on" without it there.
 
 ### Fixed
 

@@ -2,8 +2,6 @@
 
 #include <QGroupBox>
 
-#include "utils/GpuInfoCache.h"
-
 GeneralPage::GeneralPage(QWidget* parent)
     : SettingsPage(parent)
 {
@@ -29,18 +27,17 @@ GeneralPage::GeneralPage(QWidget* parent)
              "PROTON_ENABLE_NGX_UPDATER");
 
     // Driver level — stays live on a native game.
-    m_enablePrimeOffload =
-        bindFlag(layout, &DLSSSettings::enablePrimeRenderOffload,
-                 "Use NVIDIA GPU (PRIME Render Offload)",
-                 "Render this game on the NVIDIA dGPU instead of the integrated GPU.\n\n"
-                 "For hybrid-graphics systems (e.g. laptops with Intel/AMD iGPU + NVIDIA "
-                 "dGPU) where the iGPU is the primary GPU. Not needed when the NVIDIA "
-                 "GPU is the only or primary GPU — some distros configure this "
-                 "automatically.\n\n"
-                 "Sets __NV_PRIME_RENDER_OFFLOAD=1, __GLX_VENDOR_LIBRARY_NAME=nvidia "
-                 "and __VK_LAYER_NV_optimus=NVIDIA_only (works on any distro, no "
-                 "hard-coded driver paths).",
-                 "__NV_PRIME_RENDER_OFFLOAD");
+    bindFlag(layout, &DLSSSettings::enablePrimeRenderOffload,
+             "Use NVIDIA GPU (PRIME Render Offload)",
+             "Render this game on the NVIDIA dGPU instead of the integrated GPU.\n\n"
+             "For hybrid-graphics systems (e.g. laptops with Intel/AMD iGPU + NVIDIA "
+             "dGPU) where the iGPU is the primary GPU. Not needed when the NVIDIA "
+             "GPU is the only or primary GPU — some distros configure this "
+             "automatically.\n\n"
+             "Sets __NV_PRIME_RENDER_OFFLOAD=1, __GLX_VENDOR_LIBRARY_NAME=nvidia "
+             "and __VK_LAYER_NV_optimus=NVIDIA_only (works on any distro, no "
+             "hard-coded driver paths).",
+             "__NV_PRIME_RENDER_OFFLOAD");
 
     bindFlag(layout, &DLSSSettings::enableReflex,
              "Enable Reflex (DXVK_NVAPI_VKREFLEX)",
@@ -49,7 +46,7 @@ GeneralPage::GeneralPage(QWidget* parent)
              "and Smooth Motion. Needed for Reflex in native Vulkan titles "
              "(e.g. Portal RTX, Path of Exile).\n\n"
              "Sets DXVK_NVAPI_VKREFLEX=1.",
-             "DXVK_NVAPI_VKREFLEX", FeatureGate::Feature::Reflex, QStringLiteral("Reflex"));
+             "DXVK_NVAPI_VKREFLEX");
 
     bindFlag(layout, &DLSSSettings::enableVkd3dLowLatency,
              "VKD3D Low Latency (PROTON_VKD3D_LOWLATENCY)",
@@ -59,7 +56,7 @@ GeneralPage::GeneralPage(QWidget* parent)
              "Reflex option above.\n\n"
              "Requires: Proton-CachyOS 11.0-20260703 or newer.\n\n"
              "Sets PROTON_VKD3D_LOWLATENCY=1.",
-             "PROTON_VKD3D_LOWLATENCY", FeatureGate::Feature::Vkd3dLowLatency, QStringLiteral("VKD3D Low Latency"));
+             "PROTON_VKD3D_LOWLATENCY");
 
     bindFlag(layout, &DLSSSettings::enableVkd3dDescriptorHeap,
              "VKD3D Descriptor Heap (experimental)",
@@ -69,7 +66,7 @@ GeneralPage::GeneralPage(QWidget* parent)
              "known to crash some games — test per game.\n\n"
              "Requires: NVIDIA driver 595.44.02 or newer.\n\n"
              "Sets VKD3D_CONFIG=descriptor_heap.",
-             "VKD3D_CONFIG", FeatureGate::Feature::Vkd3dDescriptorHeap, QStringLiteral("VKD3D Descriptor Heap"));
+             "VKD3D_CONFIG");
 
     bindFlag(layout, &DLSSSettings::enableD3D12ShaderExtensions,
              "D3D12 NVIDIA Shader Extensions (experimental)",
@@ -81,7 +78,7 @@ GeneralPage::GeneralPage(QWidget* parent)
              "Requires: DXVK-NVAPI 0.9.2 and vkd3d-proton 3.0.1 (Valve Proton 11.0-2, "
              "current Proton-CachyOS / GE-Proton).\n\n"
              "Sets DXVK_NVAPI_D3D12_NV_SHADER_EXTN=1.",
-             "DXVK_NVAPI_D3D12_NV_SHADER_EXTN", FeatureGate::Feature::D3D12ShaderExtensions, QStringLiteral("D3D12 Shader Extensions"));
+             "DXVK_NVAPI_D3D12_NV_SHADER_EXTN");
 
     bindFlag(layout, &DLSSSettings::showIndicator,
              "Show DLSS Indicator (PROTON_DLSS_INDICATOR)",
@@ -92,18 +89,4 @@ GeneralPage::GeneralPage(QWidget* parent)
              "PROTON_DLSS_INDICATOR");
 
     pageLayout()->addWidget(group);
-}
-
-void GeneralPage::collectWarnings(const FeatureGate::Context& ctx, QStringList& lines) const
-{
-    SettingsPage::collectWarnings(ctx, lines);
-
-    // PRIME offload is gated by hardware, not driver/Proton versions: warn only
-    // when the probe positively found a non-hybrid system (Unknown stays silent).
-    if (m_enablePrimeOffload->isChecked() &&
-        GpuInfoCache::instance().hybridGpu() == GPUDetector::HybridGpu::No) {
-        lines << QStringLiteral(
-            "⚠ PRIME Render Offload: no hybrid iGPU + dGPU setup detected — "
-            "this option has no effect on this system");
-    }
 }

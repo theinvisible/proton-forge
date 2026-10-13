@@ -13,6 +13,7 @@
 #include <QFile>
 
 #include "utils/GPUDetector.h"
+#include "utils/GpuInfoCache.h"
 #include "utils/NvidiaGPUDetector.h"
 
 class TstGpuDetector : public QObject
@@ -37,6 +38,12 @@ private slots:
 
     void architectureFromName_data();
     void architectureFromName();
+
+    void factsListEveryKnownVendor();
+    void factsIgnoreNvidiaOnNouveau();
+    void factsWithoutDevicesAreUnknown();
+    void factsTakeTheNewestGeneration();
+    void factsCountGtx16AsPreTuring();
 
 private:
     QTemporaryDir m_root;
@@ -248,6 +255,95 @@ void TstGpuDetector::architectureFromName()
     QFETCH(QString, name);
     QFETCH(QString, expected);
     QCOMPARE(NvidiaGPUDetector::inferArchitecture(name), expected);
+}
+
+namespace {
+
+PciDisplayDevice device(GPUInfo::Vendor vendor, const QString& driver)
+{
+    PciDisplayDevice d;
+    d.vendor = vendor;
+    d.boundDriver = driver;
+    return d;
+}
+
+GPUInfo nvidia(const QString& name, const QString& architecture, const QString& driver)
+{
+    GPUInfo g;
+    g.vendor = GPUInfo::NVIDIA;
+    g.name = name;
+    g.architecture = architecture;
+    g.driverVersion = driver;
+    return g;
+}
+
+}  // namespace
+
+void TstGpuDetector::factsListEveryKnownVendor()
+{
+    using FeatureGate::GpuVendor;
+    // A hybrid laptop: both vendors, so the NVIDIA-only options stay quiet.
+    const GpuFacts facts = GpuInfoCache::summarize(
+        {nvidia("NVIDIA GeForce RTX 5070 Laptop GPU", "Blackwell", "615.71.09")},
+        {device(GPUInfo::AMD, "amdgpu"), device(GPUInfo::NVIDIA, "nvidia")},
+        GPUDetector::HybridGpu::Yes);
+    QCOMPARE(facts.vendors, (QList<GpuVendor>{GpuVendor::AMD, GpuVendor::NVIDIA}));
+    QCOMPARE(facts.driver, QVersionNumber(615, 71, 9));
+    QCOMPARE(facts.generation, FeatureGate::GpuGeneration::Blackwell);
+    QCOMPARE(facts.hybrid, GPUDetector::HybridGpu::Yes);
+
+    // An AMD-only desktop: known, and without NVIDIA.
+    const GpuFacts amd = GpuInfoCache::summarize(
+        {}, {device(GPUInfo::AMD, "amdgpu")}, GPUDetector::HybridGpu::No);
+    QCOMPARE(amd.vendors, QList<GpuVendor>{GpuVendor::AMD});
+    QVERIFY(amd.driver.isNull());
+}
+
+void TstGpuDetector::factsIgnoreNvidiaOnNouveau()
+{
+    // nouveau (or vfio for a VM) cannot run DLSS: the card is there, the
+    // NVIDIA features are not.
+    const GpuFacts facts = GpuInfoCache::summarize(
+        {}, {device(GPUInfo::Intel, "i915"), device(GPUInfo::NVIDIA, "nouveau")},
+        GPUDetector::HybridGpu::Yes);
+    QCOMPARE(facts.vendors, QList<FeatureGate::GpuVendor>{FeatureGate::GpuVendor::Intel});
+}
+
+void TstGpuDetector::factsWithoutDevicesAreUnknown()
+{
+    // sysfs unreadable (or a vendor we do not know): unknown, never "no NVIDIA".
+    QVERIFY(GpuInfoCache::summarize({}, {}, GPUDetector::HybridGpu::Unknown).vendors.isEmpty());
+    QVERIFY(GpuInfoCache::summarize({}, {device(GPUInfo::Unknown, "virtio-pci")},
+                                    GPUDetector::HybridGpu::Unknown).vendors.isEmpty());
+
+    // NVML found a card that sysfs did not show: it counts.
+    const GpuFacts facts = GpuInfoCache::summarize(
+        {nvidia("NVIDIA GeForce RTX 4080", "Ada Lovelace", "580.82.07")}, {},
+        GPUDetector::HybridGpu::Unknown);
+    QCOMPARE(facts.vendors, QList<FeatureGate::GpuVendor>{FeatureGate::GpuVendor::NVIDIA});
+}
+
+void TstGpuDetector::factsTakeTheNewestGeneration()
+{
+    const GpuFacts facts = GpuInfoCache::summarize(
+        {nvidia("NVIDIA GeForce RTX 3060", "Ampere", "610.43.02"),
+         nvidia("NVIDIA GeForce RTX 4090", "Ada Lovelace", "610.43.02")},
+        {}, GPUDetector::HybridGpu::Unknown);
+    QCOMPARE(facts.generation, FeatureGate::GpuGeneration::Ada);
+}
+
+void TstGpuDetector::factsCountGtx16AsPreTuring()
+{
+    // Turing without tensor cores: no DLSS at all.
+    const GpuFacts gtx = GpuInfoCache::summarize(
+        {nvidia("NVIDIA GeForce GTX 1660 SUPER", "Turing", "580.82.07")}, {},
+        GPUDetector::HybridGpu::Unknown);
+    QCOMPARE(gtx.generation, FeatureGate::GpuGeneration::PreTuring);
+
+    const GpuFacts rtx = GpuInfoCache::summarize(
+        {nvidia("NVIDIA GeForce RTX 2060", "Turing", "580.82.07")}, {},
+        GPUDetector::HybridGpu::Unknown);
+    QCOMPARE(rtx.generation, FeatureGate::GpuGeneration::Turing);
 }
 
 QTEST_MAIN(TstGpuDetector)

@@ -9,6 +9,7 @@ set(UNIT_TESTS
     tst_envbuilder
     tst_vdfparser
     tst_featuregate
+    tst_featurewarnings
     tst_dlsssettings
     tst_protondbid
     tst_launchoptionextractor

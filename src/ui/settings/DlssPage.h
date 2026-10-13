@@ -20,7 +20,6 @@ public:
     void load(const DLSSSettings& settings) override;
     void store(DLSSSettings& settings) const override;
     void setGame(const Game& game) override;
-    void collectWarnings(const FeatureGate::Context& ctx, QStringList& lines) const override;
 
 private:
     QGroupBox* createSuperResolutionGroup();

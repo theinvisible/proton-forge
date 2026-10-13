@@ -1,13 +1,16 @@
 #ifndef FEATUREGATE_H
 #define FEATUREGATE_H
 
+#include <QList>
 #include <QMap>
 #include <QString>
 #include <QVersionNumber>
 
+#include <optional>
+
 // Declarative capability gating for NVIDIA/DLSS options.
 //
-// Each gateable feature carries a Requirement (minimum GPU generation,
+// Each gateable feature carries a Requirement (GPU vendor, minimum GPU generation,
 // minimum NVIDIA driver version — optionally per GPU generation — a coarse
 // minimum Proton version, and an optional Proton upper bound for features
 // that were later removed). Fork-specific features additionally carry
@@ -36,6 +39,14 @@ enum class GpuGeneration {
     Blackwell,  // RTX 50
 };
 
+// Who made a GPU. Only the vendors a feature can require; a device from
+// anyone else simply does not count.
+enum class GpuVendor {
+    NVIDIA,
+    AMD,
+    Intel,
+};
+
 // Maps an architecture name as GPUDetector reports it ("Ada Lovelace",
 // "Blackwell", …) to a generation. Anything unrecognised is Unknown, which
 // the gate treats leniently.
@@ -60,6 +71,14 @@ struct Requirement {
     GpuGeneration minGpu = GpuGeneration::Unknown;
     QMap<GpuGeneration, QVersionNumber> minDriverFor;
     QString gpuNote;            // message for UnsupportedGpu; falls back to note
+    // The vendor whose driver implements the feature (DLSS, NVAPI, …). Unset =
+    // any vendor.
+    std::optional<GpuVendor> vendor;
+    QString vendorNote;         // message for WrongGpuVendor; default names the vendor
+    // From this driver on the option does nothing useful any more: the driver
+    // does the job itself. Null = never.
+    QVersionNumber unneededFromDriver;
+    QString unneededNote;       // message for Unneeded; falls back to note
 };
 
 struct Context {
@@ -68,6 +87,7 @@ struct Context {
     bool protonKnown = false;   // false -> Proton version checks skipped (lenient)
     Fork fork = Fork::Unknown;  // Unknown -> fork checks skipped (lenient)
     GpuGeneration gpu = GpuGeneration::Unknown;  // Unknown -> GPU check skipped
+    QList<GpuVendor> vendors;   // every vendor present; empty = unknown -> skipped
 };
 
 enum class Status {
@@ -77,6 +97,8 @@ enum class Status {
     Removed,
     WrongFork,                  // feature not available on the selected fork
     UnsupportedGpu,             // the GPU generation cannot run it
+    WrongGpuVendor,             // no GPU from the vendor the feature needs
+    Unneeded,                   // the driver already does what the option asks for
 };
 
 struct Result {
@@ -104,6 +126,13 @@ enum class Feature {
     DlssUpgradeVersion,
     NoSteamInput,
     PreferSdl,
+    DlssOverrides,
+    SuperResolution,
+    DlssIndicator,
+    NgxUpdater,
+    ProtonWayland,
+    ProtonHdr,
+    HdrWsiLayer,
 };
 
 // Central, tunable capability table (defined in FeatureGate.cpp).

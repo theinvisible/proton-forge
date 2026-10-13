@@ -32,6 +32,9 @@ private slots:
     void unknownGpuNeverWarns();
     void gpuBelowMinimum();
     void perGpuDriverOverride();
+    void unknownVendorsNeverWarn();
+    void wrongGpuVendor();
+    void unneededFromDriver();
     void generationFromArchitecture_data();
     void generationFromArchitecture();
     void realFeatures_data();
@@ -49,14 +52,18 @@ void TstFeatureGate::everyFeatureHasARequirement()
         Feature::Vkd3dLowLatency, Feature::D7vk, Feature::DisableAutoHdr,
         Feature::Vkd3dDescriptorHeap, Feature::FrameGen, Feature::NtsyncOptIn,
         Feature::NtsyncDisable, Feature::DlssUpgrade, Feature::DlssUpgradeVersion,
-        Feature::NoSteamInput, Feature::PreferSdl,
+        Feature::NoSteamInput, Feature::PreferSdl, Feature::DlssOverrides,
+        Feature::SuperResolution, Feature::DlssIndicator, Feature::NgxUpdater,
+        Feature::ProtonWayland, Feature::ProtonHdr, Feature::HdrWsiLayer,
     };
     for (Feature f : all) {
         const Requirement& req = requirementFor(f);
         const bool hasSomething = !req.minDriver.isNull() || !req.minProton.isNull()
                                   || !req.maxProton.isNull() || !req.minCachyOS.isNull()
                                   || !req.minGE.isNull() || !req.minValve.isNull()
-                                  || req.minGpu != GpuGeneration::Unknown;
+                                  || req.minGpu != GpuGeneration::Unknown
+                                  || req.vendor.has_value()
+                                  || !req.unneededFromDriver.isNull();
         QVERIFY2(hasSomething, "a Feature has no requirement — missing table entry?");
         QVERIFY2(!req.note.isEmpty(), "a Feature has no explanatory note");
     }
@@ -326,6 +333,52 @@ void TstFeatureGate::perGpuDriverOverride()
     QCOMPARE(evaluate(req, ctx).status, Status::Supported);
 }
 
+void TstFeatureGate::unknownVendorsNeverWarn()
+{
+    // An empty vendor list is "detection has not run or found nothing it
+    // knows", never "no NVIDIA here".
+    Context ctx;
+    QCOMPARE(evaluate(requirementFor(Feature::SuperResolution), ctx).status, Status::Supported);
+}
+
+void TstFeatureGate::wrongGpuVendor()
+{
+    const Requirement& req = requirementFor(Feature::FrameGen);
+
+    Context ctx;
+    ctx.vendors = {GpuVendor::AMD};
+    const Result r = evaluate(req, ctx);
+    QCOMPARE(r.status, Status::WrongGpuVendor);
+    QCOMPARE(r.message, QStringLiteral("needs an NVIDIA GPU"));
+
+    // A hybrid laptop has both, and the NVIDIA one is what counts.
+    ctx.vendors = {GpuVendor::AMD, GpuVendor::NVIDIA};
+    QCOMPARE(evaluate(req, ctx).status, Status::Supported);
+
+    // Vendor-neutral options do not care.
+    ctx.vendors = {GpuVendor::Intel};
+    QCOMPARE(evaluate(requirementFor(Feature::PreferSdl), ctx).status, Status::Supported);
+}
+
+void TstFeatureGate::unneededFromDriver()
+{
+    const Requirement& req = requirementFor(Feature::HdrWsiLayer);
+
+    Context ctx;
+    QCOMPARE(evaluate(req, ctx).status, Status::Supported);   // driver unknown
+
+    ctx.driver = QVersionNumber(590, 48, 1);
+    QCOMPARE(evaluate(req, ctx).status, Status::Supported);
+
+    ctx.driver = QVersionNumber(595);
+    QCOMPARE(evaluate(req, ctx).status, Status::Unneeded);
+
+    ctx.driver = QVersionNumber(615, 71, 9);
+    const Result r = evaluate(req, ctx);
+    QCOMPARE(r.status, Status::Unneeded);
+    QVERIFY(r.message.endsWith(QStringLiteral("(detected 615.71.9)")));
+}
+
 void TstFeatureGate::generationFromArchitecture_data()
 {
     QTest::addColumn<QString>("architecture");
@@ -457,6 +510,62 @@ void TstFeatureGate::realFeatures_data()
            QVersionNumber(610), {}, Fork::Unknown, GpuGeneration::Ada, Status::Supported);
     rowGpu("frame gen on RTX 20", Feature::FrameGen,
            QVersionNumber(610), {}, Fork::Unknown, GpuGeneration::Turing, Status::UnsupportedGpu);
+
+    // DLSS overrides: DXVK-NVAPI's named DRS keys (a7d1f254, 2025-02-28).
+    row("dlss overrides on Valve 9.0-4", Feature::DlssOverrides,
+        {}, QVersionNumber(9, 0, 4), Fork::Valve, Status::BelowMinProton);
+    row("dlss overrides on Valve 10.0-1", Feature::DlssOverrides,
+        {}, QVersionNumber(10, 0, 1), Fork::Valve, Status::Supported);
+    row("dlss overrides on GE 9-25", Feature::DlssOverrides,
+        {}, QVersionNumber(9, 25), Fork::GE, Status::BelowMinProton);
+    row("dlss overrides on GE 9-26", Feature::DlssOverrides,
+        {}, QVersionNumber(9, 26), Fork::GE, Status::Supported);
+    row("dlss overrides on CachyOS 9.0-20250211", Feature::DlssOverrides,
+        {}, QVersionNumber(9, 0, 20250211), Fork::CachyOS, Status::BelowMinProton);
+    row("dlss overrides on CachyOS 9.0-20250227", Feature::DlssOverrides,
+        {}, QVersionNumber(9, 0, 20250227), Fork::CachyOS, Status::Supported);
+    row("dlss overrides on Experimental", Feature::DlssOverrides,
+        {}, QVersionNumber(11), Fork::Unknown, Status::Supported);
+    rowGpu("super resolution on a GTX card", Feature::SuperResolution,
+           QVersionNumber(610), {}, Fork::Unknown, GpuGeneration::PreTuring,
+           Status::UnsupportedGpu);
+    rowGpu("super resolution on RTX 20", Feature::SuperResolution,
+           QVersionNumber(610), {}, Fork::Unknown, GpuGeneration::Turing, Status::Supported);
+    rowGpu("ray reconstruction on a GTX card", Feature::RayReconstruction,
+           QVersionNumber(610), {}, Fork::Unknown, GpuGeneration::PreTuring,
+           Status::UnsupportedGpu);
+
+    // DLSS indicator: a GE / CachyOS switch.
+    row("dlss indicator is not in Valve Proton", Feature::DlssIndicator,
+        {}, valve11_2, Fork::Valve, Status::WrongFork);
+    row("dlss indicator on GE 10-25", Feature::DlssIndicator,
+        {}, QVersionNumber(10, 25), Fork::GE, Status::BelowMinProton);
+    row("dlss indicator on GE 10-26", Feature::DlssIndicator,
+        {}, QVersionNumber(10, 26), Fork::GE, Status::Supported);
+    row("dlss indicator on CachyOS 10.0-20250702", Feature::DlssIndicator,
+        {}, QVersionNumber(10, 0, 20250702), Fork::CachyOS, Status::BelowMinProton);
+    row("dlss indicator on CachyOS 10.0-20250714", Feature::DlssIndicator,
+        {}, QVersionNumber(10, 0, 20250714), Fork::CachyOS, Status::Supported);
+
+    // Wayland, and HDR riding on it.
+    for (Feature f : {Feature::ProtonWayland, Feature::ProtonHdr}) {
+        const QByteArray what = f == Feature::ProtonWayland ? "wayland" : "hdr";
+        row((what + " is not in Valve Proton").constData(), f,
+            {}, valve11_2, Fork::Valve, Status::WrongFork);
+        row((what + " on GE 9-27").constData(), f,
+            {}, QVersionNumber(9, 27), Fork::GE, Status::BelowMinProton);
+        row((what + " on GE 10-1").constData(), f,
+            {}, QVersionNumber(10, 1), Fork::GE, Status::Supported);
+        row((what + " on CachyOS 9.0-20250426").constData(), f,
+            {}, QVersionNumber(9, 0, 20250426), Fork::CachyOS, Status::BelowMinProton);
+        row((what + " on CachyOS 10.0-20250509").constData(), f,
+            {}, QVersionNumber(10, 0, 20250509), Fork::CachyOS, Status::Supported);
+    }
+
+    row("hdr wsi layer before driver 595", Feature::HdrWsiLayer,
+        QVersionNumber(590), {}, Fork::Unknown, Status::Supported);
+    row("hdr wsi layer from driver 595", Feature::HdrWsiLayer,
+        QVersionNumber(595, 45, 4), {}, Fork::Unknown, Status::Unneeded);
 
     // The whole point of the policy: nothing known, nothing said.
     row("nothing known", Feature::Vkd3dDescriptorHeap,

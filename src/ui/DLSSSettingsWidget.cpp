@@ -8,12 +8,12 @@
 #include "AppStyle.h"
 #include "network/ImageCache.h"
 #include "network/ProtonDBClient.h"
-#include "core/FeatureGate.h"
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
 #include "utils/CompatToolResolver.h"
 #include "utils/ExecutableFinder.h"
 #include "utils/LaunchOptionExtractor.h"
+#include "utils/FeatureWarnings.h"
 #include "utils/GpuInfoCache.h"
 #include "runner/GameRunner.h"
 #include "launchers/SteamLauncher.h"
@@ -630,23 +630,13 @@ void DLSSSettingsWidget::refreshResolvedProton()
 
 void DLSSSettingsWidget::updateFeatureWarnings()
 {
-    using namespace FeatureGate;
-
-    Context ctx;
-    ctx.driver = GpuInfoCache::instance().nvidiaDriverVersion();
-    ctx.gpu = GpuInfoCache::instance().gpuGeneration();
-    // The Proton a launch would really use (see refreshResolvedProton()).
-    ctx.proton = m_resolvedProton.version;
-    ctx.protonKnown = m_resolvedProton.isValid() && !m_resolvedProton.version.isNull();
-    ctx.fork = m_resolvedProton.isValid() ? CompatToolResolver::forkOf(m_resolvedProton.kind)
-                                          : Fork::Unknown;
-
     QStringList lines;
 
     // Say once, up front, why half the panel is greyed — a disabled control
     // with no explanation reads as a bug. Everything below is then reported
-    // only for controls that are actually live: telling someone their driver
-    // is too old for a variable that will never be read is worse than silence.
+    // only for options that actually reach the game: telling someone their
+    // driver is too old for a variable that will never be read is worse than
+    // silence.
     if (m_currentGame.isNativeLinux()) {
         lines << QStringLiteral(
             "⚠ Native Linux build: the DLSS overrides, the DXVK/VKD3D options and the "
@@ -657,8 +647,11 @@ void DLSSSettingsWidget::updateFeatureWarnings()
             "Windows build instead. Your settings are kept either way.");
     }
 
-    for (const SettingsPage* page : m_pages)
-        page->collectWarnings(ctx, lines);
+    // The Proton a launch would really use (see refreshResolvedProton()).
+    const FeatureWarnings::Input input = FeatureWarnings::inputFor(
+        GpuInfoCache::instance().facts(), m_resolvedProton, m_currentGame);
+    for (const QString& line : FeatureWarnings::collect(settings(), input))
+        lines << QStringLiteral("⚠ ") + line;
 
     if (lines.isEmpty()) {
         m_featureWarnings->hide();

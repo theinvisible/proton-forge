@@ -9,11 +9,6 @@ class GeneralPage : public SettingsPage {
 
 public:
     explicit GeneralPage(QWidget* parent = nullptr);
-
-    void collectWarnings(const FeatureGate::Context& ctx, QStringList& lines) const override;
-
-private:
-    QCheckBox* m_enablePrimeOffload;
 };
 
 #endif // GENERALPAGE_H

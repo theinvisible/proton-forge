@@ -33,16 +33,19 @@ const Requirement& requirementFor(Feature feature)
         r.minGpu = GpuGeneration::Ada;
         r.note = QStringLiteral("NVIDIA driver ≥ 575.51 (RTX 50) / ≥ 580.82 (RTX 40)");
         r.gpuNote = QStringLiteral("needs an RTX 40 or RTX 50 GPU");
+        r.vendor = GpuVendor::NVIDIA;
         return r;
     }();
     static const Requirement frameGen = [] {
         Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
         r.minGpu = GpuGeneration::Ada;
         r.note = QStringLiteral("DLSS Frame Generation needs an RTX 40 or RTX 50 GPU");
         return r;
     }();
     static const Requirement multiFrameGen = [] {
         Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
         r.minDriver = QVersionNumber(570);
         r.minProton = QVersionNumber(10);
         r.minGpu = GpuGeneration::Blackwell;
@@ -52,14 +55,42 @@ const Requirement& requirementFor(Feature feature)
     }();
     static const Requirement rayReconstruction = [] {
         Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
+        r.minGpu = GpuGeneration::Turing;
         r.minDriver = QVersionNumber(545);
         r.note = QStringLiteral("NVIDIA driver ≥ 545");
+        r.gpuNote = QStringLiteral("DLSS needs an RTX GPU");
+        return r;
+    }();
+    // Every SR/RR/FG override travels in DXVK_NVAPI_DRS_SETTINGS as a named
+    // NGX_* key, which DXVK-NVAPI understands from a7d1f254 (2025-02-28, the
+    // run-up to 0.9.0). Valve: 9.0-4 bundles afb59a8e (2024-11), 10.0-1 has
+    // it. GE: 9-25 bundles 26f54ab8 (numeric DRS ids only), 9-26 has it.
+    // CachyOS: 9.0-20250211 bundles 26f54ab8, 9.0-20250227 has 1e39a9d7.
+    // Before that the variable is ignored and the overrides do nothing.
+    static const Requirement dlssOverrides = [] {
+        Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
+        r.minValve = QVersionNumber(10, 0, 1);
+        r.minGE = QVersionNumber(9, 26);
+        r.minCachyOS = QVersionNumber(9, 0, 20250227);
+        r.note = QStringLiteral("DLSS overrides need DXVK-NVAPI's named DRS settings "
+                                "(Valve Proton ≥ 10.0-1, GE-Proton ≥ 9-26, "
+                                "Proton-CachyOS ≥ 9.0-20250227)");
+        return r;
+    }();
+    static const Requirement superResolution = [] {
+        Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
+        r.minGpu = GpuGeneration::Turing;
+        r.note = QStringLiteral("DLSS needs an RTX GPU");
         return r;
     }();
     // NGX_DLSSG_MODE and the FG preset key arrived in DXVK-NVAPI 0.9.2, which
     // Valve first shipped in Proton 11.0-2. The forks track DXVK-NVAPI master.
     static const Requirement dlssgMode = [] {
         Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
         r.minProton = QVersionNumber(10);
         r.minCachyOS = QVersionNumber(0);
         r.minGE = QVersionNumber(0);
@@ -87,6 +118,7 @@ const Requirement& requirementFor(Feature feature)
     }();
     static const Requirement reflex = [] {
         Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
         r.minProton = QVersionNumber(9);
         r.note = QStringLiteral("Proton ≥ 9 (DXVK-NVAPI Reflex layer)");
         return r;
@@ -148,6 +180,7 @@ const Requirement& requirementFor(Feature feature)
     // unknown one falls back to the newest in its manifest. Valve: absent.
     static const Requirement dlssUpgrade = [] {
         Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
         r.minCachyOS = QVersionNumber(0);
         r.minGE = QVersionNumber(10, 26);
         r.note = QStringLiteral("PROTON_DLSS_UPGRADE needs Proton-CachyOS or GE-Proton ≥ 10-26");
@@ -183,6 +216,63 @@ const Requirement& requirementFor(Feature feature)
         return r;
     }();
 
+    // The DLSS indicator switch is a GE / CachyOS invention, translated by
+    // their scripts into DXVK_NVAPI_SET_NGX_DEBUG_OPTIONS: GE from 10-26 (absent
+    // at 10-25), CachyOS from 10.0-20250714 (absent at 10.0-20250702). Valve's
+    // script has no such switch (11.0, Experimental). Writing the NGX variable
+    // directly would reach Valve too, but it is stored in the prefix's registry
+    // and stays on — only the forks reset it when the switch is off.
+    static const Requirement dlssIndicator = [] {
+        Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
+        r.minGE = QVersionNumber(10, 26);
+        r.minCachyOS = QVersionNumber(10, 0, 20250714);
+        r.note = QStringLiteral("PROTON_DLSS_INDICATOR needs GE-Proton ≥ 10-26 or "
+                                "Proton-CachyOS ≥ 10.0-20250714");
+        r.forkNote = QStringLiteral("Valve's Proton has no DLSS indicator switch — "
+                                    "use Proton-CachyOS or GE-Proton");
+        return r;
+    }();
+    // Read by the NVIDIA driver's own _nvngx.dll, not by Proton — so any
+    // Proton will do, but only on NVIDIA.
+    static const Requirement ngxUpdater = [] {
+        Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
+        r.note = QStringLiteral("the NGX updater is part of the NVIDIA driver");
+        return r;
+    }();
+    // Wine's Wayland driver behind a switch: GE from 10-1 (none in 9-27),
+    // CachyOS from 10.0-20250509 (none in 9.0-20250426); Valve's script has
+    // none (11.0, Experimental). HDR rides on it: GE's PROTON_ENABLE_HDR and
+    // CachyOS's DXVK_HDR only reach the display through winewayland.
+    static const Requirement protonWayland = [] {
+        Requirement r;
+        r.minGE = QVersionNumber(10, 1);
+        r.minCachyOS = QVersionNumber(10, 0, 20250509);
+        r.note = QStringLiteral("PROTON_ENABLE_WAYLAND needs GE-Proton ≥ 10-1 or "
+                                "Proton-CachyOS ≥ 10.0-20250509");
+        r.forkNote = QStringLiteral("Valve's Proton has no Wayland switch — the game "
+                                    "runs through XWayland");
+        return r;
+    }();
+    static const Requirement protonHdr = [] {
+        Requirement r = protonWayland;
+        r.note = QStringLiteral("HDR needs Proton's Wayland driver: GE-Proton ≥ 10-1 or "
+                                "Proton-CachyOS ≥ 10.0-20250509");
+        r.forkNote = QStringLiteral("Valve's Proton has no Wayland switch — HDR works "
+                                    "there only inside gamescope");
+        return r;
+    }();
+    // The Vulkan HDR layer fills a gap the NVIDIA driver closed in 595.
+    static const Requirement hdrWsiLayer = [] {
+        Requirement r;
+        r.unneededFromDriver = QVersionNumber(595);
+        r.note = QStringLiteral("ENABLE_HDR_WSI is only needed before NVIDIA driver 595");
+        r.unneededNote = QStringLiteral("not needed from NVIDIA driver 595 — the driver "
+                                        "exposes HDR to Vulkan itself");
+        return r;
+    }();
+
     switch (feature) {
         case Feature::SmoothMotion:      return smoothMotion;
         case Feature::MultiFrameGen:     return multiFrameGen;
@@ -203,6 +293,13 @@ const Requirement& requirementFor(Feature feature)
         case Feature::DlssUpgradeVersion: return dlssUpgradeVersion;
         case Feature::NoSteamInput:      return noSteamInput;
         case Feature::PreferSdl:         return preferSdl;
+        case Feature::DlssOverrides:     return dlssOverrides;
+        case Feature::SuperResolution:   return superResolution;
+        case Feature::DlssIndicator:     return dlssIndicator;
+        case Feature::NgxUpdater:        return ngxUpdater;
+        case Feature::ProtonWayland:     return protonWayland;
+        case Feature::ProtonHdr:         return protonHdr;
+        case Feature::HdrWsiLayer:       return hdrWsiLayer;
     }
 
     static const Requirement none{};
@@ -227,7 +324,17 @@ const QVersionNumber& forkMinimum(const Requirement& req, Fork fork)
 
 Result evaluate(const Requirement& req, const Context& ctx)
 {
-    // Hardware first: no driver or Proton makes a GPU run what it can't.
+    // Hardware first: no driver or Proton makes a GPU run what it can't. A
+    // vendor counts as missing only when the detected list is non-empty.
+    if (req.vendor && !ctx.vendors.isEmpty() && !ctx.vendors.contains(*req.vendor)) {
+        QString message = req.vendorNote;
+        if (message.isEmpty()) {
+            message = *req.vendor == GpuVendor::NVIDIA ? QStringLiteral("needs an NVIDIA GPU")
+                    : *req.vendor == GpuVendor::AMD    ? QStringLiteral("needs an AMD GPU")
+                                                       : QStringLiteral("needs an Intel GPU");
+        }
+        return {Status::WrongGpuVendor, message};
+    }
     if (req.minGpu != GpuGeneration::Unknown && ctx.gpu != GpuGeneration::Unknown &&
         ctx.gpu < req.minGpu) {
         return {Status::UnsupportedGpu, req.gpuNote.isEmpty() ? req.note : req.gpuNote};
@@ -242,6 +349,13 @@ Result evaluate(const Requirement& req, const Context& ctx)
     if (!minDriver.isNull() && !ctx.driver.isNull() && ctx.driver < minDriver) {
         return {Status::BelowMinDriver,
                 QStringLiteral("%1 (detected %2)").arg(req.note, ctx.driver.toString())};
+    }
+    if (!req.unneededFromDriver.isNull() && !ctx.driver.isNull() &&
+        ctx.driver >= req.unneededFromDriver) {
+        return {Status::Unneeded,
+                QStringLiteral("%1 (detected %2)")
+                    .arg(req.unneededNote.isEmpty() ? req.note : req.unneededNote,
+                         ctx.driver.toString())};
     }
 
     // Fork availability needs only the fork, not its version: a Valve build
