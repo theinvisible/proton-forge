@@ -1,5 +1,6 @@
 #include "GameRunner.h"
 #include "utils/EnvBuilder.h"
+#include "utils/ExecutableFinder.h"
 #include "utils/ProtonManager.h"
 #include "utils/SteamPaths.h"
 #include "utils/SteamClient.h"
@@ -255,83 +256,14 @@ CompatToolResolver::ToolInfo GameRunner::resolveProtonTool(const Game& game, con
     return path.isEmpty() ? CompatToolResolver::ToolInfo() : CompatToolResolver::inspect(path);
 }
 
-QStringList GameRunner::findExecutables(const QString& installPath) const
-{
-    QStringList executables;
-
-    QDirIterator it(installPath, {"*.exe"}, QDir::Files, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        QString path = it.next();
-
-        // Skip common non-game executables
-        QString filename = QFileInfo(path).fileName().toLower();
-        if (filename.contains("unins") ||
-            filename.contains("setup") ||
-            filename.contains("install") ||
-            filename.contains("crash") ||
-            filename.contains("report") ||
-            filename.contains("launcher") ||  // Often separate launcher exes
-            filename.contains("redist") ||
-            filename.contains("vcredist") ||
-            filename.contains("directx") ||
-            filename.contains("dotnet") ||
-            filename.contains("easyanticheat") ||
-            filename.contains("battleye") ||
-            filename.contains("regroup") ||  // Log utilities
-            filename.contains("tts") ||  // Text-to-speech utilities
-            filename.contains("voice")) {
-            continue;
-        }
-
-        executables << path;
-    }
-
-    // Sort by path depth (shallower = more likely main exe)
-    std::sort(executables.begin(), executables.end(), [](const QString& a, const QString& b) {
-        return a.count('/') < b.count('/');
-    });
-
-    return executables;
-}
-
 QString GameRunner::findGameExecutable(const Game& game)
 {
     // If already set, use it
     if (!game.executablePath().isEmpty() && QFile::exists(game.executablePath())) {
         return game.executablePath();
     }
-
-    QStringList executables = findExecutables(game.installPath());
-    if (executables.isEmpty()) {
-        return QString();
-    }
-
-    // Prefer executables that match the game name
-    QString gameName = game.name().toLower();
-    QString installDirName = QFileInfo(game.installPath()).fileName().toLower();
-
-    for (const QString& exe : executables) {
-        QString exeName = QFileInfo(exe).baseName().toLower();
-
-        // Check if executable name matches game name or install directory name
-        if (exeName == gameName || exeName == installDirName) {
-            return exe;
-        }
-    }
-
-    // Check for partial matches (e.g., "GameName.exe" vs "Game Name")
-    for (const QString& exe : executables) {
-        QString exeName = QFileInfo(exe).baseName().toLower();
-        QString gameNameNoSpaces = gameName;
-        gameNameNoSpaces.remove(' ');
-
-        if (exeName == gameNameNoSpaces || gameNameNoSpaces.contains(exeName)) {
-            return exe;
-        }
-    }
-
-    // Fall back to first executable (already sorted by path depth)
-    return executables.first();
+    // The same choice the executable selector suggests.
+    return ExecutableFinder::find(game.name(), game.installPath(), false);
 }
 
 bool GameRunner::launch(const Game& game, const DLSSSettings& settings)
@@ -439,6 +371,16 @@ bool GameRunner::isGameRunning(const Game& game) const
            m_runningGame == game;
 }
 
+// The executable chosen in the settings panel, if it is still there. Comes
+// before the launcher's own idea (GOG's primary play task) and before any
+// search; MainWindow used to apply it by hand, so a launch from the command
+// line started a different file than one from the window.
+QString GameRunner::savedExecutable(const DLSSSettings& settings)
+{
+    const QString& path = settings.executablePath;
+    return !path.isEmpty() && QFile::exists(path) ? path : QString();
+}
+
 GameRunner::LaunchPlan GameRunner::resolveLaunch(const Game& game, const DLSSSettings& settings)
 {
     return game.isNativeLinux() ? resolveNativeLaunch(game, settings)
@@ -456,7 +398,8 @@ GameRunner::LaunchPlan GameRunner::resolveProtonLaunch(const Game& game, const D
         return plan;
     }
 
-    QString gameExe = findGameExecutable(game);
+    QString gameExe = savedExecutable(settings);
+    if (gameExe.isEmpty()) gameExe = findGameExecutable(game);
     if (gameExe.isEmpty()) {
         plan.error = "Could not find game executable";
         return plan;
@@ -691,71 +634,15 @@ QString GameRunner::findLinuxExecutable(const Game& game)
     if (!game.executablePath().isEmpty() && QFile::exists(game.executablePath())) {
         return game.executablePath();
     }
-
-    QString installPath = game.installPath();
-    QStringList candidates;
-
-    // Common Linux executable patterns
-    QStringList nameVariants;
-    QString gameName = game.name().toLower();
-    QString gameNameNoSpaces = gameName;
-    gameNameNoSpaces.remove(' ');
-    QString installDirName = QFileInfo(installPath).fileName().toLower();
-
-    nameVariants << gameNameNoSpaces << gameName.replace(' ', '_')
-                 << gameName.replace(' ', '-') << installDirName;
-
-    // Search for executables (files with execute permission, no extension)
-    QDirIterator it(installPath, QDir::Files | QDir::Executable, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        QString path = it.next();
-        QString filename = QFileInfo(path).fileName().toLower();
-
-        // Skip common non-game files
-        if (filename.contains("uninstall") || filename.contains("setup") ||
-            filename.endsWith(".sh") || filename.endsWith(".py") ||
-            filename.endsWith(".so") || filename.contains("crash")) {
-            continue;
-        }
-
-        candidates << path;
-    }
-
-    // Sort candidates by path depth (shallower first)
-    std::sort(candidates.begin(), candidates.end(), [](const QString& a, const QString& b) {
-        return a.count('/') < b.count('/');
-    });
-
-    // Prefer executables matching game name
-    for (const QString& exe : candidates) {
-        QString exeName = QFileInfo(exe).fileName().toLower();
-        for (const QString& variant : nameVariants) {
-            if (exeName == variant || exeName.contains(variant)) {
-                return exe;
-            }
-        }
-    }
-
-    // Look for x86_64 executables (more likely to be the main game)
-    for (const QString& exe : candidates) {
-        if (exe.contains("x86_64") || exe.contains("x64")) {
-            return exe;
-        }
-    }
-
-    // Return first candidate if we found any
-    if (!candidates.isEmpty()) {
-        return candidates.first();
-    }
-
-    return QString();
+    return ExecutableFinder::find(game.name(), game.installPath(), true);
 }
 
 GameRunner::LaunchPlan GameRunner::resolveNativeLaunch(const Game& game, const DLSSSettings& settings)
 {
     LaunchPlan plan;
 
-    QString gameExe = findLinuxExecutable(game);
+    QString gameExe = savedExecutable(settings);
+    if (gameExe.isEmpty()) gameExe = findLinuxExecutable(game);
     if (gameExe.isEmpty()) {
         plan.error = "Could not find game executable";
         return plan;

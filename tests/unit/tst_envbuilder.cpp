@@ -59,6 +59,8 @@ private slots:
     void dynamicFrameGenOnlyInDynamicMode();
     void queueFamilyNeedsSmoothMotion();
     void rrPresetsCanonicalizeAgainstTheirOwnList();
+    void emissionOrderIsStable();
+    void plainSwitchesRoundTrip();
 
 private:
     // Every option turned on, so a test can see the full set of variables
@@ -97,6 +99,28 @@ private:
     // parseLaunchOptions folds unrecognised tokens into customParams, which the
     // caller then assigns to the settings object (see MainWindow's import path).
     // Doing the same here is what makes the round-trip comparable.
+    // Everything on, every value set — the widest string ProtonForge writes.
+    static DLSSSettings fullyLoaded()
+    {
+        DLSSSettings s = everythingOn();
+        s.srMode = "QUALITY";
+        s.srPreset = "RENDER_PRESET_K";
+        s.srScalingRatio = 66;
+        s.rrMode = "BALANCED";
+        s.rrPreset = "RENDER_PRESET_F";
+        s.fgMultiFrameCount = 3;
+        s.fgMode = "DYNAMIC";
+        s.fgPreset = "RENDER_PRESET_B";
+        s.fgDynamicTargetFps = 120;
+        s.fgDynamicMaxCount = 3;
+        s.dlssVersion = "310.9.1";
+        s.targetFrameRate = 90;
+        s.dxvkConfigExtra = "dxgi.syncInterval=0";
+        s.vkd3dConfigExtra = "dxr";
+        s.customLaunchParams = "FOO=1 gamemoderun %command% -novid";
+        return s;
+    }
+
     static DLSSSettings reparse(const QString& raw, const DLSSSettings& base)
     {
         const EnvBuilder::ParsedLaunchOptions parsed = EnvBuilder::parseLaunchOptions(raw, base);
@@ -938,6 +962,76 @@ void TstEnvBuilder::rrPresetsCanonicalizeAgainstTheirOwnList()
         "NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION=render_preset_f %command%",
         DLSSSettings());
     QCOMPARE(parsed.rrPreset, QStringLiteral("RENDER_PRESET_F"));
+}
+
+void TstEnvBuilder::emissionOrderIsStable()
+{
+    // The exact string, order included. Steam stores what was written, and
+    // --list-games compares against it, so a refactor that merely reorders
+    // variables would make every configured game look out of date. Change
+    // this literal only for a deliberate change to what gets written.
+    const QString expected = QStringLiteral(
+        "__NV_PRIME_RENDER_OFFLOAD=1 "
+        "__GLX_VENDOR_LIBRARY_NAME=nvidia "
+        "__VK_LAYER_NV_optimus=NVIDIA_only "
+        "PROTON_DISABLE_NVAPI=1 "
+        "PROTON_ENABLE_NGX_UPDATER=1 "
+        "DXVK_NVAPI_VKREFLEX=1 "
+        "DXVK_NVAPI_D3D12_NV_SHADER_EXTN=1 "
+        "PROTON_VKD3D_LOWLATENCY=1 "
+        "VKD3D_CONFIG=descriptor_heap,dxr "
+        "PROTON_DLSS_UPGRADE=310.9.1 "
+        "PROTON_DLSS_INDICATOR=1 "
+        "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_SR_OVERRIDE=on,NGX_DLSS_SR_MODE=quality,NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_K,NGX_DLSS_SR_OVERRIDE_SCALING_RATIO=66,NGX_DLSS_RR_OVERRIDE=on,NGX_DLSS_RR_MODE=balanced,NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_F,NGX_DLSS_FG_OVERRIDE=on,NGX_DLSSG_MULTI_FRAME_COUNT=3,NGX_DLSSG_MODE=dynamic,NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_B,NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE=120,NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX=3 "
+        "NVPRESENT_ENABLE_SMOOTH_MOTION=1 "
+        "NVPRESENT_QUEUE_FAMILY=1 "
+        "DXVK_CONFIG=\"dxvk.maxFrameRate=90;dxgi.syncInterval=0\" "
+        "VKD3D_FRAME_RATE=90 "
+        "PROTON_ENABLE_WAYLAND=1 "
+        "PROTON_ENABLE_HDR=1 "
+        "DXVK_HDR=1 "
+        "ENABLE_HDR_WSI=1 "
+        "DXVK_NO_HDR=1 "
+        "PROTON_USE_NTSYNC=1 "
+        "PROTON_NO_NTSYNC=1 "
+        "PROTON_USE_D7VK=1 "
+        "PROTON_D7VK_DDRAW=1 "
+        "PROTON_LOG=1 "
+        "MANGOHUD=1 "
+        "FOO=1 "
+        "mangohud "
+        "gamemoderun "
+        "%command% "
+        "-novid");
+    QCOMPARE(EnvBuilder::buildLaunchOptions(fullyLoaded()), expected);
+
+    // A direct launch carries the same variables (the full equivalence is
+    // environmentCarriesTheSameVariables; this pins the values).
+    const QProcessEnvironment env = EnvBuilder::buildEnvironment(fullyLoaded());
+    QCOMPARE(env.value("DXVK_CONFIG"), QStringLiteral("dxvk.maxFrameRate=90;dxgi.syncInterval=0"));
+    QCOMPARE(env.value("VKD3D_CONFIG"), QStringLiteral("descriptor_heap,dxr"));
+    QCOMPARE(env.value("PROTON_DLSS_UPGRADE"), QStringLiteral("310.9.1"));
+}
+
+void TstEnvBuilder::plainSwitchesRoundTrip()
+{
+    // Every plain switch in the variable table is read back and written again
+    // with nothing but its table row — this covers a new one automatically.
+    const QStringList switches = EnvBuilder::plainSwitchVars();
+    QVERIFY(switches.contains("DXVK_NVAPI_VKREFLEX"));
+    QVERIFY(!switches.contains("PROTON_DISABLE_NVAPI"));   // inverted, hand-written
+
+    for (const QString& var : switches) {
+        const DLSSSettings on = reparse(var + "=1 %command%", DLSSSettings());
+        QVERIFY2(on.customLaunchParams == "%command%",
+                 qPrintable(var + " was not consumed: " + on.customLaunchParams));
+        QVERIFY2(EnvBuilder::buildLaunchOptions(on).contains(var + "=1"),
+                 qPrintable(var + " did not survive the round trip"));
+
+        const DLSSSettings off = reparse(var + "=0 %command%", on);
+        QVERIFY2(!EnvBuilder::buildLaunchOptions(off).contains(var + "="),
+                 qPrintable(var + "=0 still writes the switch"));
+    }
 }
 
 QTEST_MAIN(TstEnvBuilder)

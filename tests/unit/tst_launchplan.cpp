@@ -46,6 +46,7 @@ private slots:
     void aGameWithNowhereToPutAPrefixIsRefused();
     void aSteamGameStillGetsTheFullSteamEnvironment();
     void aSecondGameIsRefusedWhileOneIsRunning();
+    void theSavedExecutableWinsOverEverySearch();
 
 private:
     QTemporaryDir m_home;
@@ -496,6 +497,40 @@ void TstLaunchPlan::aSecondGameIsRefusedWhileOneIsRunning()
     QVERIFY2(runner.isGameRunning(first), "refusing the second game must not stop the first");
     QVERIFY(!runner.isGameRunning(second));
     QCOMPARE(runner.runningGame().id(), QStringLiteral("1"));
+}
+
+void TstLaunchPlan::theSavedExecutableWinsOverEverySearch()
+{
+    // The executable chosen in the panel is what every launch path starts —
+    // the window and --launch alike. Without one, the launcher's choice wins,
+    // and without that the search.
+    makeSteamRoot(nativeRoot());
+    makeProton(nativeRoot() + "/compatibilitytools.d/proton-cachyos-10.0");
+
+    const QString library = nativeRoot() + "/steamapps";
+    const QString install = library + "/common/Die by the Sword";
+    makeFile(install + "/DBTSStart.exe");
+    makeFile(install + "/WINDIE.EXE");
+    makeFile(install + "/GOGLauncher.exe");
+
+    Game game("1245620", "Die By The Sword", "Steam");
+    game.setTraits(SteamLauncher().traits());
+    game.setInstallPath(install);
+    game.setLibraryPath(library);
+
+    GameRunner runner;
+    DLSSSettings settings;
+    settings.executablePath = install + "/WINDIE.EXE";
+    QCOMPARE(runner.resolveLaunch(game, settings).gameExe, install + "/WINDIE.EXE");
+
+    // A saved path that has since disappeared falls through to the search,
+    // which never picks the launcher.
+    settings.executablePath = install + "/gone.exe";
+    QCOMPARE(runner.resolveLaunch(game, settings).gameExe, install + "/DBTSStart.exe");
+
+    // The launcher's own choice comes before the search.
+    game.setExecutablePath(install + "/WINDIE.EXE");
+    QCOMPARE(runner.resolveLaunch(game, DLSSSettings()).gameExe, install + "/WINDIE.EXE");
 }
 
 QTEST_MAIN(TstLaunchPlan)

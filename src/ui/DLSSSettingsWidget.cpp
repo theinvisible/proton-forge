@@ -1,5 +1,9 @@
 #include "DLSSSettingsWidget.h"
-#include "MangoHudDialog.h"
+#include "ui/settings/AdvancedPage.h"
+#include "ui/settings/DlssPage.h"
+#include "ui/settings/GeneralPage.h"
+#include "ui/settings/HdrPage.h"
+#include "ui/settings/ProtonPage.h"
 #include "RecommendationsDialog.h"
 #include "AppStyle.h"
 #include "network/ImageCache.h"
@@ -8,14 +12,13 @@
 #include "utils/EnvBuilder.h"
 #include "utils/ProtonManager.h"
 #include "utils/CompatToolResolver.h"
+#include "utils/ExecutableFinder.h"
 #include "utils/LaunchOptionExtractor.h"
 #include "utils/GpuInfoCache.h"
-#include "utils/HDRChecker.h"
 #include "runner/GameRunner.h"
 #include "launchers/SteamLauncher.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QFormLayout>
 #include <QScrollArea>
 #include <QTabWidget>
 #include <QAbstractItemView>
@@ -23,13 +26,9 @@
 #include <QStyledItemDelegate>
 #include <QPainter>
 #include <QFileInfo>
-#include <QHash>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
-#include <QRegularExpressionValidator>
-#include <QMessageBox>
 #include <QtConcurrent>
 #include <algorithm>
 
@@ -52,69 +51,6 @@ QString protonDbBadgeTierStyle(const QString& color)
         .arg(color);
 }
 
-enum class PresetKind { SuperResolution, RayReconstruction, FrameGeneration };
-
-// Display text for a render preset. The stored value stays the NGX name
-// (RENDER_PRESET_K), so settings and launch strings are unaffected by wording.
-QString presetLabel(PresetKind kind, const QString& value)
-{
-    if (value.isEmpty())
-        return QStringLiteral("(App Default)");
-    // DLSS 310 redefined "latest" as "recommended": the driver picks the
-    // preset NVIDIA recommends for the quality mode in use.
-    if (value == QLatin1String("RENDER_PRESET_LATEST"))
-        return QStringLiteral("Recommended (driver picks per mode)");
-
-    static const QHash<QString, QString> sr = {
-        {"RENDER_PRESET_M", "M — DLSS 4.5 (default: Performance)"},
-        {"RENDER_PRESET_L", "L — DLSS 4.5 (default: Ultra Performance)"},
-        {"RENDER_PRESET_K", "K — Transformer (default: DLAA / Quality / Balanced)"},
-        {"RENDER_PRESET_J", "J — Transformer, 1st gen (similar to K)"},
-        {"RENDER_PRESET_F", "F — CNN (deprecated)"},
-        {"RENDER_PRESET_E", "E — CNN (deprecated)"},
-        {"RENDER_PRESET_D", "D — CNN (removed in DLSS 310)"},
-        {"RENDER_PRESET_C", "C — CNN (removed in DLSS 310)"},
-        {"RENDER_PRESET_B", "B — CNN (removed in DLSS 310)"},
-        {"RENDER_PRESET_A", "A — CNN (removed in DLSS 310)"},
-    };
-    static const QHash<QString, QString> rr = {
-        {"RENDER_PRESET_F", "F — Ray Reconstruction 2 (DLSS 310.9.1+)"},
-        {"RENDER_PRESET_E", "E — Transformer, latest (needed for the depth-of-field guide)"},
-        {"RENDER_PRESET_D", "D — Transformer"},
-    };
-    static const QHash<QString, QString> fg = {
-        {"RENDER_PRESET_B", "B — UI recomposition (DLSS 310.6.0+)"},
-        {"RENDER_PRESET_A", "A — Original"},
-    };
-    switch (kind) {
-        case PresetKind::SuperResolution:   return sr.value(value, value);
-        case PresetKind::RayReconstruction: return rr.value(value, value);
-        case PresetKind::FrameGeneration:   return fg.value(value, value);
-    }
-    return value;
-}
-
-// Marks an item selectData() added for a value the list does not offer.
-constexpr int SavedValueRole = Qt::UserRole + 1;
-
-// Selects the item carrying `value`. A non-empty value the combo does not
-// offer — a preset dropped from the list, or one written by hand — gets an
-// item of its own instead of silently turning into "(App Default)", which
-// the next save would then have made permanent.
-void selectData(QComboBox* combo, const QString& value)
-{
-    for (int i = combo->count() - 1; i >= 0; --i) {
-        if (combo->itemData(i, SavedValueRole).toBool())
-            combo->removeItem(i);
-    }
-    int index = combo->findData(value);
-    if (index < 0 && !value.isEmpty()) {
-        combo->addItem(QStringLiteral("%1 (saved, not in list)").arg(value), value);
-        index = combo->count() - 1;
-        combo->setItemData(index, true, SavedValueRole);
-    }
-    combo->setCurrentIndex(index >= 0 ? index : 0);
-}
 } // namespace
 
 DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
@@ -187,10 +123,8 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
             : QString();
         RecommendationsDialog dialog(appId, m_currentGame.name(), m_protonDbSummary,
                                      suggestions, message, this);
-        connect(&dialog, &RecommendationsDialog::applySnippet, this, [this](const QString& snippet) {
-            const QString existing = m_customLaunchParams->toPlainText().trimmed();
-            m_customLaunchParams->setPlainText(existing.isEmpty() ? snippet : existing + "\n" + snippet);
-        });
+        connect(&dialog, &RecommendationsDialog::applySnippet,
+                m_advancedPage, &AdvancedPage::appendCustomParams);
         dialog.exec();
     });
     connect(&ProtonDBClient::instance(), &ProtonDBClient::reportsUnavailable, this,
@@ -201,10 +135,8 @@ DLSSSettingsWidget::DLSSSettingsWidget(QWidget* parent)
         restoreBadge();
         RecommendationsDialog dialog(appId, m_currentGame.name(), m_protonDbSummary,
                                      {}, reason, this);
-        connect(&dialog, &RecommendationsDialog::applySnippet, this, [this](const QString& snippet) {
-            const QString existing = m_customLaunchParams->toPlainText().trimmed();
-            m_customLaunchParams->setPlainText(existing.isEmpty() ? snippet : existing + "\n" + snippet);
-        });
+        connect(&dialog, &RecommendationsDialog::applySnippet,
+                m_advancedPage, &AdvancedPage::appendCustomParams);
         dialog.exec();
     });
 }
@@ -346,17 +278,15 @@ void DLSSSettingsWidget::setupUI()
     mainLayout->addWidget(m_featureWarnings);
 
     // Settings, grouped thematically into tabs; each tab scrolls on its own.
+    m_advancedPage = new AdvancedPage(this);
+    m_pages = {new GeneralPage(this), new DlssPage(this), new HdrPage(this),
+               new ProtonPage(this), m_advancedPage};
     QTabWidget* tabWidget = new QTabWidget(this);
-    tabWidget->addTab(createScrollTab({createGeneralGroup()}), "General");
-    tabWidget->addTab(createScrollTab({createSuperResolutionGroup(),
-                                       createRayReconstructionGroup(),
-                                       createFrameGenerationGroup(),
-                                       createUpgradeGroup(),
-                                       createSmoothMotionGroup()}), "DLSS");
-    tabWidget->addTab(createScrollTab({createHDRGroup()}), "HDR");
-    tabWidget->addTab(createScrollTab({createProtonTweaksGroup()}), "Proton");
-    tabWidget->addTab(createScrollTab({createOverlayGroup(),
-                                       createCustomParamsGroup()}), "Advanced");
+    const char* const titles[] = {"General", "DLSS", "HDR", "Proton", "Advanced"};
+    for (int i = 0; i < m_pages.size(); ++i) {
+        connect(m_pages[i], &SettingsPage::changed, this, &DLSSSettingsWidget::onSettingChanged);
+        tabWidget->addTab(createScrollTab(m_pages[i]), titles[i]);
+    }
     mainLayout->addWidget(tabWidget, 1);
 
     // Launch command preview
@@ -379,22 +309,13 @@ void DLSSSettingsWidget::setupUI()
     styleComboBoxPopups();
 }
 
-QWidget* DLSSSettingsWidget::createScrollTab(std::initializer_list<QWidget*> groups)
+QWidget* DLSSSettingsWidget::createScrollTab(SettingsPage* page)
 {
     QScrollArea* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
-
-    QWidget* content = new QWidget();
-    content->setStyleSheet("background: transparent;");
-    QVBoxLayout* layout = new QVBoxLayout(content);
-    layout->setSpacing(10);
-    for (QWidget* group : groups) {
-        layout->addWidget(group);
-    }
-    layout->addStretch();
-
-    scroll->setWidget(content);
+    static_cast<QBoxLayout*>(page->layout())->addStretch();
+    scroll->setWidget(page);
     return scroll;
 }
 
@@ -405,744 +326,6 @@ void DLSSSettingsWidget::styleComboBoxPopups()
     for (QComboBox* combo : combos) {
         combo->view()->setStyleSheet(viewStyle);
     }
-}
-
-QGroupBox* DLSSSettingsWidget::createGeneralGroup()
-{
-    QGroupBox* group = new QGroupBox("General", this);
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_enableNVAPI = new QCheckBox("Enable NVAPI", this);
-    m_enableNVAPI->setToolTip(
-        "NVIDIA API support in Proton (dxvk-nvapi).\n\n"
-        "Required for DLSS and other NVIDIA features to work. "
-        "dxvk-nvapi translates NVIDIA-specific DirectX calls to Vulkan.\n\n"
-        "Current Proton versions enable it on NVIDIA GPUs by default, so nothing "
-        "is written while this is checked. Unchecking it sets PROTON_DISABLE_NVAPI=1.\n\n"
-        "Recommended: Enabled for all NVIDIA GPU users.");
-    layout->addWidget(m_enableNVAPI);
-
-    m_enableNGXUpdater = new QCheckBox("Enable NGX Updater (PROTON_ENABLE_NGX_UPDATER)", this);
-    m_enableNGXUpdater->setToolTip(
-        "Allow NVIDIA NGX to automatically update DLSS DLLs.\n\n"
-        "When enabled, NGX can download newer DLSS versions from NVIDIA servers. "
-        "This may improve quality and performance in some games.\n\n"
-        "Note: Requires internet connection and may increase loading times.");
-    layout->addWidget(m_enableNGXUpdater);
-
-    m_enablePrimeOffload = new QCheckBox("Use NVIDIA GPU (PRIME Render Offload)", this);
-    m_enablePrimeOffload->setToolTip(
-        "Render this game on the NVIDIA dGPU instead of the integrated GPU.\n\n"
-        "For hybrid-graphics systems (e.g. laptops with Intel/AMD iGPU + NVIDIA "
-        "dGPU) where the iGPU is the primary GPU. Not needed when the NVIDIA "
-        "GPU is the only or primary GPU — some distros configure this "
-        "automatically.\n\n"
-        "Sets __NV_PRIME_RENDER_OFFLOAD=1, __GLX_VENDOR_LIBRARY_NAME=nvidia "
-        "and __VK_LAYER_NV_optimus=NVIDIA_only (works on any distro, no "
-        "hard-coded driver paths).");
-    layout->addWidget(m_enablePrimeOffload);
-
-    m_enableReflex = new QCheckBox("Enable Reflex (DXVK_NVAPI_VKREFLEX)", this);
-    m_enableReflex->setToolTip(
-        "Enable NVIDIA Reflex for Vulkan games via DXVK-NVAPI's Reflex layer.\n\n"
-        "Reduces input latency and is the recommended companion to Frame Generation "
-        "and Smooth Motion. Needed for Reflex in native Vulkan titles "
-        "(e.g. Portal RTX, Path of Exile).\n\n"
-        "Sets DXVK_NVAPI_VKREFLEX=1.");
-    layout->addWidget(m_enableReflex);
-
-    m_enableVkd3dLowLatency = new QCheckBox("VKD3D Low Latency (PROTON_VKD3D_LOWLATENCY)", this);
-    m_enableVkd3dLowLatency->setToolTip(
-        "Enable low-latency frame pacing in VKD3D-Proton for DirectX 12 games.\n\n"
-        "Hardware-agnostic and natively implements the NVIDIA Reflex API, "
-        "reducing input latency in DX12 titles. The DX12 counterpart to the "
-        "Reflex option above.\n\n"
-        "Requires: Proton-CachyOS 11.0-20260703 or newer.\n\n"
-        "Sets PROTON_VKD3D_LOWLATENCY=1.");
-    layout->addWidget(m_enableVkd3dLowLatency);
-
-    m_enableVkd3dDescriptorHeap = new QCheckBox("VKD3D Descriptor Heap (experimental)", this);
-    m_enableVkd3dDescriptorHeap->setToolTip(
-        "Enable vkd3d-proton's new VK_EXT_descriptor_heap path for DirectX 12 "
-        "games.\n\n"
-        "Can improve performance and frame pacing, but is experimental and "
-        "known to crash some games — test per game.\n\n"
-        "Requires: NVIDIA driver 595.44.02 or newer.\n\n"
-        "Sets VKD3D_CONFIG=descriptor_heap.");
-    layout->addWidget(m_enableVkd3dDescriptorHeap);
-
-    m_enableD3D12ShaderExtensions = new QCheckBox("D3D12 NVIDIA Shader Extensions (experimental)", this);
-    m_enableD3D12ShaderExtensions->setToolTip(
-        "Let DirectX 12 games use NVIDIA's shader extensions — today that means "
-        "Shader Execution Reordering (SER), which speeds up ray and path tracing.\n\n"
-        "Benefits e.g. Alan Wake 2, Cyberpunk 2077 (with some known issues) and many "
-        "Unreal Engine 5 titles such as Black Myth: Wukong. Experimental — DXVK-NVAPI "
-        "describes it as a troubleshooting tweak, so test per game.\n\n"
-        "Requires: DXVK-NVAPI 0.9.2 and vkd3d-proton 3.0.1 (Valve Proton 11.0-2, "
-        "current Proton-CachyOS / GE-Proton).\n\n"
-        "Sets DXVK_NVAPI_D3D12_NV_SHADER_EXTN=1.");
-    layout->addWidget(m_enableD3D12ShaderExtensions);
-
-    m_showIndicator = new QCheckBox("Show DLSS Indicator (PROTON_DLSS_INDICATOR)", this);
-    m_showIndicator->setToolTip(
-        "Display an on-screen DLSS status indicator in-game.\n\n"
-        "Shows which DLSS features are active (SR/RR/FG) and their settings. "
-        "Useful for verifying that your settings are being applied correctly.\n\n"
-        "The indicator appears as an overlay in the corner of the screen.");
-    layout->addWidget(m_showIndicator);
-
-    connect(m_enableNVAPI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableNGXUpdater, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enablePrimeOffload, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableReflex, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableVkd3dLowLatency, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableVkd3dDescriptorHeap, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableD3D12ShaderExtensions, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_showIndicator, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createHDRGroup()
-{
-    QGroupBox* group = new QGroupBox("HDR", this);
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_enableAllHDR = new QCheckBox("Enable All HDR Options (Quick Toggle)", this);
-    // An inline stylesheet beats the one in style.qss, so this has to carry its
-    // own disabled colour — otherwise the quick toggle keeps its accent green
-    // while the options it drives are greyed out (native Linux games).
-    m_enableAllHDR->setStyleSheet(
-        "QCheckBox { font-weight: bold; color: #76B900; }"
-        "QCheckBox:disabled { color: #4a5f28; }");
-    m_enableAllHDR->setToolTip(
-        "Quick toggle to enable/disable all HDR options at once.\n\n"
-        "This is a convenience checkbox that controls all three HDR settings below. "
-        "You can also toggle individual options if needed.");
-    layout->addWidget(m_enableAllHDR);
-
-    // Indent individual HDR options
-    QWidget* hdrOptionsWidget = new QWidget(this);
-    QVBoxLayout* hdrOptionsLayout = new QVBoxLayout(hdrOptionsWidget);
-    hdrOptionsLayout->setContentsMargins(20, 0, 0, 0);
-    hdrOptionsLayout->setSpacing(5);
-
-    m_enableProtonWayland = new QCheckBox("PROTON_ENABLE_WAYLAND=1", this);
-    m_enableProtonWayland->setToolTip(
-        "Enable Wayland support in Proton.\n\n"
-        "Required for HDR to work. Enables Wayland backend instead of XWayland.");
-    hdrOptionsLayout->addWidget(m_enableProtonWayland);
-
-    m_enableProtonHDR = new QCheckBox("PROTON_ENABLE_HDR=1 + DXVK_HDR=1", this);
-    m_enableProtonHDR->setToolTip(
-        "Enable HDR support in Proton.\n\n"
-        "GE-Proton reads PROTON_ENABLE_HDR; Proton-CachyOS retired it in "
-        "11.0-20260506 and reads DXVK_HDR instead. Both are set, so the option "
-        "works whichever Proton runs the game.");
-    hdrOptionsLayout->addWidget(m_enableProtonHDR);
-
-    m_enableHDRWSI = new QCheckBox("ENABLE_HDR_WSI=1", this);
-    m_enableHDRWSI->setToolTip(
-        "Enable HDR Window System Integration.\n\n"
-        "Enables HDR support in the Vulkan WSI (Window System Integration) layer.\n\n"
-        "Only needed with NVIDIA drivers older than 595.");
-    hdrOptionsLayout->addWidget(m_enableHDRWSI);
-
-    m_disableAutoHDR = new QCheckBox("Disable auto-HDR (DXVK_NO_HDR)", this);
-    m_disableAutoHDR->setToolTip(
-        "Opt out of Proton-CachyOS's automatic HDR.\n\n"
-        "Since Proton-CachyOS 11.0-20260601, HDR is enabled automatically when "
-        "the display supports it. Enable this to force SDR for games where "
-        "auto-HDR misbehaves.\n\n"
-        "Not affected by the 'Enable All HDR Options' quick toggle.\n\n"
-        "Sets DXVK_NO_HDR=1.");
-    hdrOptionsLayout->addWidget(m_disableAutoHDR);
-
-    layout->addWidget(hdrOptionsWidget);
-
-    connect(m_enableAllHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onEnableAllHDRToggled);
-    connect(m_enableProtonWayland, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
-    connect(m_enableProtonHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
-    connect(m_enableHDRWSI, &QCheckBox::toggled, this, &DLSSSettingsWidget::onHDRCheckboxChanged);
-    // Deliberately plain onSettingChanged: DXVK_NO_HDR is a disable switch and
-    // must stay outside the m_enableAllHDR master sync and the HDR status dialog.
-    connect(m_disableAutoHDR, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createProtonTweaksGroup()
-{
-    m_protonTweaksGroup = new QGroupBox("Proton Tweaks", this);
-    QGroupBox* group = m_protonTweaksGroup;
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    QHBoxLayout* ntsyncRow = new QHBoxLayout();
-    ntsyncRow->addWidget(new QLabel("NTSync:", this));
-    m_ntsyncMode = new QComboBox(this);
-    m_ntsyncMode->addItem("Proton default", QStringLiteral("default"));
-    m_ntsyncMode->addItem("Force on (PROTON_USE_NTSYNC, Proton ≤ 10)", QStringLiteral("on"));
-    m_ntsyncMode->addItem("Off (PROTON_NO_NTSYNC, Proton 11+)", QStringLiteral("off"));
-    m_ntsyncMode->setToolTip(
-        "NTSync: kernel-level Windows synchronization primitives.\n\n"
-        "It replaces wineserver-based synchronization and significantly reduces "
-        "CPU overhead in multi-threaded games.\n\n"
-        "• Up to Proton 10 it is opt-in: 'Force on' sets PROTON_USE_NTSYNC=1.\n"
-        "• From Proton 11 it is on by default: 'Off' sets PROTON_NO_NTSYNC=1 "
-        "for a game that misbehaves with it.\n\n"
-        "Requires: Linux kernel 6.14+ with NTSync support enabled.");
-    ntsyncRow->addWidget(m_ntsyncMode, 1);
-    layout->addLayout(ntsyncRow);
-
-    m_protonUseD7VK = new QCheckBox("Use D7VK (PROTON_USE_D7VK)", this);
-    m_protonUseD7VK->setToolTip(
-        "Translate Direct3D 7 to Vulkan via d7vk.\n\n"
-        "Improves compatibility and performance for very old D3D7-era games.\n\n"
-        "Requires: GE-Proton 11-1+ or Proton-CachyOS 11.0+.\n\n"
-        "Sets PROTON_USE_D7VK=1 (GE-Proton) and PROTON_D7VK_DDRAW=1 (Proton-CachyOS).");
-    layout->addWidget(m_protonUseD7VK);
-
-    m_protonLog = new QCheckBox("Enable Logging (PROTON_LOG)", this);
-    m_protonLog->setToolTip(
-        "Enable Proton debug logging.\n\n"
-        "Writes detailed log output to help diagnose issues with games running under Proton. "
-        "Log files are typically written to the game's prefix directory.\n\n"
-        "Note: May impact performance. Only enable for troubleshooting.");
-    layout->addWidget(m_protonLog);
-
-    connect(m_ntsyncMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_protonUseD7VK, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_protonLog, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createSuperResolutionGroup()
-{
-    m_srGroup = new QGroupBox("Super Resolution (DLSS SR)", this);
-    QGroupBox* group = m_srGroup;
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_srOverride = new QCheckBox("Override SR Settings", this);
-    m_srOverride->setToolTip(
-        "Override DLSS Super Resolution settings chosen by the game.\n\n"
-        "DLSS SR upscales rendered frames from a lower resolution to improve performance. "
-        "Enable this to force specific quality/performance settings instead of using the game's defaults.\n\n"
-        "Use this if the game doesn't expose DLSS options or you want more control.");
-    layout->addWidget(m_srOverride);
-
-    QFormLayout* formLayout = new QFormLayout();
-
-    m_srMode = new QComboBox(this);
-    for (const QString& mode : DLSSSettings::availableSRModes()) {
-        m_srMode->addItem(mode.isEmpty() ? "(App Default)" : mode, mode);
-    }
-    m_srMode->setToolTip(
-        "DLSS Super Resolution quality preset:\n\n"
-        "• PERFORMANCE: Lowest internal resolution, highest FPS boost (~50% render scale)\n"
-        "• BALANCED: Balanced quality/performance (~58% render scale)\n"
-        "• QUALITY: Higher quality, moderate FPS boost (~67% render scale)\n"
-        "• ULTRA_PERFORMANCE: Maximum performance, lowest quality (~33% render scale)\n"
-        "• DLAA: AI anti-aliasing at native resolution (no upscaling)\n"
-        "• CUSTOM: Use manual scaling ratio instead of preset");
-    formLayout->addRow("Mode:", m_srMode);
-
-    m_srPreset = new QComboBox(this);
-    for (const QString& preset : DLSSSettings::availablePresets()) {
-        m_srPreset->addItem(presetLabel(PresetKind::SuperResolution, preset), preset);
-    }
-    m_srPreset->setToolTip(
-        "DLSS Super Resolution model preset (NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
-        "Picks the AI model variant:\n\n"
-        "• (App Default): use the game's choice\n"
-        "• Recommended (RENDER_PRESET_LATEST): the driver picks NVIDIA's "
-        "recommendation for the quality mode — K for DLAA/Quality/Balanced, "
-        "M for Performance, L for Ultra Performance\n\n"
-        "Transformer models (DLSS 4 / 4.5):\n"
-        "• M, L: DLSS 4.5, tuned for Performance / Ultra Performance\n"
-        "• K: refined transformer, the default for DLAA, Quality and Balanced\n"
-        "• J: 1st-gen transformer, similar to K\n\n"
-        "CNN models (DLSS 2/3):\n"
-        "• E, F: deprecated in DLSS 310\n"
-        "• A–D: removed in DLSS 310 — only an older DLL still has them\n\n"
-        "A preset the game's DLSS DLL does not know falls back to its default, "
-        "so J–M need a DLSS 4 DLL: use DLSS Upgrade or the NGX updater for "
-        "games that ship an older one.");
-    formLayout->addRow("Render Preset:", m_srPreset);
-
-    m_srScalingRatio = new QSpinBox(this);
-    m_srScalingRatio->setRange(0, 100);
-    m_srScalingRatio->setSpecialValueText("(App Default)");
-    m_srScalingRatio->setSuffix("%");
-    m_srScalingRatio->setToolTip(
-        "Manual scaling ratio override (33-100%):\n\n"
-        "Sets the percentage of native resolution to render internally before upscaling. "
-        "Lower = better performance, potentially lower quality.\n"
-        "Higher = better quality, less performance gain.\n\n"
-        "Examples at 4K:\n"
-        "• 50% = Render at 1080p, upscale to 4K\n"
-        "• 67% = Render at ~1440p, upscale to 4K\n\n"
-        "0 = Use app default or mode preset");
-    formLayout->addRow("Scaling Ratio:", m_srScalingRatio);
-
-    layout->addLayout(formLayout);
-
-    // Enable/disable based on override checkbox
-    auto updateSREnabled = [this]() {
-        bool enabled = m_srOverride->isChecked();
-        m_srMode->setEnabled(enabled);
-        m_srPreset->setEnabled(enabled);
-        m_srScalingRatio->setEnabled(enabled);
-    };
-
-    connect(m_srOverride, &QCheckBox::toggled, this, [updateSREnabled, this]() {
-        updateSREnabled();
-        onSettingChanged();
-    });
-    connect(m_srMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_srPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_srScalingRatio, QOverload<int>::of(&QSpinBox::valueChanged), this, &DLSSSettingsWidget::onSettingChanged);
-
-    updateSREnabled();
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createRayReconstructionGroup()
-{
-    m_rrGroup = new QGroupBox("Ray Reconstruction (DLSS RR)", this);
-    QGroupBox* group = m_rrGroup;
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_rrOverride = new QCheckBox("Override RR Settings", this);
-    m_rrOverride->setToolTip(
-        "Override DLSS Ray Reconstruction settings.\n\n"
-        "DLSS RR uses AI to reconstruct high-quality ray-traced images from fewer rays, "
-        "dramatically improving ray tracing performance without sacrificing quality.\n\n"
-        "Only applicable in games with ray tracing support. "
-        "Enable this to control RR quality independently from Super Resolution.");
-    layout->addWidget(m_rrOverride);
-
-    QFormLayout* formLayout = new QFormLayout();
-
-    m_rrMode = new QComboBox(this);
-    for (const QString& mode : DLSSSettings::availableRRModes()) {
-        m_rrMode->addItem(mode.isEmpty() ? "(App Default)" : mode, mode);
-    }
-    m_rrMode->setToolTip(
-        "Ray Reconstruction quality mode:\n\n"
-        "• PERFORMANCE: Fewer rays traced, maximum FPS boost\n"
-        "• BALANCED: Balanced ray count and quality\n"
-        "• QUALITY: More rays traced, better visual quality\n"
-        "• ULTRA_PERFORMANCE: Minimum rays, maximum performance\n"
-        "• DLAA: Full ray count with AI denoising\n\n"
-        "Higher quality modes trace more rays but have lower performance impact.");
-    formLayout->addRow("Mode:", m_rrMode);
-
-    m_rrPreset = new QComboBox(this);
-    for (const QString& preset : DLSSSettings::availableRRPresets()) {
-        m_rrPreset->addItem(presetLabel(PresetKind::RayReconstruction, preset), preset);
-    }
-    m_rrPreset->setToolTip(
-        "DLSS Ray Reconstruction model preset (NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
-        "Ray Reconstruction has its own presets, separate from Super Resolution:\n"
-        "• (App Default): use the game's choice\n"
-        "• Recommended (RENDER_PRESET_LATEST): the driver's pick\n"
-        "• F: Ray Reconstruction 2 — needs DLSS 310.9.1 or newer\n"
-        "• E: latest transformer — required when the game supplies a depth-of-field guide\n"
-        "• D: transformer\n\n"
-        "A preset the game's DLL does not know falls back to its default — "
-        "use DLSS Upgrade or the NGX updater for F.");
-    formLayout->addRow("Render Preset:", m_rrPreset);
-
-    m_rrScalingRatio = new QSpinBox(this);
-    m_rrScalingRatio->setRange(0, 100);
-    m_rrScalingRatio->setSpecialValueText("(App Default)");
-    m_rrScalingRatio->setSuffix("%");
-    m_rrScalingRatio->setToolTip(
-        "Ray budget scaling ratio (33-100%):\n\n"
-        "Percentage of full ray count to trace. Lower values trace fewer rays, "
-        "improving performance at the cost of reconstruction quality.\n\n"
-        "The AI reconstructs the missing detail from the reduced ray samples.\n\n"
-        "0 = Use app default or mode preset");
-    formLayout->addRow("Scaling Ratio:", m_rrScalingRatio);
-
-    layout->addLayout(formLayout);
-
-    auto updateRREnabled = [this]() {
-        bool enabled = m_rrOverride->isChecked();
-        m_rrMode->setEnabled(enabled);
-        m_rrPreset->setEnabled(enabled);
-        m_rrScalingRatio->setEnabled(enabled);
-    };
-
-    connect(m_rrOverride, &QCheckBox::toggled, this, [updateRREnabled, this]() {
-        updateRREnabled();
-        onSettingChanged();
-    });
-    connect(m_rrMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_rrPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_rrScalingRatio, QOverload<int>::of(&QSpinBox::valueChanged), this, &DLSSSettingsWidget::onSettingChanged);
-
-    updateRREnabled();
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createFrameGenerationGroup()
-{
-    m_fgGroup = new QGroupBox("Frame Generation (DLSS FG)", this);
-    QGroupBox* group = m_fgGroup;
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_fgOverride = new QCheckBox("Override FG Settings", this);
-    m_fgOverride->setToolTip(
-        "Override DLSS Frame Generation settings.\n\n"
-        "DLSS FG uses AI to generate entirely new frames between rendered frames, "
-        "potentially doubling, tripling, or even quadrupling your frame rate.\n\n"
-        "Requirements:\n"
-        "• RTX 40-series GPU or newer\n"
-        "• Game with DLSS 3+ support\n\n"
-        "Note: Adds slight input latency. Use NVIDIA Reflex to minimize.");
-    layout->addWidget(m_fgOverride);
-
-    QFormLayout* formLayout = new QFormLayout();
-
-    m_fgMultiFrameCount = new QComboBox(this);
-    m_fgMultiFrameCount->addItem("(App Default)", 0);
-    m_fgMultiFrameCount->addItem("2x Frame Generation", 1);
-    m_fgMultiFrameCount->addItem("3x Frame Generation", 2);
-    m_fgMultiFrameCount->addItem("4x Frame Generation", 3);
-    m_fgMultiFrameCount->addItem("5x Frame Generation", 4);
-    m_fgMultiFrameCount->addItem("6x Frame Generation", 5);
-    m_fgMultiFrameCount->setToolTip(
-        "Number of AI-generated frames inserted between each rendered frame:\n\n"
-        "• 0 (App Default): Let the game decide\n"
-        "• 1 (2x): Generate 1 frame → 2x total FPS\n"
-        "• 2 (3x): Generate 2 frames → 3x total FPS\n"
-        "• 3 (4x): Generate 3 frames → 4x total FPS\n"
-        "• 4 (5x): Generate 4 frames → 5x total FPS\n"
-        "• 5 (6x): Generate 5 frames → 6x total FPS\n\n"
-        "Higher values give more FPS but increase input latency. "
-        "DLSS 3.5+ required for 3x/4x; 5x/6x need a very recent DXVK-NVAPI/driver "
-        "and may be ignored if unsupported.\n\n"
-        "Example: 60 rendered FPS + 2x FG = 120 displayed FPS");
-    formLayout->addRow("Multi-Frame Count:", m_fgMultiFrameCount);
-
-    m_fgMode = new QComboBox(this);
-    for (const QString& mode : DLSSSettings::availableFGModes()) {
-        m_fgMode->addItem(mode.isEmpty() ? "(App Default)" : mode, mode);
-    }
-    m_fgMode->setToolTip(
-        "DLSS Frame Generation mode (NGX_DLSSG_MODE):\n\n"
-        "• (App Default): Let the game decide\n"
-        "• On / Off: Force FG enabled or disabled\n"
-        "• Auto: Driver decides based on conditions\n"
-        "• Dynamic: Dynamically scale generated frames toward a target frame rate "
-        "(RTX 50) — set by the two Dynamic fields below\n\n"
-        "Requires the FG override above to be enabled.");
-    formLayout->addRow("FG Mode:", m_fgMode);
-
-    const QString dynamicNote = QStringLiteral(
-        "\n\nOnly used with FG Mode \"Dynamic\": Dynamic Multi-Frame Generation "
-        "changes the number of generated frames on the fly to reach the target "
-        "frame rate. RTX 50 only, DXVK-NVAPI ≥ 0.9.2.\n\n"
-        "Support under Proton is still incomplete — if the game ignores it, use "
-        "a fixed Multi-Frame Count instead.");
-
-    m_fgDynamicTargetFps = new QSpinBox(this);
-    m_fgDynamicTargetFps->setRange(0, 1000);
-    m_fgDynamicTargetFps->setSpecialValueText("(Driver Default)");
-    m_fgDynamicTargetFps->setSuffix(" FPS");
-    m_fgDynamicTargetFps->setToolTip(
-        "Frame rate Dynamic Multi-Frame Generation aims for "
-        "(NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE) — usually your monitor's refresh rate."
-        + dynamicNote);
-    m_fgDynamicTargetFpsLabel = new QLabel("Dynamic Target:", this);
-    formLayout->addRow(m_fgDynamicTargetFpsLabel, m_fgDynamicTargetFps);
-
-    m_fgDynamicMaxCount = new QComboBox(this);
-    m_fgDynamicMaxCount->addItem("(Driver Default)", 0);
-    m_fgDynamicMaxCount->addItem("up to 2x", 1);
-    m_fgDynamicMaxCount->addItem("up to 3x", 2);
-    m_fgDynamicMaxCount->addItem("up to 4x", 3);
-    m_fgDynamicMaxCount->addItem("up to 5x", 4);
-    m_fgDynamicMaxCount->addItem("up to 6x", 5);
-    m_fgDynamicMaxCount->setToolTip(
-        "The most frames Dynamic Multi-Frame Generation may generate "
-        "(NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX)." + dynamicNote);
-    m_fgDynamicMaxCountLabel = new QLabel("Dynamic Max:", this);
-    formLayout->addRow(m_fgDynamicMaxCountLabel, m_fgDynamicMaxCount);
-
-    m_fgPreset = new QComboBox(this);
-    for (const QString& preset : DLSSSettings::availableFGPresets()) {
-        m_fgPreset->addItem(presetLabel(PresetKind::FrameGeneration, preset), preset);
-    }
-    m_fgPreset->setToolTip(
-        "DLSS Frame Generation model preset (NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION).\n\n"
-        "Frame Generation only exposes a couple of real presets:\n"
-        "• (App Default): use the game's choice\n"
-        "• Recommended (RENDER_PRESET_LATEST): the driver's pick\n"
-        "• B: UI recomposition — keeps HUD and text cleaner (DLSS 310.6.0+)\n"
-        "• A: original FG model\n\n"
-        "Requires the FG override above to be enabled.");
-    formLayout->addRow("FG Render Preset:", m_fgPreset);
-
-    layout->addLayout(formLayout);
-
-    connect(m_fgOverride, &QCheckBox::toggled, this, [this]() {
-        updateFrameGenEnabled();
-        onSettingChanged();
-    });
-    connect(m_fgMultiFrameCount, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_fgMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
-        updateFrameGenEnabled();
-        onSettingChanged();
-    });
-    connect(m_fgPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_fgDynamicTargetFps, QOverload<int>::of(&QSpinBox::valueChanged), this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_fgDynamicMaxCount, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DLSSSettingsWidget::onSettingChanged);
-
-    updateFrameGenEnabled();
-
-    return group;
-}
-
-void DLSSSettingsWidget::updateFrameGenEnabled()
-{
-    const bool enabled = m_fgOverride->isChecked();
-    m_fgMultiFrameCount->setEnabled(enabled);
-    m_fgMode->setEnabled(enabled);
-    m_fgPreset->setEnabled(enabled);
-
-    const bool dynamic = enabled && m_fgMode->currentData().toString() == QLatin1String("DYNAMIC");
-    m_fgDynamicTargetFps->setEnabled(dynamic);
-    m_fgDynamicTargetFpsLabel->setEnabled(dynamic);
-    m_fgDynamicMaxCount->setEnabled(dynamic);
-    m_fgDynamicMaxCountLabel->setEnabled(dynamic);
-}
-
-QGroupBox* DLSSSettingsWidget::createUpgradeGroup()
-{
-    m_upgradeGroup = new QGroupBox("DLSS Upgrade", this);
-    QGroupBox* group = m_upgradeGroup;
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_dlssUpgrade = new QCheckBox("Enable DLSS Upgrade (PROTON_DLSS_UPGRADE)", this);
-    m_dlssUpgrade->setToolTip(
-        "Replace the game's bundled DLSS DLLs with newer versions from Proton.\n\n"
-        "Many older games ship with outdated DLSS versions that have lower quality "
-        "or missing features. Enabling this uses Proton's updated DLSS libraries instead.\n\n"
-        "Benefits:\n"
-        "• Better image quality and performance\n"
-        "• Access to newer DLSS features (RR, FG)\n"
-        "• Bug fixes and improvements\n\n"
-        "Recommended: Enabled for games released before 2024.\n\n"
-        "Note: A few games may have compatibility issues with newer DLSS versions.\n\n"
-        "Requires: Proton-CachyOS or GE-Proton 10-26+. Valve's Proton has no "
-        "equivalent — use the NGX updater there.");
-    layout->addWidget(m_dlssUpgrade);
-
-    QHBoxLayout* versionRow = new QHBoxLayout();
-    QLabel* versionLabel = new QLabel("DLSS version:", this);
-    versionRow->addWidget(versionLabel);
-    m_dlssVersion = new QLineEdit(this);
-    m_dlssVersion->setPlaceholderText("latest");
-    m_dlssVersion->setValidator(new QRegularExpressionValidator(
-        QRegularExpression(R"(\d+(\.\d+){0,3})"), m_dlssVersion));
-    m_dlssVersion->setToolTip(
-        "Pin a specific DLSS version, e.g. 310.9.1 — written as "
-        "PROTON_DLSS_UPGRADE=<version>.\n\n"
-        "Empty: the newest version Proton knows (PROTON_DLSS_UPGRADE=1). "
-        "A version Proton does not know falls back to the newest one.\n\n"
-        "Requires: Proton-CachyOS or GE-Proton 10-26+.");
-    versionRow->addWidget(m_dlssVersion, 1);
-    layout->addLayout(versionRow);
-
-    auto updateVersionEnabled = [this, versionLabel]() {
-        const bool on = m_dlssUpgrade->isChecked();
-        m_dlssVersion->setEnabled(on);
-        versionLabel->setEnabled(on);
-    };
-    connect(m_dlssUpgrade, &QCheckBox::toggled, this, [this, updateVersionEnabled]() {
-        updateVersionEnabled();
-        onSettingChanged();
-    });
-    connect(m_dlssVersion, &QLineEdit::textChanged, this, &DLSSSettingsWidget::onSettingChanged);
-    updateVersionEnabled();
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createSmoothMotionGroup()
-{
-    QGroupBox* group = new QGroupBox("Smooth Motion / Frame Rate Control", this);
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_enableSmoothMotion = new QCheckBox("Enable Smooth Motion", this);
-    m_enableSmoothMotion->setToolTip(
-        "Enable driver-level frame generation (RTX 40/50).\n\n"
-        "Doubles the displayed frame rate in games that have no frame generation "
-        "of their own. NVIDIA advises against combining it with DLSS Frame "
-        "Generation — use one or the other.\n\n"
-        "Sets NVPRESENT_ENABLE_SMOOTH_MOTION=1.");
-    layout->addWidget(m_enableSmoothMotion);
-
-    m_smoothMotionGraphicsQueue = new QCheckBox("Present on graphics queue (overlay compatibility)", this);
-    m_smoothMotionGraphicsQueue->setToolTip(
-        "Sets NVPRESENT_QUEUE_FAMILY=1.\n\n"
-        "Smooth Motion normally presents on a queue of its own, which third-party "
-        "overlays (MangoHud, OBS, Discord) do not see — they show nothing or flicker. "
-        "Presenting on the graphics queue fixes that at a small performance cost.\n\n"
-        "Only takes effect together with Smooth Motion.");
-    QHBoxLayout* queueRow = new QHBoxLayout();
-    queueRow->addSpacing(20);
-    queueRow->addWidget(m_smoothMotionGraphicsQueue);
-    layout->addLayout(queueRow);
-
-    m_enableFrameRateLimit = new QCheckBox("Enable Frame Rate Limit", this);
-    m_enableFrameRateLimit->setToolTip(
-        "Limit the maximum frame rate for smoother, more consistent gameplay.\n\n"
-        "Frame rate limiting can:\n"
-        "• Reduce screen tearing\n"
-        "• Lower GPU temperature and power consumption\n"
-        "• Provide more consistent frame times\n"
-        "• Reduce input latency spikes\n\n"
-        "Sets dxvk.maxFrameRate in DXVK_CONFIG (D3D8-11) and VKD3D_FRAME_RATE (D3D12). "
-        "DXVK 3.0 removed the older DXVK_FRAME_RATE.\n\n"
-        "Recommended: Enable if you experience tearing or want to cap FPS below your monitor's refresh rate.");
-    layout->addWidget(m_enableFrameRateLimit);
-
-    QHBoxLayout* fpsLayout = new QHBoxLayout();
-    m_targetFrameRateLabel = new QLabel("Target FPS:", this);
-    fpsLayout->addWidget(m_targetFrameRateLabel);
-
-    m_targetFrameRate = new QSpinBox(this);
-    m_targetFrameRate->setRange(30, 500);
-    m_targetFrameRate->setValue(60);
-    m_targetFrameRate->setSuffix(" FPS");
-    m_targetFrameRate->setToolTip(
-        "Set the maximum frame rate limit.\n\n"
-        "Common values:\n"
-        "• 30 FPS - Console-like experience, very low power\n"
-        "• 60 FPS - Standard smooth gaming\n"
-        "• 120 FPS - High refresh rate gaming\n"
-        "• 144 FPS - Match 144Hz monitor\n"
-        "• 165/240 FPS - Match high-end monitors\n\n"
-        "Set to match your monitor's refresh rate for best results.");
-    fpsLayout->addWidget(m_targetFrameRate);
-    fpsLayout->addStretch();
-
-    layout->addLayout(fpsLayout);
-
-    // Enable/disable FPS control based on checkbox
-    auto updateFpsEnabled = [this]() {
-        const bool on = m_enableFrameRateLimit->isChecked();
-        m_targetFrameRate->setEnabled(on);
-        m_targetFrameRateLabel->setEnabled(on);
-    };
-
-    connect(m_enableSmoothMotion, &QCheckBox::toggled, this, [this](bool on) {
-        m_smoothMotionGraphicsQueue->setEnabled(on);
-        onSettingChanged();
-    });
-    connect(m_smoothMotionGraphicsQueue, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    m_smoothMotionGraphicsQueue->setEnabled(m_enableSmoothMotion->isChecked());
-    connect(m_enableFrameRateLimit, &QCheckBox::toggled, this, [updateFpsEnabled, this]() {
-        updateFpsEnabled();
-        onSettingChanged();
-    });
-    connect(m_targetFrameRate, QOverload<int>::of(&QSpinBox::valueChanged), this, &DLSSSettingsWidget::onSettingChanged);
-
-    updateFpsEnabled();
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createOverlayGroup()
-{
-    QGroupBox* group = new QGroupBox("Overlay", this);
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    m_enableSteamOverlay = new QCheckBox("Steam Overlay (gameoverlayrenderer.so)", this);
-    m_enableSteamOverlay->setToolTip(
-        "Enable the Steam Performance Overlay.\n\n"
-        "When enabled, gameoverlayrenderer.so is injected into the game via LD_PRELOAD. "
-        "It provides the Shift+Tab interface, notifications, and FPS counter.\n\n"
-        "When disabled, the .so is not loaded at all, which can improve performance "
-        "and fix compatibility issues in some games.");
-    layout->addWidget(m_enableSteamOverlay);
-
-    m_enableMangoHud = new QCheckBox("MangoHud", this);
-    m_enableMangoHud->setToolTip(
-        "Enable MangoHud performance overlay.\n\n"
-        "MangoHud displays real-time performance metrics including FPS, CPU/GPU usage, "
-        "temperatures, frame times, and more. It is a Vulkan/OpenGL overlay similar to "
-        "MSI Afterburner.\n\n"
-        "The game is started through the 'mangohud' command. That is what OpenGL "
-        "titles need — the MANGOHUD=1 variable on its own only enables the Vulkan "
-        "overlay.\n\n"
-        "Requires: MangoHud must be installed on your system (mangohud package).");
-
-    if (!MangoHudDialog::isMangoHudInstalled()) {
-        m_enableMangoHud->setEnabled(false);
-        m_enableMangoHud->setToolTip("MangoHud is not installed.\n\n"
-            "Install the mangohud package to enable this feature.");
-    }
-
-    m_mangoHudConfigBtn = new QPushButton("Configure", this);
-    m_mangoHudConfigBtn->setStyleSheet(
-        QString("QPushButton { background-color: %1; color: %2; padding: 4px 12px; "
-                "border: 1px solid %3; border-radius: 4px; font-size: 11px; }"
-                "QPushButton:hover { background-color: %4; border: 1px solid %5; }")
-            .arg(AppStyle::ColorBgButton, AppStyle::ColorTextPrimary,
-                 AppStyle::ColorBorder, AppStyle::ColorBgButtonHover, AppStyle::ColorAccent));
-    m_mangoHudConfigBtn->setVisible(false);
-
-    auto* mangoRow = new QHBoxLayout;
-    mangoRow->setSpacing(8);
-    mangoRow->addWidget(m_enableMangoHud);
-    mangoRow->addWidget(m_mangoHudConfigBtn);
-    mangoRow->addStretch();
-    layout->addLayout(mangoRow);
-
-    connect(m_enableMangoHud, &QCheckBox::toggled, m_mangoHudConfigBtn, &QPushButton::setVisible);
-    connect(m_mangoHudConfigBtn, &QPushButton::clicked, this, [this]() {
-        MangoHudDialog dialog(this);
-        dialog.exec();
-    });
-
-    connect(m_enableSteamOverlay, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-    connect(m_enableMangoHud, &QCheckBox::toggled, this, &DLSSSettingsWidget::onSettingChanged);
-
-    return group;
-}
-
-QGroupBox* DLSSSettingsWidget::createCustomParamsGroup()
-{
-    QGroupBox* group = new QGroupBox("Custom Launch Parameters", this);
-    QVBoxLayout* layout = new QVBoxLayout(group);
-
-    QLabel* label = new QLabel(
-        "Extra options appended to the Steam launch string. Use this for anything "
-        "not covered above (e.g. game arguments like /WineDetectionEnabled:False). "
-        "Include %command% to control where it and any trailing game arguments go; "
-        "otherwise the text is added as env vars before %command%.", this);
-    label->setWordWrap(true);
-    label->setStyleSheet(QString("font-size: 11px; color: %1;").arg(AppStyle::ColorTextMuted));
-    layout->addWidget(label);
-
-    m_customLaunchParams = new QPlainTextEdit(this);
-    m_customLaunchParams->setPlaceholderText(
-        "e.g.  WINEDLLOVERRIDES=\"d3d12=n\" %command% /WineDetectionEnabled:False");
-    m_customLaunchParams->setMaximumHeight(90);
-    m_customLaunchParams->setStyleSheet(
-        "font-family: monospace; background-color: #1e1e1e; border: 1px solid #4a4a4a; "
-        "border-radius: 4px; color: #c0c0c0; padding: 6px;");
-    connect(m_customLaunchParams, &QPlainTextEdit::textChanged, this, &DLSSSettingsWidget::onSettingChanged);
-    layout->addWidget(m_customLaunchParams);
-
-    return group;
 }
 
 QWidget* DLSSSettingsWidget::createActionsSection()
@@ -1209,10 +392,6 @@ void DLSSSettingsWidget::setGame(const Game& game)
     m_importButton->setVisible(traits.supportsLaunchOptionsIO);
     m_writeToSteamButton->setVisible(traits.supportsLaunchOptionsIO);
 
-    // The overlay is Steam's own, and GameRunner will not inject it elsewhere —
-    // so a checkbox for it would be a control with no effect.
-    m_enableSteamOverlay->setVisible(traits.usesSteamEnv);
-
     // Show/hide Proton version selector based on game type
     if (game.isNativeLinux()) {
         // Hide Proton-specific UI for native Linux games
@@ -1225,7 +404,15 @@ void DLSSSettingsWidget::setGame(const Game& game)
 
     // Grey out whatever cannot reach this game before its settings are loaded,
     // so the panel is never briefly shown offering options that do nothing.
-    applyPlatformGating(game);
+    // A native ELF binary loads no Proton, no DXVK, no vkd3d-proton and no
+    // DXVK-NVAPI, so every variable those layers read is inert — and for the
+    // DLSS overrides there is no workaround: NVIDIA does not support preset
+    // overrides outside NVAPI's driver-settings layer, which has no native
+    // counterpart. The values themselves are kept (see SettingsPage::gate),
+    // because a user who forces Proton on a native title in Steam gets the
+    // Windows build, and then the options apply after all.
+    for (SettingsPage* page : m_pages)
+        page->setGame(game);
 
     // Populate executable selector
     populateExecutableSelector(game);
@@ -1300,176 +487,42 @@ void DLSSSettingsWidget::setLaunchPending(bool pending)
     }
 }
 
-void DLSSSettingsWidget::blockSignalsForAll(bool block)
-{
-    m_enableNVAPI->blockSignals(block);
-    m_enableNGXUpdater->blockSignals(block);
-    m_enableReflex->blockSignals(block);
-    m_enableVkd3dLowLatency->blockSignals(block);
-    m_enableD3D12ShaderExtensions->blockSignals(block);
-    m_enableVkd3dDescriptorHeap->blockSignals(block);
-    m_enablePrimeOffload->blockSignals(block);
-    m_showIndicator->blockSignals(block);
-    m_srOverride->blockSignals(block);
-    m_srMode->blockSignals(block);
-    m_srPreset->blockSignals(block);
-    m_srScalingRatio->blockSignals(block);
-    m_rrOverride->blockSignals(block);
-    m_rrMode->blockSignals(block);
-    m_rrPreset->blockSignals(block);
-    m_rrScalingRatio->blockSignals(block);
-    m_fgOverride->blockSignals(block);
-    m_fgMultiFrameCount->blockSignals(block);
-    m_fgMode->blockSignals(block);
-    m_fgPreset->blockSignals(block);
-    m_fgDynamicTargetFps->blockSignals(block);
-    m_fgDynamicMaxCount->blockSignals(block);
-    m_dlssUpgrade->blockSignals(block);
-    m_dlssVersion->blockSignals(block);
-    m_protonVersionSelector->blockSignals(block);
-    m_enableAllHDR->blockSignals(block);
-    m_enableProtonWayland->blockSignals(block);
-    m_enableProtonHDR->blockSignals(block);
-    m_enableHDRWSI->blockSignals(block);
-    m_enableSmoothMotion->blockSignals(block);
-    m_smoothMotionGraphicsQueue->blockSignals(block);
-    m_enableFrameRateLimit->blockSignals(block);
-    m_targetFrameRate->blockSignals(block);
-    m_disableAutoHDR->blockSignals(block);
-    m_ntsyncMode->blockSignals(block);
-    m_protonUseD7VK->blockSignals(block);
-    m_protonLog->blockSignals(block);
-    m_enableSteamOverlay->blockSignals(block);
-    m_enableMangoHud->blockSignals(block);
-    m_customLaunchParams->blockSignals(block);
-}
-
 void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
 {
     // Every widget below is written one at a time, so a handler that ran part
     // way through would read the previous game's values from the widgets not
     // yet written and MainWindow would save that mix under the new game. The
     // blocked signals are the first line of defence; m_loading catches any
-    // widget that is ever added to this function and not to that list.
+    // handler that runs anyway.
     m_loading = true;
-    blockSignalsForAll(true);
-
-    // General
-    m_enableNVAPI->setChecked(settings.enableNVAPI);
-    m_enableNGXUpdater->setChecked(settings.enableNGXUpdater);
-    m_enableReflex->setChecked(settings.enableReflex);
-    m_enableVkd3dLowLatency->setChecked(settings.enableVkd3dLowLatency);
-    m_enableD3D12ShaderExtensions->setChecked(settings.enableD3D12ShaderExtensions);
-    m_enableVkd3dDescriptorHeap->setChecked(settings.enableVkd3dDescriptorHeap);
-    m_enablePrimeOffload->setChecked(settings.enablePrimeRenderOffload);
-    m_showIndicator->setChecked(settings.showIndicator);
-
-    // HDR
-    m_enableProtonWayland->setChecked(settings.enableProtonWayland);
-    m_enableProtonHDR->setChecked(settings.enableProtonHDR);
-    m_enableHDRWSI->setChecked(settings.enableHDRWSI);
-    m_disableAutoHDR->setChecked(settings.disableAutoHDR);
-    // Update master checkbox state based on individual checkboxes
-    m_enableAllHDR->setChecked(settings.enableProtonWayland &&
-                               settings.enableProtonHDR &&
-                               settings.enableHDRWSI);
-
-    // Proton Tweaks
-    const QString ntsync = settings.protonDisableNTSync ? QStringLiteral("off")
-                         : settings.protonUseNTSync     ? QStringLiteral("on")
-                                                        : QStringLiteral("default");
-    m_ntsyncMode->setCurrentIndex(std::max(0, m_ntsyncMode->findData(ntsync)));
-    m_protonUseD7VK->setChecked(settings.protonUseD7VK);
-    m_protonLog->setChecked(settings.protonLog);
-
-    // Overlay
-    m_enableSteamOverlay->setChecked(settings.enableSteamOverlay);
-    bool mangoAvailable = MangoHudDialog::isMangoHudInstalled();
-    m_enableMangoHud->setChecked(mangoAvailable && settings.enableMangoHud);
-    m_mangoHudConfigBtn->setVisible(mangoAvailable && settings.enableMangoHud);
-
-    // Super Resolution
-    m_srOverride->setChecked(settings.srOverride);
-    int srModeIndex = m_srMode->findData(settings.srMode);
-    m_srMode->setCurrentIndex(srModeIndex >= 0 ? srModeIndex : 0);
-    selectData(m_srPreset, settings.srPreset);
-    m_srScalingRatio->setValue(settings.srScalingRatio);
-
-    // Update enabled state
-    m_srMode->setEnabled(settings.srOverride);
-    m_srPreset->setEnabled(settings.srOverride);
-    m_srScalingRatio->setEnabled(settings.srOverride);
-
-    // Ray Reconstruction
-    m_rrOverride->setChecked(settings.rrOverride);
-    int rrModeIndex = m_rrMode->findData(settings.rrMode);
-    m_rrMode->setCurrentIndex(rrModeIndex >= 0 ? rrModeIndex : 0);
-    selectData(m_rrPreset, settings.rrPreset);
-    m_rrScalingRatio->setValue(settings.rrScalingRatio);
-
-    m_rrMode->setEnabled(settings.rrOverride);
-    m_rrPreset->setEnabled(settings.rrOverride);
-    m_rrScalingRatio->setEnabled(settings.rrOverride);
-
-    // Frame Generation
-    m_fgOverride->setChecked(settings.fgOverride);
-    int fgIndex = m_fgMultiFrameCount->findData(settings.fgMultiFrameCount);
-    m_fgMultiFrameCount->setCurrentIndex(fgIndex >= 0 ? fgIndex : 0);
-    int fgModeIndex = m_fgMode->findData(settings.fgMode);
-    m_fgMode->setCurrentIndex(fgModeIndex >= 0 ? fgModeIndex : 0);
-    selectData(m_fgPreset, settings.fgPreset);
-    m_fgDynamicTargetFps->setValue(settings.fgDynamicTargetFps);
-    int fgMaxIndex = m_fgDynamicMaxCount->findData(settings.fgDynamicMaxCount);
-    m_fgDynamicMaxCount->setCurrentIndex(fgMaxIndex >= 0 ? fgMaxIndex : 0);
-    updateFrameGenEnabled();
-
-    // DLSS Upgrade
-    m_dlssUpgrade->setChecked(settings.dlssUpgrade);
-    m_dlssVersion->setText(settings.dlssVersion);
-    m_dlssVersion->setEnabled(settings.dlssUpgrade);
-
-    // No control of their own; kept so settings() can hand them back.
-    m_vkd3dConfigExtra = settings.vkd3dConfigExtra;
-    m_dxvkConfigExtra = settings.dxvkConfigExtra;
-
-    // Smooth Motion
-    m_enableSmoothMotion->setChecked(settings.enableSmoothMotion);
-    m_smoothMotionGraphicsQueue->setChecked(settings.smoothMotionGraphicsQueue);
-    m_smoothMotionGraphicsQueue->setEnabled(settings.enableSmoothMotion);
-    m_enableFrameRateLimit->setChecked(settings.enableFrameRateLimit);
-    m_targetFrameRate->setValue(settings.targetFrameRate);
-    m_targetFrameRate->setEnabled(settings.enableFrameRateLimit);
-
-    // Custom launch parameters
-    m_customLaunchParams->setPlainText(settings.customLaunchParams);
-
-    // Save executable path for later restoration after async search completes
-    m_savedExecutablePath = settings.executablePath;
-
-    // Try to restore immediately (will only work if search already completed)
-    if (!settings.executablePath.isEmpty()) {
-        m_executableSelector->blockSignals(true);
-        for (int i = 0; i < m_executableSelector->count(); ++i) {
-            if (m_executableSelector->itemData(i).toString() == settings.executablePath) {
-                m_executableSelector->setCurrentIndex(i);
-                break;
-            }
+    m_loaded = settings;
+    {
+        std::vector<QSignalBlocker> blockers;
+        for (SettingsPage* page : m_pages) {
+            for (QWidget* input : page->inputWidgets())
+                blockers.emplace_back(input);
         }
-        m_executableSelector->blockSignals(false);
-    }
+        blockers.emplace_back(m_protonVersionSelector);
 
-    // Restore saved Proton version selection
-    QString protonVersionKey = settings.protonVersion.isEmpty() ? "auto" : settings.protonVersion;
-    m_protonVersionSelector->blockSignals(true);
-    int protonIndex = m_protonVersionSelector->findData(protonVersionKey);
-    if (protonIndex >= 0) {
-        m_protonVersionSelector->setCurrentIndex(protonIndex);
-    } else {
-        m_protonVersionSelector->setCurrentIndex(0);  // Default to "Automatic"
-    }
-    m_protonVersionSelector->blockSignals(false);
+        for (SettingsPage* page : m_pages)
+            page->load(settings);
 
-    blockSignalsForAll(false);
+        // Save executable path for later restoration after async search completes
+        m_savedExecutablePath = settings.executablePath;
+
+        // Try to restore immediately (will only work if search already completed)
+        if (!settings.executablePath.isEmpty()) {
+            const QSignalBlocker blocker(m_executableSelector);
+            const int index = m_executableSelector->findData(settings.executablePath);
+            if (index >= 0) m_executableSelector->setCurrentIndex(index);
+        }
+
+        // Restore saved Proton version selection; a choice that is gone shows
+        // as "Automatic", which is what a launch would fall back to.
+        const QString protonVersionKey = settings.protonVersion.isEmpty() ? "auto" : settings.protonVersion;
+        m_protonVersionSelector->setCurrentIndex(
+            std::max(0, m_protonVersionSelector->findData(protonVersionKey)));
+    }
     m_loading = false;
 
     // The warnings below evaluate against it, and it depends on the game, the
@@ -1485,83 +538,21 @@ void DLSSSettingsWidget::setSettings(const DLSSSettings& settings)
 
 DLSSSettings DLSSSettingsWidget::settings() const
 {
-    DLSSSettings settings;
+    // Starts from what was loaded, so fields without a control of their own
+    // (foreign VKD3D_CONFIG / DXVK_CONFIG entries from an import) survive an
+    // edit to any control; every page then writes the fields it shows.
+    DLSSSettings settings = m_loaded;
+    for (const SettingsPage* page : m_pages)
+        page->store(settings);
 
-    // General
-    settings.enableNVAPI = m_enableNVAPI->isChecked();
-    settings.enableNGXUpdater = m_enableNGXUpdater->isChecked();
-    settings.enableReflex = m_enableReflex->isChecked();
-    settings.enableVkd3dLowLatency = m_enableVkd3dLowLatency->isChecked();
-    settings.enableD3D12ShaderExtensions = m_enableD3D12ShaderExtensions->isChecked();
-    settings.enableVkd3dDescriptorHeap = m_enableVkd3dDescriptorHeap->isChecked();
-    settings.vkd3dConfigExtra = m_vkd3dConfigExtra;
-    settings.enablePrimeRenderOffload = m_enablePrimeOffload->isChecked();
-    settings.showIndicator = m_showIndicator->isChecked();
+    // Executable Selection. Empty while the search runs or when it found
+    // nothing — keep the saved choice rather than forget it.
+    const QString exe = m_executableSelector->currentData().toString();
+    settings.executablePath = exe.isEmpty() ? m_savedExecutablePath : exe;
 
-    // HDR
-    settings.enableProtonWayland = m_enableProtonWayland->isChecked();
-    settings.enableProtonHDR = m_enableProtonHDR->isChecked();
-    settings.enableHDRWSI = m_enableHDRWSI->isChecked();
-    settings.disableAutoHDR = m_disableAutoHDR->isChecked();
-
-    // Proton Tweaks
-    const QString ntsync = m_ntsyncMode->currentData().toString();
-    settings.protonUseNTSync = (ntsync == QLatin1String("on"));
-    settings.protonDisableNTSync = (ntsync == QLatin1String("off"));
-    settings.protonUseD7VK = m_protonUseD7VK->isChecked();
-    settings.protonLog = m_protonLog->isChecked();
-
-    // Overlay
-    settings.enableSteamOverlay = m_enableSteamOverlay->isChecked();
-    settings.enableMangoHud = m_enableMangoHud->isChecked();
-
-    // Super Resolution
-    settings.srOverride = m_srOverride->isChecked();
-    settings.srMode = m_srMode->currentData().toString();
-    settings.srPreset = m_srPreset->currentData().toString();
-    settings.srScalingRatio = m_srScalingRatio->value();
-
-    // Ray Reconstruction
-    settings.rrOverride = m_rrOverride->isChecked();
-    settings.rrMode = m_rrMode->currentData().toString();
-    settings.rrPreset = m_rrPreset->currentData().toString();
-    settings.rrScalingRatio = m_rrScalingRatio->value();
-
-    // Frame Generation
-    settings.fgOverride = m_fgOverride->isChecked();
-    settings.fgMultiFrameCount = m_fgMultiFrameCount->currentData().toInt();
-    settings.fgMode = m_fgMode->currentData().toString();
-    settings.fgPreset = m_fgPreset->currentData().toString();
-    settings.fgDynamicTargetFps = m_fgDynamicTargetFps->value();
-    settings.fgDynamicMaxCount = m_fgDynamicMaxCount->currentData().toInt();
-
-    // DLSS Upgrade
-    settings.dlssUpgrade = m_dlssUpgrade->isChecked();
-    settings.dlssVersion = m_dlssVersion->text().trimmed();
-
-    // Smooth Motion
-    settings.enableSmoothMotion = m_enableSmoothMotion->isChecked();
-    settings.smoothMotionGraphicsQueue = m_smoothMotionGraphicsQueue->isChecked();
-    settings.enableFrameRateLimit = m_enableFrameRateLimit->isChecked();
-    settings.targetFrameRate = m_targetFrameRate->value();
-    settings.dxvkConfigExtra = m_dxvkConfigExtra;
-
-    // Custom launch parameters
-    settings.customLaunchParams = m_customLaunchParams->toPlainText().trimmed();
-
-    // Executable Selection
-    if (m_executableSelector->currentIndex() >= 0) {
-        settings.executablePath = m_executableSelector->currentData().toString();
-    }
-
-    // Proton Version Selection
-    if (m_protonVersionSelector->currentIndex() >= 0) {
-        QString protonVersion = m_protonVersionSelector->currentData().toString();
-        // Don't save "auto" as it's the default
-        if (protonVersion != "auto") {
-            settings.protonVersion = protonVersion;
-        }
-    }
+    // Proton Version Selection — "auto" is the default and stored as empty.
+    const QString protonVersion = m_protonVersionSelector->currentData().toString();
+    settings.protonVersion = protonVersion == QLatin1String("auto") ? QString() : protonVersion;
 
     return settings;
 }
@@ -1618,76 +609,6 @@ void DLSSSettingsWidget::updateProtonDbBadge(const ProtonDBClient::Summary& summ
     m_protonDbBadge->setStyleSheet(protonDbBadgeTierStyle(color));
 }
 
-void DLSSSettingsWidget::applyPlatformGating(const Game& game)
-{
-    const bool native = game.isNativeLinux();
-
-    // A native ELF binary loads no Proton, no DXVK, no vkd3d-proton and no
-    // DXVK-NVAPI, so every variable those layers read is inert. For the DLSS
-    // overrides in particular there is no workaround: they travel in
-    // DXVK_NVAPI_DRS_SETTINGS, and NVIDIA's driver documentation states plainly
-    // that overriding presets is not supported on Linux — the NVAPI driver-
-    // settings layer that carries them simply has no native counterpart. A
-    // native title picks its own DLSS preset through NGX and nothing outside
-    // the game can talk it out of that.
-    //
-    // So the controls are greyed rather than left to look effective. Their
-    // *values* are deliberately untouched: settings() reads isChecked(), which
-    // setEnabled(false) does not alter, so the profile survives switching to
-    // another game, and "Write to Steam" still emits the full string — which
-    // matters, because a user who forces a compatibility tool on a native
-    // title in Steam does get the Windows build, and then the options apply
-    // after all.
-    struct Gated { QWidget* widget; const char* var; };
-    const Gated gated[] = {
-        // Whole groups — every control inside is Proton-only.
-        { m_srGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
-        { m_rrGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
-        { m_fgGroup,                  "DXVK_NVAPI_DRS_SETTINGS" },
-        { m_upgradeGroup,             "PROTON_DLSS_UPGRADE" },
-        { m_protonTweaksGroup,        "PROTON_NO_NTSYNC" },
-
-        // General — mixed, so gated per control. PRIME offload is a driver
-        // setting and stays live.
-        { m_enableNVAPI,              "PROTON_DISABLE_NVAPI" },
-        { m_enableNGXUpdater,         "PROTON_ENABLE_NGX_UPDATER" },
-        { m_enableReflex,             "DXVK_NVAPI_VKREFLEX" },
-        { m_enableVkd3dLowLatency,    "PROTON_VKD3D_LOWLATENCY" },
-        { m_enableD3D12ShaderExtensions, "DXVK_NVAPI_D3D12_NV_SHADER_EXTN" },
-        { m_enableVkd3dDescriptorHeap,"VKD3D_CONFIG" },
-        { m_showIndicator,            "PROTON_DLSS_INDICATOR" },
-
-        // HDR — mixed. ENABLE_HDR_WSI is a Vulkan implicit layer and works
-        // natively; the two PROTON_* switches and the DXVK one do not. The
-        // master toggle drives two of those three, so it goes with them.
-        { m_enableAllHDR,             "PROTON_ENABLE_HDR" },
-        { m_enableProtonWayland,      "PROTON_ENABLE_WAYLAND" },
-        { m_enableProtonHDR,          "PROTON_ENABLE_HDR" },
-        { m_disableAutoHDR,           "DXVK_NO_HDR" },
-
-        // Smooth Motion group — mixed. Smooth Motion itself is driver-level
-        // and stays live; the frame-rate limit is DXVK/VKD3D only.
-        { m_enableFrameRateLimit,     "DXVK_CONFIG" },
-        { m_targetFrameRate,          "DXVK_CONFIG" },
-        { m_targetFrameRateLabel,     "DXVK_CONFIG" },
-    };
-
-    for (const Gated& g : gated) {
-        const bool inert = native &&
-            EnvBuilder::scopeOf(QLatin1String(g.var)) == EnvBuilder::VarScope::ProtonOnly;
-        g.widget->setEnabled(!inert);
-    }
-
-    // Re-enabling a group box hands its children back their own state, but the
-    // frame-rate row has no group of its own to restore it — it is only ever
-    // live together with its checkbox.
-    if (!native) {
-        const bool on = m_enableFrameRateLimit->isChecked();
-        m_targetFrameRate->setEnabled(on);
-        m_targetFrameRateLabel->setEnabled(on);
-    }
-}
-
 void DLSSSettingsWidget::refreshResolvedProton()
 {
     // Asks the launch path itself, so the warnings can never be about a
@@ -1736,62 +657,8 @@ void DLSSSettingsWidget::updateFeatureWarnings()
             "Windows build instead. Your settings are kept either way.");
     }
 
-    auto check = [&](QWidget* control, bool active, Feature f, const QString& label) {
-        if (!active || !control->isEnabled())
-            return;
-        Result r = evaluate(requirementFor(f), ctx);
-        if (r.status != Status::Supported)
-            lines << QString("⚠ %1: %2").arg(label, r.message);
-    };
-
-    const bool fgOn = m_fgOverride->isChecked();
-    check(m_enableSmoothMotion, m_enableSmoothMotion->isChecked(), Feature::SmoothMotion, "Smooth Motion");
-    check(m_fgOverride, fgOn, Feature::FrameGen, "Frame Generation");
-    check(m_fgMultiFrameCount, fgOn && m_fgMultiFrameCount->currentData().toInt() >= 2,
-          Feature::MultiFrameGen, "Multi-Frame Generation (3x–6x)");
-    check(m_rrOverride, m_rrOverride->isChecked(), Feature::RayReconstruction, "Ray Reconstruction");
-    const QString fgMode = m_fgMode->currentData().toString();
-    if (fgMode == QLatin1String("DYNAMIC")) {
-        check(m_fgMode, fgOn, Feature::DynamicFrameGen, "Dynamic Frame Generation");
-    } else {
-        check(m_fgMode, fgOn && !fgMode.isEmpty(), Feature::DlssgMode, "FG Mode");
-    }
-    check(m_fgPreset, fgOn && !m_fgPreset->currentData().toString().isEmpty(),
-          Feature::FgPreset, "FG Render Preset");
-    check(m_enableReflex, m_enableReflex->isChecked(), Feature::Reflex, "Reflex");
-    check(m_enableVkd3dLowLatency, m_enableVkd3dLowLatency->isChecked(), Feature::Vkd3dLowLatency, "VKD3D Low Latency");
-    check(m_enableVkd3dDescriptorHeap, m_enableVkd3dDescriptorHeap->isChecked(), Feature::Vkd3dDescriptorHeap, "VKD3D Descriptor Heap");
-    check(m_enableD3D12ShaderExtensions, m_enableD3D12ShaderExtensions->isChecked(),
-          Feature::D3D12ShaderExtensions, "D3D12 Shader Extensions");
-    check(m_protonUseD7VK, m_protonUseD7VK->isChecked(), Feature::D7vk, "D7VK");
-    check(m_disableAutoHDR, m_disableAutoHDR->isChecked(), Feature::DisableAutoHdr, "Disable auto-HDR");
-    const QString ntsync = m_ntsyncMode->currentData().toString();
-    check(m_ntsyncMode, ntsync == QLatin1String("on"), Feature::NtsyncOptIn, "NTSync");
-    check(m_ntsyncMode, ntsync == QLatin1String("off"), Feature::NtsyncDisable, "NTSync off");
-    const bool upgradeOn = m_dlssUpgrade->isChecked();
-    const bool pinned = upgradeOn && !m_dlssVersion->text().trimmed().isEmpty();
-    check(m_dlssUpgrade, upgradeOn && !pinned, Feature::DlssUpgrade, "DLSS Upgrade");
-    check(m_dlssVersion, pinned, Feature::DlssUpgradeVersion, "DLSS version");
-
-    // Not a version gate but a combination NVIDIA advises against. Only the FG
-    // override can be seen here — whether a game turns FG on by itself cannot.
-    // isEnabled() keeps it quiet on native titles, where the FG group is inert.
-    if (m_enableSmoothMotion->isChecked() && m_enableSmoothMotion->isEnabled() &&
-        fgOn && m_fgOverride->isEnabled() && fgMode != QLatin1String("OFF")) {
-        lines << QStringLiteral(
-            "⚠ Smooth Motion + DLSS Frame Generation: NVIDIA advises against using "
-            "both — Smooth Motion is meant for games without frame generation of "
-            "their own");
-    }
-
-    // PRIME offload is gated by hardware, not driver/Proton versions: warn only
-    // when the probe positively found a non-hybrid system (Unknown stays silent).
-    if (m_enablePrimeOffload->isChecked() &&
-        GpuInfoCache::instance().hybridGpu() == GPUDetector::HybridGpu::No) {
-        lines << QStringLiteral(
-            "⚠ PRIME Render Offload: no hybrid iGPU + dGPU setup detected — "
-            "this option has no effect on this system");
-    }
+    for (const SettingsPage* page : m_pages)
+        page->collectWarnings(ctx, lines);
 
     if (lines.isEmpty()) {
         m_featureWarnings->hide();
@@ -1799,83 +666,6 @@ void DLSSSettingsWidget::updateFeatureWarnings()
         m_featureWarnings->setText(lines.join("\n"));
         m_featureWarnings->show();
     }
-}
-
-void DLSSSettingsWidget::onEnableAllHDRToggled(bool checked)
-{
-    if (m_loading) {
-        return;   // loading a game's settings, not the user asking for HDR
-    }
-    // If enabling HDR, check system HDR status first
-    if (checked && !checkAndWarnHDRStatus()) {
-        // User canceled or chose not to enable HDR
-        m_enableAllHDR->blockSignals(true);
-        m_enableAllHDR->setChecked(false);
-        m_enableAllHDR->blockSignals(false);
-        return;
-    }
-
-    // Block signals to prevent recursive updates
-    m_enableProtonWayland->blockSignals(true);
-    m_enableProtonHDR->blockSignals(true);
-    m_enableHDRWSI->blockSignals(true);
-
-    // Set all three HDR options to the same state
-    m_enableProtonWayland->setChecked(checked);
-    m_enableProtonHDR->setChecked(checked);
-    m_enableHDRWSI->setChecked(checked);
-
-    // Restore signals
-    m_enableProtonWayland->blockSignals(false);
-    m_enableProtonHDR->blockSignals(false);
-    m_enableHDRWSI->blockSignals(false);
-
-    // Trigger settings update
-    onSettingChanged();
-}
-
-void DLSSSettingsWidget::onHDRCheckboxChanged()
-{
-    if (m_loading) {
-        return;
-    }
-    qDebug() << "onHDRCheckboxChanged() called";
-
-    // Check if any HDR option is currently being enabled
-    bool anyHDREnabled = m_enableProtonWayland->isChecked() ||
-                         m_enableProtonHDR->isChecked() ||
-                         m_enableHDRWSI->isChecked();
-
-    // Get the sender to check which checkbox changed
-    QCheckBox* senderCheckbox = qobject_cast<QCheckBox*>(sender());
-    qDebug() << "Sender:" << (senderCheckbox ? senderCheckbox->text() : "null")
-             << "Checked:" << (senderCheckbox ? senderCheckbox->isChecked() : false);
-
-    // If any HDR option is being enabled, check system HDR status
-    if (senderCheckbox && senderCheckbox->isChecked() && anyHDREnabled) {
-        if (!checkAndWarnHDRStatus()) {
-            // User canceled, uncheck the checkbox
-            senderCheckbox->blockSignals(true);
-            senderCheckbox->setChecked(false);
-            senderCheckbox->blockSignals(false);
-
-            // Don't update settings
-            return;
-        }
-    }
-
-    // Update master checkbox state based on individual checkboxes
-    bool allChecked = m_enableProtonWayland->isChecked() &&
-                      m_enableProtonHDR->isChecked() &&
-                      m_enableHDRWSI->isChecked();
-
-    // Block signal to prevent recursive call
-    m_enableAllHDR->blockSignals(true);
-    m_enableAllHDR->setChecked(allChecked);
-    m_enableAllHDR->blockSignals(false);
-
-    // Trigger settings update
-    onSettingChanged();
 }
 
 void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
@@ -1901,12 +691,8 @@ void DLSSSettingsWidget::populateExecutableSelector(const Game& game)
     QString installPath = game.installPath();
     bool isLinux = game.isNativeLinux();
 
-    QFuture<QStringList> future = QtConcurrent::run([this, installPath, isLinux, cancelFlag]() {
-        if (isLinux) {
-            return findLinuxExecutables(installPath, cancelFlag);
-        } else {
-            return findWindowsExecutables(installPath);
-        }
+    QFuture<QStringList> future = QtConcurrent::run([installPath, isLinux, cancelFlag]() {
+        return ExecutableFinder::candidates(installPath, isLinux, cancelFlag);
     });
 
     m_executableWatcher->setFuture(future);
@@ -1941,7 +727,12 @@ void DLSSSettingsWidget::updateExecutableSelectorWithResults(const QStringList& 
 
         // If no saved path or it wasn't found, select the best match
         if (!restored) {
-            QString bestMatch = findBestExecutable(m_currentGame, executables);
+            // The same choice a launch makes when none is saved: the
+            // launcher's own (GOG's primary play task), else the best match.
+            const QString bestMatch = !m_currentGame.executablePath().isEmpty()
+                ? m_currentGame.executablePath()
+                : ExecutableFinder::bestMatch(m_currentGame.name(),
+                                              m_currentGame.installPath(), executables);
             for (int i = 0; i < m_executableSelector->count(); ++i) {
                 if (m_executableSelector->itemData(i).toString() == bestMatch) {
                     m_executableSelector->setCurrentIndex(i);
@@ -2096,222 +887,3 @@ void DLSSSettingsWidget::populateProtonVersionSelector()
     m_protonVersionSelector->blockSignals(false);
 }
 
-QStringList DLSSSettingsWidget::findWindowsExecutables(const QString& installPath) const
-{
-    QStringList executables;
-    QDirIterator it(installPath, {"*.exe"}, QDir::Files, QDirIterator::Subdirectories);
-
-    while (it.hasNext()) {
-        QString path = it.next();
-        QString filename = QFileInfo(path).fileName().toLower();
-
-        // Skip common non-game executables
-        if (filename.contains("unins") || filename.contains("setup") ||
-            filename.contains("install") || filename.contains("crash") ||
-            filename.contains("report") || filename.contains("redist") ||
-            filename.contains("vcredist") || filename.contains("directx") ||
-            filename.contains("dotnet") || filename.contains("dxsetup") ||
-            filename == "ucc.exe") {  // UT2004 compiler, not the game
-            continue;
-        }
-
-        executables << path;
-    }
-
-    // Sort by path depth (shallower first), then alphabetically
-    std::sort(executables.begin(), executables.end(), [](const QString& a, const QString& b) {
-        int depthA = a.count('/');
-        int depthB = b.count('/');
-        if (depthA != depthB) return depthA < depthB;
-        return a < b;
-    });
-
-    return executables;
-}
-
-bool DLSSSettingsWidget::isElfExecutable(const QString& filePath) const
-{
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        return false;
-    }
-
-    // Read ELF header (first 20 bytes is enough)
-    QByteArray header = file.read(20);
-    file.close();
-
-    if (header.size() < 20) {
-        return false;
-    }
-
-    // Check ELF magic bytes: 0x7f 'E' 'L' 'F'
-    if (header[0] != 0x7f || header[1] != 'E' || header[2] != 'L' || header[3] != 'F') {
-        return false;
-    }
-
-    // Byte 16 is e_type (object file type)
-    // ET_EXEC = 2 (executable file)
-    // ET_DYN = 3 (shared object file)
-    unsigned char e_type_low = static_cast<unsigned char>(header[16]);
-    unsigned char e_type_high = static_cast<unsigned char>(header[17]);
-
-    // Check for little-endian ET_EXEC (2)
-    if (e_type_low == 2 && e_type_high == 0) {
-        return true;
-    }
-
-    // Check for big-endian ET_EXEC (2)
-    if (e_type_low == 0 && e_type_high == 2) {
-        return true;
-    }
-
-    // ET_DYN (3) can be either PIE executable or shared library
-    // Modern executables are often PIE (Position Independent Executable) which shows as ET_DYN
-    // We accept ET_DYN as well, but will filter .so files by extension earlier
-    if ((e_type_low == 3 && e_type_high == 0) || (e_type_low == 0 && e_type_high == 3)) {
-        // Only accept if it doesn't have .so extension (already filtered earlier)
-        return true;
-    }
-
-    return false;
-}
-
-QStringList DLSSSettingsWidget::findLinuxExecutables(const QString& installPath, std::shared_ptr<std::atomic<bool>> cancelFlag) const
-{
-    QStringList executables;
-    QDirIterator it(installPath, QDir::Files, QDirIterator::Subdirectories);
-
-    while (it.hasNext()) {
-        if (cancelFlag && cancelFlag->load()) {
-            return executables;
-        }
-        QString path = it.next();
-        QFileInfo fileInfo(path);
-        QString filename = fileInfo.fileName().toLower();
-
-        // Skip files with extensions that are definitely not executables
-        if (filename.endsWith(".txt") || filename.endsWith(".log") || filename.endsWith(".md") ||
-            filename.endsWith(".json") || filename.endsWith(".xml") || filename.endsWith(".cfg") ||
-            filename.endsWith(".ini") || filename.endsWith(".conf") || filename.endsWith(".yaml") ||
-            filename.endsWith(".dat") || filename.endsWith(".pak") || filename.endsWith(".csv") ||
-            filename.endsWith(".sh") || filename.endsWith(".py") || filename.endsWith(".pl") ||
-            filename.endsWith(".so") || filename.endsWith(".a") || filename.endsWith(".o") ||
-            filename.endsWith(".png") || filename.endsWith(".jpg") || filename.endsWith(".jpeg") ||
-            filename.endsWith(".bmp") || filename.endsWith(".svg") || filename.endsWith(".ico") ||
-            filename.endsWith(".ttf") || filename.endsWith(".otf") || filename.endsWith(".woff") ||
-            filename.endsWith(".mp3") || filename.endsWith(".ogg") || filename.endsWith(".wav") ||
-            filename.endsWith(".mp4") || filename.endsWith(".avi") || filename.endsWith(".mkv")) {
-            continue;
-        }
-
-        // Skip common non-game files by name
-        if (filename.contains("uninstall") || filename.contains("setup") ||
-            filename.contains("install") || filename.contains("update") ||
-            filename.contains("crash") || filename.contains("report") ||
-            filename.contains("readme") || filename.contains("license") ||
-            filename.contains("changelog")) {
-            continue;
-        }
-
-        // Only include files that are actually executable
-        if (!fileInfo.isExecutable()) {
-            continue;
-        }
-
-        // Check if it's actually an ELF executable by reading the header
-        if (!isElfExecutable(path)) {
-            continue;
-        }
-
-        executables << path;
-    }
-
-    // Sort by path depth (shallower first)
-    std::sort(executables.begin(), executables.end(), [](const QString& a, const QString& b) {
-        int depthA = a.count('/');
-        int depthB = b.count('/');
-        if (depthA != depthB) return depthA < depthB;
-        return a < b;
-    });
-
-    return executables;
-}
-
-QString DLSSSettingsWidget::findBestExecutable(const Game& game, const QStringList& executables) const
-{
-    if (executables.isEmpty()) return QString();
-
-    QString gameName = game.name().toLower();
-    QString installDirName = QFileInfo(game.installPath()).fileName().toLower();
-
-    // Remove common suffixes and clean up the name
-    QString cleanName = gameName;
-    cleanName.remove(QRegularExpression("\\s*\\([^)]*\\)"));  // Remove (Demo), (2004), etc.
-    cleanName.remove(QRegularExpression("[^a-z0-9]"));  // Keep only alphanumeric
-
-    // Try to find an executable that matches the game name
-    for (const QString& exe : executables) {
-        QString exeName = QFileInfo(exe).baseName().toLower();
-        QString cleanExeName = exeName;
-        cleanExeName.remove(QRegularExpression("[^a-z0-9]"));
-
-        // Exact match with game name
-        if (cleanExeName == cleanName || exeName == gameName) {
-            return exe;
-        }
-
-        // Match with install directory
-        if (exeName == installDirName) {
-            return exe;
-        }
-    }
-
-    // Try partial matches
-    for (const QString& exe : executables) {
-        QString exeName = QFileInfo(exe).baseName().toLower();
-
-        // Partial match - executable contains significant part of game name
-        if (cleanName.length() > 3 && exeName.contains(cleanName.left(cleanName.length() / 2))) {
-            return exe;
-        }
-    }
-
-    // Return the first executable as fallback
-    return executables.first();
-}
-
-bool DLSSSettingsWidget::checkAndWarnHDRStatus()
-{
-    // Debug: Show that this method is called
-    qDebug() << "checkAndWarnHDRStatus() called";
-
-    // Check HDR status
-    HDRChecker::HDRStatus status = HDRChecker::checkHDRStatus();
-    qDebug() << "HDR Status - isEnabled:" << status.isEnabled << "message:" << status.message;
-
-    // If HDR is enabled, no warning needed
-    if (status.isEnabled) {
-        return true;
-    }
-
-    // HDR is not enabled - show warning
-    QString warningMessage = HDRChecker::getWarningMessage(status);
-
-    if (warningMessage.isEmpty()) {
-        // No warning needed (shouldn't happen, but handle gracefully)
-        return true;
-    }
-
-    // Show warning dialog
-    QMessageBox msgBox(this);
-    msgBox.setIcon(QMessageBox::Warning);
-    msgBox.setWindowTitle("HDR Not Enabled");
-    msgBox.setText(warningMessage);
-    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-    msgBox.setDefaultButton(QMessageBox::No);
-
-    int result = msgBox.exec();
-
-    // Return true if user wants to proceed anyway
-    return result == QMessageBox::Yes;
-}

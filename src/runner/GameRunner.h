@@ -95,8 +95,8 @@ private:
     // (*required == false) or none is installed (*required == true).
     QString findRequiredRuntimeTool(const QString& protonPath, bool* required) const;
     QString findToolByAppId(const QString& appId) const;
-    QStringList findExecutables(const QString& installPath) const;
     QString findLinuxExecutable(const Game& game);
+    static QString savedExecutable(const DLSSSettings& settings);
 
     LaunchPlan resolveProtonLaunch(const Game& game, const DLSSSettings& settings);
     LaunchPlan resolveNativeLaunch(const Game& game, const DLSSSettings& settings);

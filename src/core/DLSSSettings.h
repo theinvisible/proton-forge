@@ -5,6 +5,8 @@
 #include <QJsonObject>
 #include <QStringList>
 
+// Every field must also have a row in fields() in DLSSSettings.cpp — that one
+// table drives toJson, fromJson and operator==.
 class DLSSSettings {
 public:
     DLSSSettings() = default;

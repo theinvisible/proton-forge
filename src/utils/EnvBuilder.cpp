@@ -3,10 +3,20 @@
 #include <QHash>
 #include <QRegularExpression>
 
+#include <vector>
+
 namespace {
 
-// Which layer reads each variable ProtonForge emits — see EnvBuilder::VarScope
-// for what the two values mean and why the distinction matters.
+// Every variable ProtonForge writes, in the order it writes them, with the
+// layer that reads it — see EnvBuilder::VarScope for what the two scopes mean
+// and why the distinction matters. The order is part of the contract: Steam
+// keeps the string that was written, and reordering would make every
+// configured game look out of date (emissionOrderIsStable pins it).
+//
+// `flag` marks a plain switch: one variable, "1" when the field is set, read
+// back as on unless "0". Those need nothing beyond their row here — emitting,
+// parsing and the import reset all loop over this table. Rows without a flag
+// are produced and parsed by hand in managedEnv() and applyKnownEnvVar().
 //
 // The judgement calls are the Any entries that are not the PRIME trio:
 //   NVPRESENT_ENABLE_SMOOTH_MOTION  the driver's own present-time interpolation,
@@ -19,46 +29,66 @@ namespace {
 // Everything else names a component that only exists inside a Proton prefix:
 // the Proton script itself (PROTON_*), DXVK (DXVK_*), vkd3d-proton (VKD3D_*)
 // and DXVK-NVAPI (DXVK_NVAPI_*), which is what carries the DLSS overrides.
-const QHash<QString, EnvBuilder::VarScope>& varScopeTable()
+struct VarSpec {
+    const char* name;
+    EnvBuilder::VarScope scope;
+    bool DLSSSettings::* flag = nullptr;
+};
+
+const std::vector<VarSpec>& varSpecs()
 {
-    static const QHash<QString, EnvBuilder::VarScope> table = {
-        // Driver / Vulkan layer / wrapper — reaches a native game too.
-        {"__NV_PRIME_RENDER_OFFLOAD",      EnvBuilder::VarScope::Any},
-        {"__GLX_VENDOR_LIBRARY_NAME",      EnvBuilder::VarScope::Any},
-        {"__VK_LAYER_NV_optimus",          EnvBuilder::VarScope::Any},
-        {"NVPRESENT_ENABLE_SMOOTH_MOTION", EnvBuilder::VarScope::Any},
-        {"NVPRESENT_QUEUE_FAMILY",         EnvBuilder::VarScope::Any},
-        {"ENABLE_HDR_WSI",                 EnvBuilder::VarScope::Any},
-        {"MANGOHUD",                       EnvBuilder::VarScope::Any},
+    using S = DLSSSettings;
+    constexpr auto Any = EnvBuilder::VarScope::Any;
+    constexpr auto Proton = EnvBuilder::VarScope::ProtonOnly;
+    static const std::vector<VarSpec> table = {
+        // PRIME render offload for hybrid iGPU+dGPU systems — driver level.
+        {"__NV_PRIME_RENDER_OFFLOAD",       Any},
+        {"__GLX_VENDOR_LIBRARY_NAME",       Any},
+        {"__VK_LAYER_NV_optimus",           Any},
 
-        // Proton wrapper script.
-        {"PROTON_DISABLE_NVAPI",           EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_ENABLE_NGX_UPDATER",      EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_VKD3D_LOWLATENCY",        EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_DLSS_UPGRADE",            EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_DLSS_INDICATOR",          EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_ENABLE_WAYLAND",          EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_ENABLE_HDR",              EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_USE_NTSYNC",              EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_NO_NTSYNC",               EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_USE_D7VK",                EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_D7VK_DDRAW",              EnvBuilder::VarScope::ProtonOnly},
-        {"PROTON_LOG",                     EnvBuilder::VarScope::ProtonOnly},
+        // NVAPI, DLSS plumbing and latency.
+        {"PROTON_DISABLE_NVAPI",            Proton},
+        {"PROTON_ENABLE_NGX_UPDATER",       Proton, &S::enableNGXUpdater},
+        {"DXVK_NVAPI_VKREFLEX",             Proton, &S::enableReflex},
+        {"DXVK_NVAPI_D3D12_NV_SHADER_EXTN", Proton, &S::enableD3D12ShaderExtensions},
+        {"PROTON_VKD3D_LOWLATENCY",         Proton, &S::enableVkd3dLowLatency},
+        {"VKD3D_CONFIG",                    Proton},
+        {"PROTON_DLSS_UPGRADE",             Proton},
+        {"PROTON_DLSS_INDICATOR",           Proton, &S::showIndicator},
+        // Every DLSS SR/RR/FG override travels in this one variable.
+        {"DXVK_NVAPI_DRS_SETTINGS",         Proton},
 
-        // DXVK-NVAPI — the NVAPI stand-in that exists only inside Wine. Every
-        // DLSS SR/RR/FG override travels in DXVK_NVAPI_DRS_SETTINGS.
-        {"DXVK_NVAPI_DRS_SETTINGS",        EnvBuilder::VarScope::ProtonOnly},
-        {"DXVK_NVAPI_VKREFLEX",            EnvBuilder::VarScope::ProtonOnly},
-        {"DXVK_NVAPI_D3D12_NV_SHADER_EXTN", EnvBuilder::VarScope::ProtonOnly},
+        // Smooth Motion and the frame cap.
+        {"NVPRESENT_ENABLE_SMOOTH_MOTION",  Any,    &S::enableSmoothMotion},
+        {"NVPRESENT_QUEUE_FAMILY",          Any},
+        {"DXVK_CONFIG",                     Proton},
+        {"VKD3D_FRAME_RATE",                Proton},
 
-        // DXVK / vkd3d-proton.
-        {"DXVK_HDR",                       EnvBuilder::VarScope::ProtonOnly},
-        {"DXVK_NO_HDR",                    EnvBuilder::VarScope::ProtonOnly},
-        {"DXVK_CONFIG",                    EnvBuilder::VarScope::ProtonOnly},
-        {"VKD3D_FRAME_RATE",               EnvBuilder::VarScope::ProtonOnly},
-        {"VKD3D_CONFIG",                   EnvBuilder::VarScope::ProtonOnly},
+        // HDR.
+        {"PROTON_ENABLE_WAYLAND",           Proton, &S::enableProtonWayland},
+        {"PROTON_ENABLE_HDR",               Proton},
+        {"DXVK_HDR",                        Proton},
+        {"ENABLE_HDR_WSI",                  Any,    &S::enableHDRWSI},
+        {"DXVK_NO_HDR",                     Proton, &S::disableAutoHDR},
+
+        // Proton tweaks.
+        {"PROTON_USE_NTSYNC",               Proton, &S::protonUseNTSync},
+        {"PROTON_NO_NTSYNC",                Proton, &S::protonDisableNTSync},
+        {"PROTON_USE_D7VK",                 Proton},
+        {"PROTON_D7VK_DDRAW",               Proton},
+        {"PROTON_LOG",                      Proton, &S::protonLog},
+
+        {"MANGOHUD",                        Any},
     };
     return table;
+}
+
+const VarSpec* findSpec(const QString& name)
+{
+    for (const VarSpec& spec : varSpecs()) {
+        if (name == QLatin1String(spec.name)) return &spec;
+    }
+    return nullptr;
 }
 
 // Splits a launch-options string into whitespace-separated tokens. The
@@ -201,9 +231,13 @@ QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& cu
         }
     }
 
-    QList<QPair<QString, QString>> env;
-    const auto set = [&env](const char* key, const QString& value) {
-        env.append({QString::fromLatin1(key), value});
+    // The hand-written variables, by name; the loop at the end emits them
+    // together with the plain switches, in varSpecs() order.
+    QHash<QString, QString> values;
+    const auto set = [&values](const char* key, const QString& value) {
+        Q_ASSERT_X(findSpec(QLatin1String(key)), "managedEnv",
+                   "variable missing from varSpecs() — it would never be written");
+        values.insert(QString::fromLatin1(key), value);
     };
     const QString one = QStringLiteral("1");
 
@@ -220,23 +254,16 @@ QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& cu
     // PROTON_DISABLE_NVAPI is read by Valve's Proton 11, Proton-CachyOS and
     // GE-Proton (10-25 onward).
     if (!s.enableNVAPI) set("PROTON_DISABLE_NVAPI", one);
-    if (s.enableNGXUpdater) set("PROTON_ENABLE_NGX_UPDATER", one);
-    if (s.enableReflex) set("DXVK_NVAPI_VKREFLEX", one);
-    if (s.enableD3D12ShaderExtensions) set("DXVK_NVAPI_D3D12_NV_SHADER_EXTN", one);
-    if (s.enableVkd3dLowLatency) set("PROTON_VKD3D_LOWLATENCY", one);
 
     const QString vkd3dConfig = joinNonEmpty(vkd3dConfigValue(s), customVkd3d, ',');
     if (!vkd3dConfig.isEmpty()) set("VKD3D_CONFIG", vkd3dConfig);
 
     if (s.dlssUpgrade)
         set("PROTON_DLSS_UPGRADE", isDlssVersion(s.dlssVersion) ? s.dlssVersion : one);
-    if (s.showIndicator) set("PROTON_DLSS_INDICATOR", one);
 
-    // All DLSS overrides go in this single variable.
     const QString drs = EnvBuilder::buildDRSSettings(s);
     if (!drs.isEmpty()) set("DXVK_NVAPI_DRS_SETTINGS", drs);
 
-    if (s.enableSmoothMotion) set("NVPRESENT_ENABLE_SMOOTH_MOTION", one);
     // Present on the graphics queue so third-party overlays see the frames;
     // meaningless without Smooth Motion, so only written alongside it.
     if (s.enableSmoothMotion && s.smoothMotionGraphicsQueue) set("NVPRESENT_QUEUE_FAMILY", one);
@@ -252,27 +279,30 @@ QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& cu
     // Proton-CachyOS retired that variable and wants DXVK_HDR itself. Both are
     // harmless where unread, and the string has to work with whichever Proton
     // Steam ends up running.
-    if (s.enableProtonWayland) set("PROTON_ENABLE_WAYLAND", one);
     if (s.enableProtonHDR) {
         set("PROTON_ENABLE_HDR", one);
         set("DXVK_HDR", one);
     }
-    if (s.enableHDRWSI) set("ENABLE_HDR_WSI", one);
-    if (s.disableAutoHDR) set("DXVK_NO_HDR", one);
 
-    // Proton tweaks. NTSync is opt-in up to Proton 10 and on by default from
-    // 11, where only switching it off is possible.
-    if (s.protonUseNTSync) set("PROTON_USE_NTSYNC", one);
-    if (s.protonDisableNTSync) set("PROTON_NO_NTSYNC", one);
     // d7vk: GE-Proton's name and Proton-CachyOS's name for the same switch.
+    // (NTSync is a pair of plain switches: opt-in up to Proton 10, opt-out
+    // from 11, where it is on by default.)
     if (s.protonUseD7VK) {
         set("PROTON_USE_D7VK", one);
         set("PROTON_D7VK_DDRAW", one);
     }
-    if (s.protonLog) set("PROTON_LOG", one);
 
     if (s.enableMangoHud) set("MANGOHUD", one);
 
+    QList<QPair<QString, QString>> env;
+    for (const VarSpec& spec : varSpecs()) {
+        const QString name = QString::fromLatin1(spec.name);
+        if (spec.flag) {
+            if (s.*spec.flag) env.append({name, one});
+        } else if (values.contains(name)) {
+            env.append({name, values.value(name)});
+        }
+    }
     return env;
 }
 
@@ -342,27 +372,26 @@ void applyDrsSubKey(DLSSSettings& s, const QString& key, const QString& value)
 // sync with buildLaunchOptions / buildEnvironment.
 bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
 {
+    // The plain switches from varSpecs(): on unless "0".
+    if (const VarSpec* spec = findSpec(key); spec && spec->flag) {
+        s.*spec->flag = (value != "0");
+        return true;
+    }
+
     // NVAPI is on unless something turns it off. PROTON_ENABLE_NVAPI=1 is a
     // relic: consumed (so the next write drops it) but it changes nothing,
     // and it cannot override a PROTON_DISABLE_NVAPI=1 elsewhere in the string.
     if (key == "PROTON_ENABLE_NVAPI") { if (value == "0") s.enableNVAPI = false; return true; }
     if (key == "PROTON_DISABLE_NVAPI") { if (value != "0") s.enableNVAPI = false; return true; }
     if (key == "__NV_PRIME_RENDER_OFFLOAD") { s.enablePrimeRenderOffload = (value != "0"); return true; }
-    if (key == "PROTON_ENABLE_NGX_UPDATER") { s.enableNGXUpdater = (value != "0"); return true; }
-    if (key == "DXVK_NVAPI_VKREFLEX") { s.enableReflex = (value != "0"); return true; }
-    if (key == "DXVK_NVAPI_D3D12_NV_SHADER_EXTN") { s.enableD3D12ShaderExtensions = (value != "0"); return true; }
-    if (key == "PROTON_VKD3D_LOWLATENCY") { s.enableVkd3dLowLatency = (value != "0"); return true; }
     if (key == "PROTON_DLSS_UPGRADE") {
         s.dlssUpgrade = (value != "0");
         s.dlssVersion = isDlssVersion(value) ? value : QString();
         return true;
     }
-    if (key == "PROTON_DLSS_INDICATOR") { s.showIndicator = (value != "0"); return true; }
-    if (key == "NVPRESENT_ENABLE_SMOOTH_MOTION") { s.enableSmoothMotion = (value != "0"); return true; }
     // Only 1 (graphics queue) is documented; anything else is the user's own
     // and stays in the custom params.
     if (key == "NVPRESENT_QUEUE_FAMILY" && value == "1") { s.smoothMotionGraphicsQueue = true; return true; }
-    if (key == "PROTON_ENABLE_WAYLAND") { s.enableProtonWayland = (value != "0"); return true; }
     if (key == "PROTON_ENABLE_HDR") { s.enableProtonHDR = (value != "0"); return true; }
     // DXVK_HDR=1 alone is how Proton-CachyOS users switch HDR on. An explicit
     // DXVK_HDR=0 is not ours to model and stays a custom parameter.
@@ -371,15 +400,10 @@ bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
         s.enableProtonHDR = true;
         return true;
     }
-    if (key == "ENABLE_HDR_WSI") { s.enableHDRWSI = (value != "0"); return true; }
-    if (key == "DXVK_NO_HDR") { s.disableAutoHDR = (value != "0"); return true; }
-    if (key == "PROTON_USE_NTSYNC") { s.protonUseNTSync = (value != "0"); return true; }
-    if (key == "PROTON_NO_NTSYNC") { s.protonDisableNTSync = (value != "0"); return true; }
     if (key == "PROTON_USE_D7VK" || key == "PROTON_D7VK_DDRAW") {
         if (value != "0") s.protonUseD7VK = true;
         return true;
     }
-    if (key == "PROTON_LOG") { s.protonLog = (value != "0"); return true; }
     if (key == "MANGOHUD") { s.enableMangoHud = (value != "0"); return true; }
     // DXVK covers D3D8-11, VKD3D covers D3D12 — both map onto the same
     // frame-rate-limit setting and are emitted together. DXVK_FRAME_RATE is
@@ -453,13 +477,24 @@ void EnvBuilder::addEnvVar(QStringList& vars, const QString& key, bool value)
 
 EnvBuilder::VarScope EnvBuilder::scopeOf(const QString& key)
 {
-    return varScopeTable().value(key, VarScope::Any);
+    const VarSpec* spec = findSpec(key);
+    return spec ? spec->scope : VarScope::Any;
 }
 
 QStringList EnvBuilder::managedVars()
 {
-    QStringList keys = varScopeTable().keys();
+    QStringList keys;
+    for (const VarSpec& spec : varSpecs()) keys << QString::fromLatin1(spec.name);
     keys.sort();
+    return keys;
+}
+
+QStringList EnvBuilder::plainSwitchVars()
+{
+    QStringList keys;
+    for (const VarSpec& spec : varSpecs()) {
+        if (spec.flag) keys << QString::fromLatin1(spec.name);
+    }
     return keys;
 }
 
@@ -608,25 +643,21 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     // reflects the Steam string (an absent token means the option is off). Fields
     // that are never written to launch options are left untouched from `base`.
     DLSSSettings& s = result.settings;
+    for (const VarSpec& spec : varSpecs()) {
+        if (spec.flag) s.*spec.flag = false;
+    }
     s.enableNVAPI = true;   // on unless the string turns it off
-    s.enableNGXUpdater = false;
-    s.enableReflex = false;
-    s.enableD3D12ShaderExtensions = false;
-    s.enableVkd3dLowLatency = false;
     s.enablePrimeRenderOffload = false;
     s.enableVkd3dDescriptorHeap = false; s.vkd3dConfigExtra.clear();
     s.dlssUpgrade = false; s.dlssVersion.clear();
-    s.showIndicator = false;
     s.srOverride = false; s.srMode.clear(); s.srPreset.clear(); s.srScalingRatio = 0;
     s.rrOverride = false; s.rrMode.clear(); s.rrPreset.clear(); s.rrScalingRatio = 0;
     s.fgOverride = false; s.fgMultiFrameCount = 0; s.fgMode.clear(); s.fgPreset.clear();
     s.fgDynamicTargetFps = 0; s.fgDynamicMaxCount = 0;
-    s.enableSmoothMotion = false; s.smoothMotionGraphicsQueue = false;
+    s.smoothMotionGraphicsQueue = false;
     s.enableFrameRateLimit = false; s.targetFrameRate = 60; s.dxvkConfigExtra.clear();
-    s.enableProtonWayland = false; s.enableProtonHDR = false; s.enableHDRWSI = false;
-    s.disableAutoHDR = false;
-    s.protonUseNTSync = false; s.protonDisableNTSync = false;
-    s.protonUseD7VK = false; s.protonLog = false;
+    s.enableProtonHDR = false;
+    s.protonUseD7VK = false;
     s.enableMangoHud = false;
 
     const QStringList tokens = tokenize(raw);

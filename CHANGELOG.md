@@ -6,6 +6,17 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Launching from the command line ignored the executable chosen in the
+  settings panel** (`--launch` started whatever the search found); every launch
+  now starts the chosen one.
+- Without a chosen executable, the settings panel and a launch could pick
+  **different files** — they used two searches with different rules. There is
+  one now: GOG's own play task first, never a launcher if the game itself is
+  there, and for native games no more libraries or Node addons mistaken for the
+  game (an Electron game used to resolve to a `package.json`).
+
 ## [1.2.0] - 2026-10-09
 
 ### Action needed: write your launch options to Steam again

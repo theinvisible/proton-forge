@@ -1,165 +1,136 @@
 #include "DLSSSettings.h"
 
+#include <variant>
+#include <vector>
+
+namespace {
+
+// Every persisted field, once. toJson, fromJson and operator== are loops over
+// this, so a new field needs exactly one row here — a field missing from it is
+// neither saved nor compared. The key is the JSON name; changing one breaks
+// every existing settings.json.
+struct Field {
+    const char* key;
+    std::variant<bool DLSSSettings::*, int DLSSSettings::*, QString DLSSSettings::*> member;
+    bool omitIfEmpty = false;   // strings only: keep settings.json free of empty noise
+};
+
+const std::vector<Field>& fields()
+{
+    using S = DLSSSettings;
+    static const std::vector<Field> table = {
+        // General
+        {"enableNVAPI",                 &S::enableNVAPI},
+        {"enableNGXUpdater",            &S::enableNGXUpdater},
+        {"enableReflex",                &S::enableReflex},
+        {"enableVkd3dLowLatency",       &S::enableVkd3dLowLatency},
+        {"enablePrimeRenderOffload",    &S::enablePrimeRenderOffload},
+        {"enableVkd3dDescriptorHeap",   &S::enableVkd3dDescriptorHeap},
+        {"enableD3D12ShaderExtensions", &S::enableD3D12ShaderExtensions},
+        {"vkd3dConfigExtra",            &S::vkd3dConfigExtra, true},
+
+        // Super Resolution
+        {"srOverride",                  &S::srOverride},
+        {"srMode",                      &S::srMode},
+        {"srPreset",                    &S::srPreset},
+        {"srScalingRatio",              &S::srScalingRatio},
+
+        // Ray Reconstruction
+        {"rrOverride",                  &S::rrOverride},
+        {"rrMode",                      &S::rrMode},
+        {"rrPreset",                    &S::rrPreset},
+        {"rrScalingRatio",              &S::rrScalingRatio},
+
+        // Frame Generation
+        {"fgOverride",                  &S::fgOverride},
+        {"fgMultiFrameCount",           &S::fgMultiFrameCount},
+        {"fgMode",                      &S::fgMode},
+        {"fgPreset",                    &S::fgPreset},
+        {"fgDynamicTargetFps",          &S::fgDynamicTargetFps},
+        {"fgDynamicMaxCount",           &S::fgDynamicMaxCount},
+
+        // DLSS Upgrade
+        {"dlssUpgrade",                 &S::dlssUpgrade},
+        {"dlssVersion",                 &S::dlssVersion},
+
+        // Indicators
+        {"showIndicator",               &S::showIndicator},
+
+        // Smooth Motion / frame rate
+        {"enableSmoothMotion",          &S::enableSmoothMotion},
+        {"smoothMotionGraphicsQueue",   &S::smoothMotionGraphicsQueue},
+        {"enableFrameRateLimit",        &S::enableFrameRateLimit},
+        {"targetFrameRate",             &S::targetFrameRate},
+        {"dxvkConfigExtra",             &S::dxvkConfigExtra, true},
+
+        // HDR
+        {"enableProtonWayland",         &S::enableProtonWayland},
+        {"enableProtonHDR",             &S::enableProtonHDR},
+        {"enableHDRWSI",                &S::enableHDRWSI},
+        {"disableAutoHDR",              &S::disableAutoHDR},
+
+        // Proton tweaks
+        {"protonUseNTSync",             &S::protonUseNTSync},
+        {"protonDisableNTSync",         &S::protonDisableNTSync},
+        {"protonUseD7VK",               &S::protonUseD7VK},
+        {"protonLog",                   &S::protonLog},
+
+        // Overlay
+        {"enableSteamOverlay",          &S::enableSteamOverlay},
+        {"enableMangoHud",              &S::enableMangoHud},
+
+        // Selection and free-form parameters
+        {"executablePath",              &S::executablePath, true},
+        {"protonVersion",               &S::protonVersion, true},
+        {"customLaunchParams",          &S::customLaunchParams, true},
+    };
+    return table;
+}
+
+// One visitor per operation, so each loop below stays a single line.
+template <typename... Ts> struct Overloaded : Ts... { using Ts::operator()...; };
+template <typename... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
+
+}  // namespace
+
 QJsonObject DLSSSettings::toJson() const
 {
     QJsonObject json;
-
-    // General
-    json["enableNVAPI"] = enableNVAPI;
-    json["enableNGXUpdater"] = enableNGXUpdater;
-    json["enableReflex"] = enableReflex;
-    json["enableVkd3dLowLatency"] = enableVkd3dLowLatency;
-    json["enablePrimeRenderOffload"] = enablePrimeRenderOffload;
-    json["enableVkd3dDescriptorHeap"] = enableVkd3dDescriptorHeap;
-    json["enableD3D12ShaderExtensions"] = enableD3D12ShaderExtensions;
-    if (!vkd3dConfigExtra.isEmpty()) {
-        json["vkd3dConfigExtra"] = vkd3dConfigExtra;
+    for (const Field& f : fields()) {
+        std::visit(Overloaded{
+            [&](bool DLSSSettings::* m)    { json[f.key] = this->*m; },
+            [&](int DLSSSettings::* m)     { json[f.key] = this->*m; },
+            [&](QString DLSSSettings::* m) {
+                if (!f.omitIfEmpty || !(this->*m).isEmpty()) json[f.key] = this->*m;
+            },
+        }, f.member);
     }
-
-    // Super Resolution
-    json["srOverride"] = srOverride;
-    json["srMode"] = srMode;
-    json["srPreset"] = srPreset;
-    json["srScalingRatio"] = srScalingRatio;
-
-    // Ray Reconstruction
-    json["rrOverride"] = rrOverride;
-    json["rrMode"] = rrMode;
-    json["rrPreset"] = rrPreset;
-    json["rrScalingRatio"] = rrScalingRatio;
-
-    // Frame Generation
-    json["fgOverride"] = fgOverride;
-    json["fgMultiFrameCount"] = fgMultiFrameCount;
-    json["fgMode"] = fgMode;
-    json["fgPreset"] = fgPreset;
-    json["fgDynamicTargetFps"] = fgDynamicTargetFps;
-    json["fgDynamicMaxCount"] = fgDynamicMaxCount;
-
-    // DLSS Upgrade
-    json["dlssUpgrade"] = dlssUpgrade;
-    json["dlssVersion"] = dlssVersion;
-
-    // Indicators
-    json["showIndicator"] = showIndicator;
-
-    // Smooth Motion
-    json["enableSmoothMotion"] = enableSmoothMotion;
-    json["smoothMotionGraphicsQueue"] = smoothMotionGraphicsQueue;
-    json["enableFrameRateLimit"] = enableFrameRateLimit;
-    json["targetFrameRate"] = targetFrameRate;
-    if (!dxvkConfigExtra.isEmpty()) {
-        json["dxvkConfigExtra"] = dxvkConfigExtra;
-    }
-
-    // HDR
-    json["enableProtonWayland"] = enableProtonWayland;
-    json["enableProtonHDR"] = enableProtonHDR;
-    json["enableHDRWSI"] = enableHDRWSI;
-    json["disableAutoHDR"] = disableAutoHDR;
-
-    // Proton Tweaks
-    json["protonUseNTSync"] = protonUseNTSync;
-    json["protonDisableNTSync"] = protonDisableNTSync;
-    json["protonUseD7VK"] = protonUseD7VK;
-    json["protonLog"] = protonLog;
-
-    // Overlay
-    json["enableSteamOverlay"] = enableSteamOverlay;
-    json["enableMangoHud"] = enableMangoHud;
-
-    // Executable Selection
-    if (!executablePath.isEmpty()) {
-        json["executablePath"] = executablePath;
-    }
-
-    // Proton Version
-    if (!protonVersion.isEmpty()) {
-        json["protonVersion"] = protonVersion;
-    }
-
-    // Custom launch parameters
-    if (!customLaunchParams.isEmpty()) {
-        json["customLaunchParams"] = customLaunchParams;
-    }
-
     return json;
 }
 
 DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
 {
+    // A missing key falls back to the struct's own default, so the defaults
+    // live in exactly one place: the member initialisers in the header.
     DLSSSettings settings;
-
-    // General
-    settings.enableNVAPI = json["enableNVAPI"].toBool(true);
-    settings.enableNGXUpdater = json["enableNGXUpdater"].toBool(false);
-    settings.enableReflex = json["enableReflex"].toBool(false);
-    settings.enableVkd3dLowLatency = json["enableVkd3dLowLatency"].toBool(false);
-    settings.enablePrimeRenderOffload = json["enablePrimeRenderOffload"].toBool(false);
-    settings.enableVkd3dDescriptorHeap = json["enableVkd3dDescriptorHeap"].toBool(false);
-    settings.enableD3D12ShaderExtensions = json["enableD3D12ShaderExtensions"].toBool(false);
-    settings.vkd3dConfigExtra = json["vkd3dConfigExtra"].toString();
-
-    // Super Resolution
-    settings.srOverride = json["srOverride"].toBool(false);
-    settings.srMode = json["srMode"].toString();
-    settings.srPreset = json["srPreset"].toString();
-    settings.srScalingRatio = json["srScalingRatio"].toInt(0);
-
-    // Ray Reconstruction
-    settings.rrOverride = json["rrOverride"].toBool(false);
-    settings.rrMode = json["rrMode"].toString();
-    settings.rrPreset = json["rrPreset"].toString();
-    settings.rrScalingRatio = json["rrScalingRatio"].toInt(0);
-
-    // Frame Generation
-    settings.fgOverride = json["fgOverride"].toBool(false);
-    settings.fgMultiFrameCount = json["fgMultiFrameCount"].toInt(0);
-    settings.fgMode = json["fgMode"].toString();
-    settings.fgPreset = json["fgPreset"].toString();
-    settings.fgDynamicTargetFps = json["fgDynamicTargetFps"].toInt(0);
-    settings.fgDynamicMaxCount = json["fgDynamicMaxCount"].toInt(0);
-
-    // DLSS Upgrade
-    settings.dlssUpgrade = json["dlssUpgrade"].toBool(false);
-    settings.dlssVersion = json["dlssVersion"].toString();
-
-    // Indicators
-    settings.showIndicator = json["showIndicator"].toBool(false);
-
-    // Smooth Motion
-    settings.enableSmoothMotion = json["enableSmoothMotion"].toBool(false);
-    settings.smoothMotionGraphicsQueue = json["smoothMotionGraphicsQueue"].toBool(false);
-    settings.enableFrameRateLimit = json["enableFrameRateLimit"].toBool(false);
-    settings.targetFrameRate = json["targetFrameRate"].toInt(60);
-    settings.dxvkConfigExtra = json["dxvkConfigExtra"].toString();
-
-    // HDR
-    settings.enableProtonWayland = json["enableProtonWayland"].toBool(false);
-    settings.enableProtonHDR = json["enableProtonHDR"].toBool(false);
-    settings.enableHDRWSI = json["enableHDRWSI"].toBool(false);
-    settings.disableAutoHDR = json["disableAutoHDR"].toBool(false);
-
-    // Proton Tweaks
-    settings.protonUseNTSync = json["protonUseNTSync"].toBool(false);
-    settings.protonDisableNTSync = json["protonDisableNTSync"].toBool(false);
-    settings.protonUseD7VK = json["protonUseD7VK"].toBool(false);
-    settings.protonLog = json["protonLog"].toBool(false);
-
-    // Overlay
-    settings.enableSteamOverlay = json["enableSteamOverlay"].toBool(true);
-    settings.enableMangoHud = json["enableMangoHud"].toBool(false);
-
-    // Executable Selection
-    settings.executablePath = json["executablePath"].toString();
-
-    // Proton Version
-    settings.protonVersion = json["protonVersion"].toString();
-
-    // Custom launch parameters
-    settings.customLaunchParams = json["customLaunchParams"].toString();
-
+    for (const Field& f : fields()) {
+        const QJsonValue v = json.value(QLatin1String(f.key));
+        std::visit(Overloaded{
+            [&](bool DLSSSettings::* m)    { settings.*m = v.toBool(settings.*m); },
+            [&](int DLSSSettings::* m)     { settings.*m = v.toInt(settings.*m); },
+            [&](QString DLSSSettings::* m) { settings.*m = v.toString(settings.*m); },
+        }, f.member);
+    }
     return settings;
+}
+
+bool DLSSSettings::operator==(const DLSSSettings& other) const
+{
+    for (const Field& f : fields()) {
+        const bool same = std::visit([&](auto m) { return this->*m == other.*m; }, f.member);
+        if (!same) return false;
+    }
+    return true;
 }
 
 QStringList DLSSSettings::availableSRModes()
@@ -245,51 +216,4 @@ QStringList DLSSSettings::availableFGPresets()
         "RENDER_PRESET_B",
         "RENDER_PRESET_A"
     };
-}
-
-bool DLSSSettings::operator==(const DLSSSettings& other) const
-{
-    return enableNVAPI == other.enableNVAPI &&
-           enableNGXUpdater == other.enableNGXUpdater &&
-           enableReflex == other.enableReflex &&
-           enableVkd3dLowLatency == other.enableVkd3dLowLatency &&
-           enablePrimeRenderOffload == other.enablePrimeRenderOffload &&
-           enableVkd3dDescriptorHeap == other.enableVkd3dDescriptorHeap &&
-           enableD3D12ShaderExtensions == other.enableD3D12ShaderExtensions &&
-           vkd3dConfigExtra == other.vkd3dConfigExtra &&
-           srOverride == other.srOverride &&
-           srMode == other.srMode &&
-           srPreset == other.srPreset &&
-           srScalingRatio == other.srScalingRatio &&
-           rrOverride == other.rrOverride &&
-           rrMode == other.rrMode &&
-           rrPreset == other.rrPreset &&
-           rrScalingRatio == other.rrScalingRatio &&
-           fgOverride == other.fgOverride &&
-           fgMultiFrameCount == other.fgMultiFrameCount &&
-           fgMode == other.fgMode &&
-           fgPreset == other.fgPreset &&
-           fgDynamicTargetFps == other.fgDynamicTargetFps &&
-           fgDynamicMaxCount == other.fgDynamicMaxCount &&
-           dlssUpgrade == other.dlssUpgrade &&
-           dlssVersion == other.dlssVersion &&
-           showIndicator == other.showIndicator &&
-           enableSmoothMotion == other.enableSmoothMotion &&
-           smoothMotionGraphicsQueue == other.smoothMotionGraphicsQueue &&
-           enableFrameRateLimit == other.enableFrameRateLimit &&
-           targetFrameRate == other.targetFrameRate &&
-           dxvkConfigExtra == other.dxvkConfigExtra &&
-           enableProtonWayland == other.enableProtonWayland &&
-           enableProtonHDR == other.enableProtonHDR &&
-           enableHDRWSI == other.enableHDRWSI &&
-           disableAutoHDR == other.disableAutoHDR &&
-           protonUseNTSync == other.protonUseNTSync &&
-           protonDisableNTSync == other.protonDisableNTSync &&
-           protonUseD7VK == other.protonUseD7VK &&
-           protonLog == other.protonLog &&
-           enableSteamOverlay == other.enableSteamOverlay &&
-           enableMangoHud == other.enableMangoHud &&
-           executablePath == other.executablePath &&
-           protonVersion == other.protonVersion &&
-           customLaunchParams == other.customLaunchParams;
 }

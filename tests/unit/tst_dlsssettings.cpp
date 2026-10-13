@@ -23,6 +23,7 @@ private slots:
     void equalityCoversEveryField();
     void availableOptionsAreNonEmpty();
     void presetListsMatchTheModels();
+    void defaultsComeFromTheStruct();
 
 private:
     // A settings object with every field moved away from its default, built
@@ -189,6 +190,15 @@ void TstDlssSettings::presetListsMatchTheModels()
     // Every list starts with "(App Default)", the value that writes nothing.
     for (const QStringList& list : {sr, rr, DLSSSettings::availableFGPresets()})
         QCOMPARE(list.first(), QString());
+}
+
+void TstDlssSettings::defaultsComeFromTheStruct()
+{
+    // fromJson takes every fallback from the member initialisers, so an empty
+    // object and a default-constructed one are the same thing — including
+    // the three defaults that are not zero.
+    QVERIFY(DLSSSettings::fromJson(QJsonObject()) == DLSSSettings());
+    QVERIFY(DLSSSettings::fromJson(DLSSSettings().toJson()) == DLSSSettings());
 }
 
 QTEST_MAIN(TstDlssSettings)

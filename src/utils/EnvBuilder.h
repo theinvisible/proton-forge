@@ -40,6 +40,10 @@ public:
     // two never drift apart when a new option is added.
     static QStringList managedVars();
 
+    // The managed variables that are plain switches — "1" when on, anything
+    // but "0" read back as on — and so handled entirely by the variable table.
+    static QStringList plainSwitchVars();
+
     // Build launch options string for Steam (e.g., "DXVK_NVAPI_VKREFLEX=1 %command%")
     static QString buildLaunchOptions(const DLSSSettings& settings);
 

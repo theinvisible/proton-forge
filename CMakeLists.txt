@@ -56,6 +56,7 @@ set(CORE_SOURCES
     src/utils/HostEnvironment.cpp
     src/utils/ProtonManager.cpp
     src/utils/CompatToolResolver.cpp
+    src/utils/ExecutableFinder.cpp
     src/utils/LaunchOptionExtractor.cpp
     src/utils/GpuInfoCache.cpp
     src/utils/SteamPaths.cpp
@@ -90,6 +91,12 @@ set(UI_SOURCES
     src/ui/MainWindow.cpp
     src/ui/GameListWidget.cpp
     src/ui/DLSSSettingsWidget.cpp
+    src/ui/settings/SettingsPage.cpp
+    src/ui/settings/GeneralPage.cpp
+    src/ui/settings/DlssPage.cpp
+    src/ui/settings/HdrPage.cpp
+    src/ui/settings/ProtonPage.cpp
+    src/ui/settings/AdvancedPage.cpp
     src/ui/ProtonVersionDialog.cpp
     src/ui/SystemInfoDialog.cpp
     src/ui/SettingsDialog.cpp
@@ -118,6 +125,7 @@ set(CORE_HEADERS
     src/utils/HostEnvironment.h
     src/utils/ProtonManager.h
     src/utils/CompatToolResolver.h
+    src/utils/ExecutableFinder.h
     src/utils/LaunchOptionExtractor.h
     src/utils/GpuInfoCache.h
     src/utils/SteamPaths.h
@@ -156,6 +164,12 @@ set(UI_HEADERS
     src/ui/MainWindow.h
     src/ui/GameListWidget.h
     src/ui/DLSSSettingsWidget.h
+    src/ui/settings/SettingsPage.h
+    src/ui/settings/GeneralPage.h
+    src/ui/settings/DlssPage.h
+    src/ui/settings/HdrPage.h
+    src/ui/settings/ProtonPage.h
+    src/ui/settings/AdvancedPage.h
     src/ui/ProtonVersionDialog.h
     src/ui/SystemInfoDialog.h
     src/ui/SettingsDialog.h

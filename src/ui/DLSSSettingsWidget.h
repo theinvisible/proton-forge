@@ -13,12 +13,14 @@
 #include <QLineEdit>
 #include <QFutureWatcher>
 #include <atomic>
-#include <initializer_list>
 #include <memory>
 #include "core/Game.h"
 #include "core/DLSSSettings.h"
 #include "utils/CompatToolResolver.h"
 #include "network/ProtonDBClient.h"
+
+class SettingsPage;
+class AdvancedPage;
 
 class DLSSSettingsWidget : public QWidget {
     Q_OBJECT
@@ -47,48 +49,22 @@ signals:
 
 private slots:
     void onSettingChanged();
-    void onEnableAllHDRToggled(bool checked);
-    void onHDRCheckboxChanged();
     void onRecommendClicked();
 
 private:
     void setupUI();
-    QGroupBox* createGeneralGroup();
-    QGroupBox* createHDRGroup();
-    QGroupBox* createProtonTweaksGroup();
-    QGroupBox* createSuperResolutionGroup();
-    QGroupBox* createRayReconstructionGroup();
-    QGroupBox* createFrameGenerationGroup();
-    QGroupBox* createUpgradeGroup();
-    // Enables the FG controls from the override, and the Dynamic MFG fields
-    // only in FG mode "Dynamic".
-    void updateFrameGenEnabled();
-    QGroupBox* createSmoothMotionGroup();
-    QGroupBox* createOverlayGroup();
-    QGroupBox* createCustomParamsGroup();
     QWidget* createActionsSection();
-    // Wraps a column of group boxes in a scroll area to form one tab page.
-    QWidget* createScrollTab(std::initializer_list<QWidget*> groups);
+    // Wraps a page in a scroll area to form one tab.
+    QWidget* createScrollTab(SettingsPage* page);
 
     void updateProtonDbBadge(const ProtonDBClient::Summary& summary);
 
     void styleComboBoxPopups();
     void updateFeatureWarnings();
-    // Greys out every control whose environment variable cannot reach the
-    // selected game, so the panel never offers a switch with no wire behind
-    // it. Driven by EnvBuilder::scopeOf; see the implementation for why the
-    // values themselves are deliberately left untouched.
-    void applyPlatformGating(const Game& game);
-    void blockSignalsForAll(bool block);
     void populateExecutableSelector(const Game& game);
     void updateExecutableSelectorWithResults(const QStringList& executables);
     void populateProtonVersionSelector();
     void refreshResolvedProton();
-    QStringList findWindowsExecutables(const QString& installPath) const;
-    QStringList findLinuxExecutables(const QString& installPath, std::shared_ptr<std::atomic<bool>> cancelFlag = nullptr) const;
-    QString findBestExecutable(const Game& game, const QStringList& executables) const;
-    bool isElfExecutable(const QString& filePath) const;
-    bool checkAndWarnHDRStatus();
 
     // Header
     QLabel* m_gameNameLabel;
@@ -100,87 +76,17 @@ private:
     QComboBox* m_protonVersionSelector;
     QComboBox* m_executableSelector;
 
-    // General settings
-    QCheckBox* m_enableNVAPI;
-    QCheckBox* m_enableNGXUpdater;
-    QCheckBox* m_enableReflex;
-    QCheckBox* m_enableVkd3dLowLatency;
-    QCheckBox* m_enableD3D12ShaderExtensions;
-    QCheckBox* m_enableVkd3dDescriptorHeap;
-    QCheckBox* m_enablePrimeOffload;
-    QCheckBox* m_showIndicator;
-
     // Feature gating warnings (driver/Proton requirements not met)
     QLabel* m_featureWarnings;
     QLabel* m_resolvedProtonLabel;
 
-    // Group boxes whose contents are Proton-only in their entirety, kept so
-    // applyPlatformGating() can grey the whole box (title included) rather
-    // than each control inside it. Groups that mix scopes are gated per
-    // control instead and need no pointer here.
-    QGroupBox* m_srGroup;
-    QGroupBox* m_rrGroup;
-    QGroupBox* m_fgGroup;
-    QGroupBox* m_upgradeGroup;
-    QGroupBox* m_protonTweaksGroup;
-
-    // HDR settings
-    QCheckBox* m_enableAllHDR;  // Master checkbox
-    QCheckBox* m_enableProtonWayland;
-    QCheckBox* m_enableProtonHDR;
-    QCheckBox* m_enableHDRWSI;
-    QCheckBox* m_disableAutoHDR;  // NOT part of the m_enableAllHDR master toggle
-
-    // Proton Tweaks
-    // NTSync: Proton default / force on (opt-in up to Proton 10) / off (11+).
-    // One combo for the two DLSSSettings booleans, so they cannot both be set.
-    QComboBox* m_ntsyncMode;
-    QCheckBox* m_protonUseD7VK;
-    QCheckBox* m_protonLog;
-
-    // Super Resolution
-    QCheckBox* m_srOverride;
-    QComboBox* m_srMode;
-    QComboBox* m_srPreset;
-    QSpinBox* m_srScalingRatio;
-
-    // Ray Reconstruction
-    QCheckBox* m_rrOverride;
-    QComboBox* m_rrMode;
-    QComboBox* m_rrPreset;
-    QSpinBox* m_rrScalingRatio;
-
-    // Frame Generation
-    QCheckBox* m_fgOverride;
-    QComboBox* m_fgMultiFrameCount;
-    QComboBox* m_fgMode;
-    QComboBox* m_fgPreset;
-    QSpinBox* m_fgDynamicTargetFps;
-    QLabel* m_fgDynamicTargetFpsLabel;
-    QComboBox* m_fgDynamicMaxCount;
-    QLabel* m_fgDynamicMaxCountLabel;
-
-    // DLSS Upgrade
-    QCheckBox* m_dlssUpgrade;
-    QLineEdit* m_dlssVersion;
-
-    // Smooth Motion
-    QCheckBox* m_enableSmoothMotion;
-    QCheckBox* m_smoothMotionGraphicsQueue;
-    QCheckBox* m_enableFrameRateLimit;
-    QSpinBox* m_targetFrameRate;
-    // Its row label: a plain layout does not pass the enabled state on, so the
-    // label has to be switched together with the spin box or it stays lit next
-    // to a greyed-out field.
-    QLabel* m_targetFrameRateLabel;
-
-    // Overlay
-    QCheckBox* m_enableSteamOverlay;
-    QCheckBox* m_enableMangoHud;
-    QPushButton* m_mangoHudConfigBtn;
-
-    // Custom launch parameters
-    QPlainTextEdit* m_customLaunchParams;
+    // The tabs, in order. Each shows part of DLSSSettings; together they show
+    // all of it that has a control.
+    QList<SettingsPage*> m_pages;
+    AdvancedPage* m_advancedPage;   // also takes ProtonDB suggestions
+    // What setSettings() was given — settings() starts from it, so fields
+    // without a control survive an edit.
+    DLSSSettings m_loaded;
 
     // ProtonDB recommendations
     ProtonDBClient::Summary m_protonDbSummary;
@@ -198,14 +104,8 @@ private:
     Game m_currentGame;
     QFutureWatcher<QStringList>* m_executableWatcher;
     QString m_savedExecutablePath;  // Store saved selection during async search
-    // Round-tripped fields with no control of their own (foreign VKD3D_CONFIG /
-    // DXVK_CONFIG entries from imported launch options). settings() builds a
-    // fresh DLSSSettings from the widgets, so without these an edit to any
-    // control would silently drop them.
     // The Proton a launch would use for the current game and selection.
     CompatToolResolver::ToolInfo m_resolvedProton;
-    QString m_vkd3dConfigExtra;
-    QString m_dxvkConfigExtra;
     bool m_loading = false;         // setSettings() is writing the widgets
     unsigned int m_searchGeneration = 0;
     std::shared_ptr<std::atomic<bool>> m_cancelFlag;
