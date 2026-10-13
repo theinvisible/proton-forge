@@ -55,6 +55,7 @@ void TstFeatureGate::everyFeatureHasARequirement()
         Feature::NoSteamInput, Feature::PreferSdl, Feature::DlssOverrides,
         Feature::SuperResolution, Feature::DlssIndicator, Feature::NgxUpdater,
         Feature::ProtonWayland, Feature::ProtonHdr, Feature::HdrWsiLayer,
+        Feature::DlssScalingRatio,
     };
     for (Feature f : all) {
         const Requirement& req = requirementFor(f);
@@ -526,6 +527,19 @@ void TstFeatureGate::realFeatures_data()
         {}, QVersionNumber(9, 0, 20250227), Fork::CachyOS, Status::Supported);
     row("dlss overrides on Experimental", Feature::DlssOverrides,
         {}, QVersionNumber(11), Fork::Unknown, Status::Supported);
+    // The named scaling-ratio keys (DXVK-NVAPI 0bcef80, 2025-05-25).
+    row("scaling ratio on Valve 10.0-1", Feature::DlssScalingRatio,
+        {}, QVersionNumber(10, 0, 1), Fork::Valve, Status::BelowMinProton);
+    row("scaling ratio on Valve 10.0-2", Feature::DlssScalingRatio,
+        {}, QVersionNumber(10, 0, 2), Fork::Valve, Status::Supported);
+    row("scaling ratio on GE 10-3", Feature::DlssScalingRatio,
+        {}, QVersionNumber(10, 3), Fork::GE, Status::BelowMinProton);
+    row("scaling ratio on GE 10-4", Feature::DlssScalingRatio,
+        {}, QVersionNumber(10, 4), Fork::GE, Status::Supported);
+    row("scaling ratio on CachyOS 10.0-20250520", Feature::DlssScalingRatio,
+        {}, QVersionNumber(10, 0, 20250520), Fork::CachyOS, Status::BelowMinProton);
+    row("scaling ratio on CachyOS 10.0-20250601", Feature::DlssScalingRatio,
+        {}, QVersionNumber(10, 0, 20250601), Fork::CachyOS, Status::Supported);
     rowGpu("super resolution on a GTX card", Feature::SuperResolution,
            QVersionNumber(610), {}, Fork::Unknown, GpuGeneration::PreTuring,
            Status::UnsupportedGpu);

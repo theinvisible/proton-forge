@@ -5,6 +5,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSlider>
 #include <QSpinBox>
 
 #include "ui/settings/SettingsPage.h"
@@ -30,6 +31,12 @@ private:
     // Enables the FG controls from the override, and the Dynamic MFG fields
     // only in FG mode "Dynamic".
     void updateFrameGenEnabled();
+    // Mode and preset follow the override; the scaling ratio additionally
+    // needs mode CUSTOM, the only mode that reads it.
+    void updateSuperResolutionEnabled();
+    void updateRayReconstructionEnabled();
+    // The "Scaling Ratio" row: a 33-100 % slider with its value beside it.
+    QWidget* createScalingRow(QSlider*& slider, QLabel*& value, const QString& tooltip);
 
     // Group boxes whose contents are Proton-only in their entirety, so the
     // whole box (title included) greys out on a native game.
@@ -42,13 +49,15 @@ private:
     QCheckBox* m_srOverride;
     QComboBox* m_srMode;
     QComboBox* m_srPreset;
-    QSpinBox* m_srScalingRatio;
+    QSlider* m_srScalingRatio;
+    QLabel* m_srScalingValue;
 
     // Ray Reconstruction
     QCheckBox* m_rrOverride;
     QComboBox* m_rrMode;
     QComboBox* m_rrPreset;
-    QSpinBox* m_rrScalingRatio;
+    QSlider* m_rrScalingRatio;
+    QLabel* m_rrScalingValue;
 
     // Frame Generation
     QCheckBox* m_fgOverride;

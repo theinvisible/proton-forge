@@ -79,6 +79,22 @@ const Requirement& requirementFor(Feature feature)
                                 "Proton-CachyOS ≥ 9.0-20250227)");
         return r;
     }();
+    // The named NGX_DLSS_{SR,RR}_OVERRIDE_SCALING_RATIO keys came with DXVK-NVAPI
+    // 0bcef80 (2025-05-25). Valve: 10.0-1f bundles e870088a, 10.0-2 has it. GE:
+    // 10-3 bundles b0d47e7d, 10-4 has it. CachyOS: 10.0-20250520 bundles
+    // b0d47e7d, 10.0-20250601 has it. Before that the ratio is ignored and
+    // CUSTOM falls back to the driver's default scale.
+    static const Requirement dlssScalingRatio = [] {
+        Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
+        r.minValve = QVersionNumber(10, 0, 2);
+        r.minGE = QVersionNumber(10, 4);
+        r.minCachyOS = QVersionNumber(10, 0, 20250601);
+        r.note = QStringLiteral("a custom scaling ratio needs DXVK-NVAPI's named key "
+                                "(Valve Proton ≥ 10.0-2, GE-Proton ≥ 10-4, "
+                                "Proton-CachyOS ≥ 10.0-20250601)");
+        return r;
+    }();
     static const Requirement superResolution = [] {
         Requirement r;
         r.vendor = GpuVendor::NVIDIA;
@@ -300,6 +316,7 @@ const Requirement& requirementFor(Feature feature)
         case Feature::ProtonWayland:     return protonWayland;
         case Feature::ProtonHdr:         return protonHdr;
         case Feature::HdrWsiLayer:       return hdrWsiLayer;
+        case Feature::DlssScalingRatio:  return dlssScalingRatio;
     }
 
     static const Requirement none{};

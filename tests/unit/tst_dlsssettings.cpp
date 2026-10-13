@@ -18,6 +18,7 @@ private slots:
     void defaultsThatAreNotFalse();
     void jsonRoundTrip();
     void everyFieldSurvivesJson();
+    void scalingRatioWithoutModeBecomesCustom();
     void missingKeysFallBackToDefaults();
     void vkd3dConfigExtraIsOmittedWhenEmpty();
     void equalityCoversEveryField();
@@ -46,6 +47,10 @@ private:
                 json[key] = value.toString() + "-changed";
             }
         }
+        // fromJson keeps a scaling ratio inside the 33-100 the driver takes,
+        // so 0 + 7 would come back as 33: mutate those two within range.
+        json["srScalingRatio"] = 75;
+        json["rrScalingRatio"] = 90;
         return json;
     }
 };
@@ -104,6 +109,35 @@ void TstDlssSettings::everyFieldSurvivesJson()
         QVERIFY2(written.value(key) == expected.value(key),
                  qPrintable("'" + key + "' did not survive the JSON round trip"));
     }
+}
+
+void TstDlssSettings::scalingRatioWithoutModeBecomesCustom()
+{
+    // Older versions wrote a ratio without CUSTOM, the only mode that reads
+    // it: the setting did nothing. Loading gives it the mode it was meant for.
+    QJsonObject json;
+    json["srOverride"] = true;
+    json["srScalingRatio"] = 75;
+    json["rrOverride"] = true;
+    json["rrScalingRatio"] = 20;    // below the driver's minimum
+    const DLSSSettings s = DLSSSettings::fromJson(json);
+    QCOMPARE(s.srMode, QStringLiteral("CUSTOM"));
+    QCOMPARE(s.srScalingRatio, 75);
+    QCOMPARE(s.rrMode, QStringLiteral("CUSTOM"));
+    QCOMPARE(s.rrScalingRatio, 33);
+
+    // A real mode stays what it is; the ratio is kept but never written.
+    QJsonObject quality;
+    quality["srMode"] = "QUALITY";
+    quality["srScalingRatio"] = 66;
+    const DLSSSettings q = DLSSSettings::fromJson(quality);
+    QCOMPARE(q.srMode, QStringLiteral("QUALITY"));
+    QCOMPARE(q.srScalingRatio, 66);
+
+    // No ratio, no mode: nothing to adopt.
+    QVERIFY(DLSSSettings::fromJson(QJsonObject()).srMode.isEmpty());
+
+    QVERIFY(DLSSSettings::availableRRModes().contains(QStringLiteral("CUSTOM")));
 }
 
 void TstDlssSettings::missingKeysFallBackToDefaults()

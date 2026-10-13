@@ -42,6 +42,16 @@ assert_contains_str "super resolution reaches DXVK_NVAPI_DRS_SETTINGS" "$OPTS" \
     "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_SR_OVERRIDE=on"
 assert_contains_str "and the mode is lowercased for the driver" "$OPTS" "NGX_DLSS_SR_MODE=quality"
 
+# The scaling ratio only reaches the driver with mode CUSTOM, so it is only
+# written together with it.
+OPTS="$(app_cli --print-launch-options "$APPID" \
+    --set srOverride=true --set srMode=CUSTOM --set srScalingRatio=75)"
+assert_contains_str "a custom scale writes the CUSTOM mode" "$OPTS" "NGX_DLSS_SR_MODE=custom"
+assert_contains_str "and the ratio with it" "$OPTS" "NGX_DLSS_SR_OVERRIDE_SCALING_RATIO=75"
+OPTS="$(app_cli --print-launch-options "$APPID" \
+    --set srOverride=true --set srMode=QUALITY --set srScalingRatio=75)"
+assert_not_contains_str "another mode writes no ratio" "$OPTS" "SCALING_RATIO"
+
 OPTS="$(app_cli --print-launch-options "$APPID" \
     --set enableFrameRateLimit=true --set targetFrameRate=144)"
 assert_contains_str "the frame cap goes to DXVK" "$OPTS" "DXVK_CONFIG=dxvk.maxFrameRate=144"
@@ -83,6 +93,7 @@ for combo in \
     "--set enableSmoothMotion=true --set disableAutoHDR=true" \
     "--set dlssUpgrade=true --set showIndicator=true --set enableMangoHud=true" \
     "--set dlssUpgrade=true --set dlssVersion=310.9.1" \
+    "--set srOverride=true --set srMode=CUSTOM --set srScalingRatio=75 --set rrOverride=true --set rrMode=CUSTOM --set rrScalingRatio=90" \
     "--set enableNVAPI=false --set protonDisableNTSync=true --set protonUseD7VK=true" \
     "--set enableFrameRateLimit=true --set targetFrameRate=90 --set enableProtonHDR=true"
 do

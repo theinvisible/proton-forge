@@ -30,7 +30,9 @@ private slots:
     void keepsUnknownTokens();
     void drsSettings_data();
     void drsSettings();
+    void scalingRatioIsRangeChecked_data();
     void scalingRatioIsRangeChecked();
+    void scalingRatioWithoutModeBecomesCustom();
     void customGameArgs_data();
     void customGameArgs();
     void environmentCarriesTheSameVariables();
@@ -106,10 +108,11 @@ private:
     static DLSSSettings fullyLoaded()
     {
         DLSSSettings s = everythingOn();
-        s.srMode = "QUALITY";
+        s.srMode = "CUSTOM";
         s.srPreset = "RENDER_PRESET_K";
         s.srScalingRatio = 66;
-        s.rrMode = "BALANCED";
+        s.rrMode = "CUSTOM";
+        s.rrScalingRatio = 90;
         s.rrPreset = "RENDER_PRESET_F";
         s.fgMultiFrameCount = 3;
         s.fgMode = "DYNAMIC";
@@ -199,7 +202,7 @@ void TstEnvBuilder::roundTrips_data()
 
     DLSSSettings sr;
     sr.srOverride = true;
-    sr.srMode = "Quality";
+    sr.srMode = "Custom";
     sr.srPreset = "Preset E";
     sr.srScalingRatio = 66;
     QTest::newRow("super resolution") << sr;
@@ -477,23 +480,64 @@ void TstEnvBuilder::drsSettings()
     }
 }
 
+void TstEnvBuilder::scalingRatioIsRangeChecked_data()
+{
+    QTest::addColumn<QString>("mode");
+    QTest::addColumn<int>("ratio");
+    QTest::addColumn<bool>("written");
+
+    // Only CUSTOM reads the ratio, and the driver takes 33-100.
+    QTest::newRow("custom 66")        << "CUSTOM"  << 66  << true;
+    QTest::newRow("custom typed")     << "custom"  << 66  << true;   // --set srMode=custom
+    QTest::newRow("custom 33")        << "CUSTOM"  << 33  << true;
+    QTest::newRow("custom 100")       << "CUSTOM"  << 100 << true;
+    QTest::newRow("custom 0")         << "CUSTOM"  << 0   << false;
+    QTest::newRow("custom 32")        << "CUSTOM"  << 32  << false;
+    QTest::newRow("custom 101")       << "CUSTOM"  << 101 << false;
+    QTest::newRow("custom -5")        << "CUSTOM"  << -5  << false;
+    QTest::newRow("quality ignores")  << "QUALITY" << 66  << false;
+    QTest::newRow("no mode ignores")  << ""        << 66  << false;
+}
+
 void TstEnvBuilder::scalingRatioIsRangeChecked()
 {
-    DLSSSettings settings;
-    settings.srOverride = true;
-    settings.srMode = "Quality";
+    QFETCH(QString, mode);
+    QFETCH(int, ratio);
+    QFETCH(bool, written);
 
-    settings.srScalingRatio = 0;      // "default", must not be emitted
-    QVERIFY(!EnvBuilder::buildDRSSettings(settings).contains("SCALING_RATIO"));
+    DLSSSettings sr;
+    sr.srOverride = true;
+    sr.srMode = mode;
+    sr.srScalingRatio = ratio;
+    QCOMPARE(EnvBuilder::buildDRSSettings(sr).contains("NGX_DLSS_SR_OVERRIDE_SCALING_RATIO"),
+             written);
 
-    settings.srScalingRatio = 66;
-    QVERIFY(EnvBuilder::buildDRSSettings(settings).contains("SCALING_RATIO"));
+    DLSSSettings rr;
+    rr.rrOverride = true;
+    rr.rrMode = mode;
+    rr.rrScalingRatio = ratio;
+    QCOMPARE(EnvBuilder::buildDRSSettings(rr).contains("NGX_DLSS_RR_OVERRIDE_SCALING_RATIO"),
+             written);
+}
 
-    settings.srScalingRatio = 101;    // out of range, must not be emitted
-    QVERIFY(!EnvBuilder::buildDRSSettings(settings).contains("SCALING_RATIO"));
+void TstEnvBuilder::scalingRatioWithoutModeBecomesCustom()
+{
+    // A string from before CUSTOM was written: the ratio alone, which the
+    // driver ignored. Imported, it gets the mode it needs.
+    const auto parsed = EnvBuilder::parseLaunchOptions(
+        "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_SR_OVERRIDE=on,NGX_DLSS_SR_OVERRIDE_SCALING_RATIO=75 %command%",
+        DLSSSettings());
+    QCOMPARE(parsed.settings.srMode, QStringLiteral("CUSTOM"));
+    QCOMPARE(parsed.settings.srScalingRatio, 75);
+    QVERIFY(EnvBuilder::buildDRSSettings(parsed.settings).contains("NGX_DLSS_SR_MODE=custom"));
 
-    settings.srScalingRatio = -5;
-    QVERIFY(!EnvBuilder::buildDRSSettings(settings).contains("SCALING_RATIO"));
+    // RR's CUSTOM is recognised like any other mode.
+    const auto rr = EnvBuilder::parseLaunchOptions(
+        "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_RR_OVERRIDE=on,NGX_DLSS_RR_MODE=custom,"
+        "NGX_DLSS_RR_OVERRIDE_SCALING_RATIO=90 %command%",
+        DLSSSettings());
+    QCOMPARE(rr.settings.rrMode, QStringLiteral("CUSTOM"));
+    QCOMPARE(rr.settings.rrScalingRatio, 90);
 }
 
 void TstEnvBuilder::customGameArgs_data()
@@ -1001,7 +1045,7 @@ void TstEnvBuilder::emissionOrderIsStable()
         "VKD3D_CONFIG=descriptor_heap,dxr "
         "PROTON_DLSS_UPGRADE=310.9.1 "
         "PROTON_DLSS_INDICATOR=1 "
-        "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_SR_OVERRIDE=on,NGX_DLSS_SR_MODE=quality,NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_K,NGX_DLSS_SR_OVERRIDE_SCALING_RATIO=66,NGX_DLSS_RR_OVERRIDE=on,NGX_DLSS_RR_MODE=balanced,NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_F,NGX_DLSS_FG_OVERRIDE=on,NGX_DLSSG_MULTI_FRAME_COUNT=3,NGX_DLSSG_MODE=dynamic,NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_B,NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE=120,NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX=3 "
+        "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_SR_OVERRIDE=on,NGX_DLSS_SR_MODE=custom,NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_K,NGX_DLSS_SR_OVERRIDE_SCALING_RATIO=66,NGX_DLSS_RR_OVERRIDE=on,NGX_DLSS_RR_MODE=custom,NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_F,NGX_DLSS_RR_OVERRIDE_SCALING_RATIO=90,NGX_DLSS_FG_OVERRIDE=on,NGX_DLSSG_MULTI_FRAME_COUNT=3,NGX_DLSSG_MODE=dynamic,NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_B,NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE=120,NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX=3 "
         "NVPRESENT_ENABLE_SMOOTH_MOTION=1 "
         "NVPRESENT_QUEUE_FAMILY=1 "
         "DXVK_CONFIG=\"dxvk.maxFrameRate=90;dxgi.syncInterval=0\" "

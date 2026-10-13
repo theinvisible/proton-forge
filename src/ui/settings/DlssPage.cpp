@@ -8,6 +8,15 @@
 
 namespace {
 
+// Where the slider starts when CUSTOM is picked without a ratio of its own:
+// about what Quality renders at.
+constexpr int DefaultScalingRatio = 67;
+
+QString scalingText(int ratio)
+{
+    return QStringLiteral("%1 %").arg(ratio);
+}
+
 enum class PresetKind { SuperResolution, RayReconstruction, FrameGeneration };
 
 // Display text for a render preset. The stored value stays the NGX name
@@ -122,7 +131,7 @@ QGroupBox* DlssPage::createSuperResolutionGroup()
         "• QUALITY: Higher quality, moderate FPS boost (~67% render scale)\n"
         "• ULTRA_PERFORMANCE: Maximum performance, lowest quality (~33% render scale)\n"
         "• DLAA: AI anti-aliasing at native resolution (no upscaling)\n"
-        "• CUSTOM: Use manual scaling ratio instead of preset");
+        "• CUSTOM: render at the scaling ratio set below");
     formLayout->addRow("Mode:", m_srMode);
 
     m_srPreset = new QComboBox(this);
@@ -148,42 +157,82 @@ QGroupBox* DlssPage::createSuperResolutionGroup()
         "games that ship an older one.");
     formLayout->addRow("Render Preset:", m_srPreset);
 
-    m_srScalingRatio = new QSpinBox(this);
-    m_srScalingRatio->setRange(0, 100);
-    m_srScalingRatio->setSpecialValueText("(App Default)");
-    m_srScalingRatio->setSuffix("%");
-    m_srScalingRatio->setToolTip(
-        "Manual scaling ratio override (33-100%):\n\n"
-        "Sets the percentage of native resolution to render internally before upscaling. "
-        "Lower = better performance, potentially lower quality.\n"
+    formLayout->addRow("Scaling Ratio:", createScalingRow(m_srScalingRatio, m_srScalingValue,
+        "Render resolution in percent of the output resolution (33-100 %). "
+        "Only with Mode CUSTOM — no other mode reads it.\n\n"
+        "Lower = more performance, potentially lower quality.\n"
         "Higher = better quality, less performance gain.\n\n"
         "Examples at 4K:\n"
-        "• 50% = Render at 1080p, upscale to 4K\n"
-        "• 67% = Render at ~1440p, upscale to 4K\n\n"
-        "0 = Use app default or mode preset");
-    formLayout->addRow("Scaling Ratio:", m_srScalingRatio);
+        "• 50 % = render at 1080p, upscale to 4K\n"
+        "• 67 % = render at ~1440p, upscale to 4K\n\n"
+        "Sets NGX_DLSS_SR_OVERRIDE_SCALING_RATIO. Needs Valve Proton 10.0-2, "
+        "GE-Proton 10-4 or Proton-CachyOS 10.0-20250601 or newer."));
 
     layout->addLayout(formLayout);
 
-    // Enable/disable based on override checkbox
-    auto updateSREnabled = [this]() {
-        bool enabled = m_srOverride->isChecked();
-        m_srMode->setEnabled(enabled);
-        m_srPreset->setEnabled(enabled);
-        m_srScalingRatio->setEnabled(enabled);
-    };
-
-    connect(m_srOverride, &QCheckBox::toggled, this, [updateSREnabled, this]() {
-        updateSREnabled();
+    connect(m_srOverride, &QCheckBox::toggled, this, [this]() {
+        updateSuperResolutionEnabled();
         emit changed();
     });
-    connect(m_srMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SettingsPage::changed);
+    connect(m_srMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        updateSuperResolutionEnabled();
+        emit changed();
+    });
     connect(m_srPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SettingsPage::changed);
-    connect(m_srScalingRatio, QOverload<int>::of(&QSpinBox::valueChanged), this, &SettingsPage::changed);
 
-    updateSREnabled();
+    updateSuperResolutionEnabled();
 
     return group;
+}
+
+QWidget* DlssPage::createScalingRow(QSlider*& slider, QLabel*& value, const QString& tooltip)
+{
+    auto* row = new QWidget(this);
+    auto* rowLayout = new QHBoxLayout(row);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+
+    slider = new QSlider(Qt::Horizontal, row);
+    slider->setRange(33, 100);
+    slider->setSingleStep(1);
+    slider->setPageStep(5);
+    slider->setValue(DefaultScalingRatio);
+    slider->setToolTip(tooltip);
+
+    value = new QLabel(scalingText(DefaultScalingRatio), row);
+    // Wide enough for "100 %", so the slider does not jump while dragging.
+    value->setMinimumWidth(value->fontMetrics().horizontalAdvance(scalingText(100)) + 4);
+    value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    value->setToolTip(tooltip);
+
+    rowLayout->addWidget(slider, 1);
+    rowLayout->addWidget(value);
+
+    QLabel* label = value;
+    connect(slider, &QSlider::valueChanged, this, [this, label](int ratio) {
+        label->setText(scalingText(ratio));
+        emit changed();
+    });
+    return row;
+}
+
+void DlssPage::updateSuperResolutionEnabled()
+{
+    const bool on = m_srOverride->isChecked();
+    const bool custom = on && DLSSSettings::isCustomMode(m_srMode->currentData().toString());
+    m_srMode->setEnabled(on);
+    m_srPreset->setEnabled(on);
+    m_srScalingRatio->setEnabled(custom);
+    m_srScalingValue->setEnabled(custom);
+}
+
+void DlssPage::updateRayReconstructionEnabled()
+{
+    const bool on = m_rrOverride->isChecked();
+    const bool custom = on && DLSSSettings::isCustomMode(m_rrMode->currentData().toString());
+    m_rrMode->setEnabled(on);
+    m_rrPreset->setEnabled(on);
+    m_rrScalingRatio->setEnabled(custom);
+    m_rrScalingValue->setEnabled(custom);
 }
 
 QGroupBox* DlssPage::createRayReconstructionGroup()
@@ -213,7 +262,8 @@ QGroupBox* DlssPage::createRayReconstructionGroup()
         "• BALANCED: Balanced ray count and quality\n"
         "• QUALITY: More rays traced, better visual quality\n"
         "• ULTRA_PERFORMANCE: Minimum rays, maximum performance\n"
-        "• DLAA: Full ray count with AI denoising\n\n"
+        "• DLAA: Full ray count with AI denoising\n"
+        "• CUSTOM: render at the scaling ratio set below\n\n"
         "Higher quality modes trace more rays but have lower performance impact.");
     formLayout->addRow("Mode:", m_rrMode);
 
@@ -233,36 +283,26 @@ QGroupBox* DlssPage::createRayReconstructionGroup()
         "use DLSS Upgrade or the NGX updater for F.");
     formLayout->addRow("Render Preset:", m_rrPreset);
 
-    m_rrScalingRatio = new QSpinBox(this);
-    m_rrScalingRatio->setRange(0, 100);
-    m_rrScalingRatio->setSpecialValueText("(App Default)");
-    m_rrScalingRatio->setSuffix("%");
-    m_rrScalingRatio->setToolTip(
-        "Ray budget scaling ratio (33-100%):\n\n"
-        "Percentage of full ray count to trace. Lower values trace fewer rays, "
-        "improving performance at the cost of reconstruction quality.\n\n"
-        "The AI reconstructs the missing detail from the reduced ray samples.\n\n"
-        "0 = Use app default or mode preset");
-    formLayout->addRow("Scaling Ratio:", m_rrScalingRatio);
+    formLayout->addRow("Scaling Ratio:", createScalingRow(m_rrScalingRatio, m_rrScalingValue,
+        "Render resolution Ray Reconstruction works from, in percent of the output "
+        "resolution (33-100 %). Only with Mode CUSTOM — no other mode reads it.\n\n"
+        "Lower = more performance, at the cost of reconstruction quality.\n\n"
+        "Sets NGX_DLSS_RR_OVERRIDE_SCALING_RATIO. Needs Valve Proton 10.0-2, "
+        "GE-Proton 10-4 or Proton-CachyOS 10.0-20250601 or newer."));
 
     layout->addLayout(formLayout);
 
-    auto updateRREnabled = [this]() {
-        bool enabled = m_rrOverride->isChecked();
-        m_rrMode->setEnabled(enabled);
-        m_rrPreset->setEnabled(enabled);
-        m_rrScalingRatio->setEnabled(enabled);
-    };
-
-    connect(m_rrOverride, &QCheckBox::toggled, this, [updateRREnabled, this]() {
-        updateRREnabled();
+    connect(m_rrOverride, &QCheckBox::toggled, this, [this]() {
+        updateRayReconstructionEnabled();
         emit changed();
     });
-    connect(m_rrMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SettingsPage::changed);
+    connect(m_rrMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
+        updateRayReconstructionEnabled();
+        emit changed();
+    });
     connect(m_rrPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SettingsPage::changed);
-    connect(m_rrScalingRatio, QOverload<int>::of(&QSpinBox::valueChanged), this, &SettingsPage::changed);
 
-    updateRREnabled();
+    updateRayReconstructionEnabled();
 
     return group;
 }
@@ -546,20 +586,24 @@ void DlssPage::load(const DLSSSettings& settings)
     int srModeIndex = m_srMode->findData(settings.srMode);
     m_srMode->setCurrentIndex(srModeIndex >= 0 ? srModeIndex : 0);
     selectData(m_srPreset, settings.srPreset);
-    m_srScalingRatio->setValue(settings.srScalingRatio);
-    m_srMode->setEnabled(settings.srOverride);
-    m_srPreset->setEnabled(settings.srOverride);
-    m_srScalingRatio->setEnabled(settings.srOverride);
+    // The panel blocks the slider's signals while loading, so the label is
+    // set here rather than by valueChanged.
+    const int srRatio = settings.srScalingRatio >= 33 && settings.srScalingRatio <= 100
+                            ? settings.srScalingRatio : DefaultScalingRatio;
+    m_srScalingRatio->setValue(srRatio);
+    m_srScalingValue->setText(scalingText(srRatio));
+    updateSuperResolutionEnabled();
 
     // Ray Reconstruction
     m_rrOverride->setChecked(settings.rrOverride);
     int rrModeIndex = m_rrMode->findData(settings.rrMode);
     m_rrMode->setCurrentIndex(rrModeIndex >= 0 ? rrModeIndex : 0);
     selectData(m_rrPreset, settings.rrPreset);
-    m_rrScalingRatio->setValue(settings.rrScalingRatio);
-    m_rrMode->setEnabled(settings.rrOverride);
-    m_rrPreset->setEnabled(settings.rrOverride);
-    m_rrScalingRatio->setEnabled(settings.rrOverride);
+    const int rrRatio = settings.rrScalingRatio >= 33 && settings.rrScalingRatio <= 100
+                            ? settings.rrScalingRatio : DefaultScalingRatio;
+    m_rrScalingRatio->setValue(rrRatio);
+    m_rrScalingValue->setText(scalingText(rrRatio));
+    updateRayReconstructionEnabled();
 
     // Frame Generation
     m_fgOverride->setChecked(settings.fgOverride);
@@ -594,12 +638,15 @@ void DlssPage::store(DLSSSettings& settings) const
     settings.srOverride = m_srOverride->isChecked();
     settings.srMode = m_srMode->currentData().toString();
     settings.srPreset = m_srPreset->currentData().toString();
-    settings.srScalingRatio = m_srScalingRatio->value();
+    // Only CUSTOM reads a ratio; any other mode keeps the "default" 0.
+    settings.srScalingRatio = DLSSSettings::isCustomMode(settings.srMode)
+                                  ? m_srScalingRatio->value() : 0;
 
     settings.rrOverride = m_rrOverride->isChecked();
     settings.rrMode = m_rrMode->currentData().toString();
     settings.rrPreset = m_rrPreset->currentData().toString();
-    settings.rrScalingRatio = m_rrScalingRatio->value();
+    settings.rrScalingRatio = DLSSSettings::isCustomMode(settings.rrMode)
+                                  ? m_rrScalingRatio->value() : 0;
 
     settings.fgOverride = m_fgOverride->isChecked();
     settings.fgMultiFrameCount = m_fgMultiFrameCount->currentData().toInt();

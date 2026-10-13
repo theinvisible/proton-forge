@@ -123,7 +123,21 @@ DLSSSettings DLSSSettings::fromJson(const QJsonObject& json)
             [&](QString DLSSSettings::* m) { settings.*m = v.toString(settings.*m); },
         }, f.member);
     }
+    settings.adoptCustomScaling();
     return settings;
+}
+
+void DLSSSettings::adoptCustomScaling()
+{
+    const auto adopt = [](QString& mode, int& ratio) {
+        if (ratio == 0)
+            return;
+        if (mode.isEmpty())
+            mode = QStringLiteral("CUSTOM");
+        ratio = qBound(33, ratio, 100);
+    };
+    adopt(srMode, srScalingRatio);
+    adopt(rrMode, rrScalingRatio);
 }
 
 bool DLSSSettings::operator==(const DLSSSettings& other) const
@@ -156,7 +170,8 @@ QStringList DLSSSettings::availableRRModes()
         "BALANCED",
         "QUALITY",
         "DLAA",
-        "ULTRA_PERFORMANCE"
+        "ULTRA_PERFORMANCE",
+        "CUSTOM"
     };
 }
 

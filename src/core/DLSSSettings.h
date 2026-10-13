@@ -29,13 +29,13 @@ public:
     bool srOverride = false;
     QString srMode;
     QString srPreset;
-    int srScalingRatio = 0;  // 33-100, 0 = default
+    int srScalingRatio = 0;  // 33-100, 0 = default; only written with srMode CUSTOM
 
     // Ray Reconstruction (RR)
     bool rrOverride = false;
     QString rrMode;
     QString rrPreset;
-    int rrScalingRatio = 0;
+    int rrScalingRatio = 0;  // same, with rrMode CUSTOM
 
     // Frame Generation (FG)
     bool fgOverride = false;
@@ -100,6 +100,18 @@ public:
     // "%command%", it controls where %command% and any trailing game arguments
     // are placed; otherwise it is treated as extra env vars before %command%.
     QString customLaunchParams;
+
+    // A scaling ratio only takes effect with the mode set to CUSTOM, which older
+    // versions did not write. Gives a ratio without any mode that mode, so it
+    // does what it was set for, and keeps it inside the 33-100 the driver takes.
+    // Called wherever settings come in: fromJson() and parseLaunchOptions().
+    void adoptCustomScaling();
+    // The one mode that reads a scaling ratio. Case-insensitive: the CLI takes
+    // what the user typed.
+    static bool isCustomMode(const QString& mode)
+    {
+        return mode.compare(QLatin1String("CUSTOM"), Qt::CaseInsensitive) == 0;
+    }
 
     // Serialization
     QJsonObject toJson() const;

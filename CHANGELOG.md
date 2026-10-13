@@ -26,6 +26,11 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
   - DLSS, Reflex and the other NVIDIA options on a machine without an NVIDIA
     GPU (one line for all of them);
   - `ENABLE_HDR_WSI` with NVIDIA driver 595 or newer, which no longer needs it.
+- **Scaling ratio as a slider** (33–100 %) for Super Resolution and Ray
+  Reconstruction. It is live with mode **CUSTOM** — the only mode the driver
+  reads a ratio in — which Ray Reconstruction now offers as well. A Proton
+  whose DXVK-NVAPI does not know the ratio yet (Valve's Proton before 10.0-2,
+  GE-Proton before 10-4, Proton-CachyOS before 10.0-20250601) gets a warning.
 - The command line reports the same warnings: `featureWarnings` in the JSON of
   `--apply` and `--launch` (also with `--dry-run`), and `warning:` lines on
   stderr for `--print-launch-options`, whose stdout stays the launch string.
@@ -37,6 +42,11 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ### Fixed
 
+- **A scaling ratio did nothing** unless the mode was CUSTOM, which ProtonForge
+  never wrote. A saved ratio without a mode now gets CUSTOM, so it takes effect
+  — the launch string of those games changes, so write them to Steam again if
+  you start them from there. A ratio under 33 % is no longer written; the
+  driver does not accept it.
 - **Launching from the command line ignored the executable chosen in the
   settings panel** (`--launch` started whatever the search found); every launch
   now starts the chosen one.

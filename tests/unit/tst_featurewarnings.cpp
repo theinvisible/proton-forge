@@ -24,6 +24,7 @@ private slots:
     void missingVendorIsOneLine();
     void oldProtonIsOneOverridesLine();
     void linesFollowTheTabs();
+    void customScalingNeedsANewerProton();
     void inputForUsesTheResolvedProton();
 };
 
@@ -152,6 +153,30 @@ void TstFeatureWarnings::linesFollowTheTabs()
     QVERIFY(lines.at(0).startsWith(QStringLiteral("DLSS Indicator: Valve's Proton")));
     QVERIFY(lines.at(1).startsWith(QStringLiteral("HDR: Valve's Proton has no Wayland switch")));
     QVERIFY(lines.at(2).startsWith(QStringLiteral("Controller without Steam Input:")));
+}
+
+void TstFeatureWarnings::customScalingNeedsANewerProton()
+{
+    DLSSSettings s;
+    s.srOverride = true;
+    s.srMode = QStringLiteral("CUSTOM");
+    s.srScalingRatio = 75;
+
+    QCOMPARE(FeatureWarnings::collect(s, valve(10, 0, 1)), (QStringList{
+        "Custom scaling ratio: a custom scaling ratio needs DXVK-NVAPI's named key "
+        "(Valve Proton ≥ 10.0-2, GE-Proton ≥ 10-4, Proton-CachyOS ≥ 10.0-20250601)",
+    }));
+    QVERIFY(FeatureWarnings::collect(s, valve(10, 0, 3)).isEmpty());
+
+    // Any other mode writes no ratio, so there is nothing to warn about.
+    s.srMode = QStringLiteral("QUALITY");
+    QVERIFY(FeatureWarnings::collect(s, valve(10, 0, 1)).isEmpty());
+
+    // Ray Reconstruction counts the same.
+    DLSSSettings rr;
+    rr.rrOverride = true;
+    rr.rrMode = QStringLiteral("CUSTOM");
+    QCOMPARE(FeatureWarnings::collect(rr, valve(10, 0, 1)).size(), 1);
 }
 
 void TstFeatureWarnings::inputForUsesTheResolvedProton()

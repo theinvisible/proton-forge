@@ -531,7 +531,10 @@ QString EnvBuilder::buildDRSSettings(const DLSSSettings& settings)
             drsSettings << QString("NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=%1").arg(settings.srPreset);
         }
 
-        if (settings.srScalingRatio > 0 && settings.srScalingRatio <= 100) {
+        // Only CUSTOM reads the ratio (DXVK-NVAPI wiki, "Override DLSS-SR scaling
+        // ratio"), and the driver takes 33-100.
+        if (DLSSSettings::isCustomMode(settings.srMode) &&
+            settings.srScalingRatio >= 33 && settings.srScalingRatio <= 100) {
             drsSettings << QString("NGX_DLSS_SR_OVERRIDE_SCALING_RATIO=%1").arg(settings.srScalingRatio);
         }
     }
@@ -548,7 +551,8 @@ QString EnvBuilder::buildDRSSettings(const DLSSSettings& settings)
             drsSettings << QString("NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION=%1").arg(settings.rrPreset);
         }
 
-        if (settings.rrScalingRatio > 0 && settings.rrScalingRatio <= 100) {
+        if (DLSSSettings::isCustomMode(settings.rrMode) &&
+            settings.rrScalingRatio >= 33 && settings.rrScalingRatio <= 100) {
             drsSettings << QString("NGX_DLSS_RR_OVERRIDE_SCALING_RATIO=%1").arg(settings.rrScalingRatio);
         }
     }
@@ -740,6 +744,7 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
                 (parts.env + QStringList{QStringLiteral("%command%")} + parts.args).join(" ");
         }
     }
+    s.adoptCustomScaling();
     return result;
 }
 

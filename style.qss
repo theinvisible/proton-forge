@@ -65,6 +65,31 @@ DLSSSettingsWidget QSpinBox:focus {
     border-color: #76B900;
 }
 
+/* A styled groove replaces the native slider entirely, tick marks included —
+   the value label beside it says what a tick would. */
+DLSSSettingsWidget QSlider::groove:horizontal {
+    height: 4px;
+    background: #3a3a3a;
+    border-radius: 2px;
+}
+
+DLSSSettingsWidget QSlider::sub-page:horizontal {
+    background: #76B900;
+    border-radius: 2px;
+}
+
+DLSSSettingsWidget QSlider::handle:horizontal {
+    background: #e0e0e0;
+    border: 1px solid #76B900;
+    width: 14px;
+    margin: -6px 0;
+    border-radius: 7px;
+}
+
+DLSSSettingsWidget QSlider::handle:horizontal:hover {
+    background: #ffffff;
+}
+
 DLSSSettingsWidget QCheckBox {
     color: #d0d0d0;
     spacing: 6px;
@@ -122,6 +147,15 @@ DLSSSettingsWidget QComboBox:disabled,
 DLSSSettingsWidget QSpinBox:disabled {
     color: #6a6a6a;
     background-color: #1a1a1a;
+    border-color: #3a3a3a;
+}
+
+DLSSSettingsWidget QSlider::sub-page:horizontal:disabled {
+    background: #3d4f24;
+}
+
+DLSSSettingsWidget QSlider::handle:horizontal:disabled {
+    background: #555555;
     border-color: #3a3a3a;
 }
 

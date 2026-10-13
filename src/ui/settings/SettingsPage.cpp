@@ -1,6 +1,7 @@
 #include "ui/settings/SettingsPage.h"
 
 #include <QAbstractButton>
+#include <QAbstractSlider>
 #include <QAbstractSpinBox>
 #include <QComboBox>
 #include <QLineEdit>
@@ -45,7 +46,8 @@ QList<QWidget*> SettingsPage::inputWidgets() const
     QList<QWidget*> out;
     for (QWidget* w : findChildren<QWidget*>()) {
         if (qobject_cast<QAbstractButton*>(w) || qobject_cast<QComboBox*>(w) ||
-            qobject_cast<QAbstractSpinBox*>(w) || qobject_cast<QLineEdit*>(w) ||
+            qobject_cast<QAbstractSpinBox*>(w) || qobject_cast<QAbstractSlider*>(w) ||
+            qobject_cast<QLineEdit*>(w) ||
             qobject_cast<QPlainTextEdit*>(w)) {
             out << w;
         }

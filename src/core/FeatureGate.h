@@ -133,6 +133,7 @@ enum class Feature {
     ProtonWayland,
     ProtonHdr,
     HdrWsiLayer,
+    DlssScalingRatio,
 };
 
 // Central, tunable capability table (defined in FeatureGate.cpp).

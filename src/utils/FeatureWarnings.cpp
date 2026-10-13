@@ -47,6 +47,11 @@ const std::vector<Rule>& rules()
          [](const S& s) { return s.srOverride || s.rrOverride || s.fgOverride; }},
         {Section::Dlss, Feature::SuperResolution, "Super Resolution", "DXVK_NVAPI_DRS_SETTINGS",
          [](const S& s) { return s.srOverride; }},
+        {Section::Dlss, Feature::DlssScalingRatio, "Custom scaling ratio", "DXVK_NVAPI_DRS_SETTINGS",
+         [](const S& s) {
+             return (s.srOverride && S::isCustomMode(s.srMode)) ||
+                    (s.rrOverride && S::isCustomMode(s.rrMode));
+         }},
         {Section::Dlss, Feature::SmoothMotion, "Smooth Motion", "NVPRESENT_ENABLE_SMOOTH_MOTION",
          [](const S& s) { return s.enableSmoothMotion; }},
         {Section::Dlss, Feature::FrameGen, "Frame Generation", "DXVK_NVAPI_DRS_SETTINGS",
