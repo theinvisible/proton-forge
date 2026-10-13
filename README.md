@@ -67,6 +67,7 @@ It handles two game sources side by side: your local **Steam** libraries, and yo
 ### Proton Tweaks
 - **NTSync**: Kernel-level Windows synchronization primitives for better multi-threaded performance (requires Linux 6.14+). Opt-in up to Proton 10 (PROTON_USE_NTSYNC); on by default from Proton 11, where it can be switched off per game (PROTON_NO_NTSYNC)
 - **Debug Logging**: Enable Proton log output for troubleshooting (PROTON_LOG)
+- **Controller Input**: Hide Steam's virtual controller (PROTON_NO_STEAMINPUT) or route every controller through SDL (PROTON_PREFER_SDL) — for doubled inputs and controllers that are not detected (Proton-CachyOS, GE-Proton)
 
 ### Overlay
 - **Steam Overlay**: Toggle the Steam Performance Overlay (gameoverlayrenderer.so injection via LD_PRELOAD) — enabled by default, can be disabled to improve performance or fix compatibility issues. Never injected into a non-Steam game, which could not talk to Steam anyway

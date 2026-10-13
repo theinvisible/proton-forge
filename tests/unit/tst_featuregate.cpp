@@ -49,6 +49,7 @@ void TstFeatureGate::everyFeatureHasARequirement()
         Feature::Vkd3dLowLatency, Feature::D7vk, Feature::DisableAutoHdr,
         Feature::Vkd3dDescriptorHeap, Feature::FrameGen, Feature::NtsyncOptIn,
         Feature::NtsyncDisable, Feature::DlssUpgrade, Feature::DlssUpgradeVersion,
+        Feature::NoSteamInput, Feature::PreferSdl,
     };
     for (Feature f : all) {
         const Requirement& req = requirementFor(f);
@@ -418,6 +419,18 @@ void TstFeatureGate::realFeatures_data()
         {}, valve11_2, Fork::Valve, Status::Supported);
     row("fg preset on GE 10", Feature::FgPreset,
         {}, QVersionNumber(10, 34), Fork::GE, Status::Supported);
+    row("sdl input is not in Valve Proton", Feature::PreferSdl,
+        {}, valve11_2, Fork::Valve, Status::WrongFork);
+    row("sdl input on GE 10-6", Feature::PreferSdl,
+        {}, QVersionNumber(10, 6), Fork::GE, Status::BelowMinProton);
+    row("sdl input on GE 10-7", Feature::PreferSdl,
+        {}, QVersionNumber(10, 7), Fork::GE, Status::Supported);
+    row("sdl input on any CachyOS", Feature::PreferSdl,
+        {}, QVersionNumber(10, 0, 20250101), Fork::CachyOS, Status::Supported);
+    row("no steam input is not in Valve Proton", Feature::NoSteamInput,
+        {}, valve11_2, Fork::Valve, Status::WrongFork);
+    row("no steam input on GE 10-8", Feature::NoSteamInput,
+        {}, QVersionNumber(10, 8), Fork::GE, Status::Supported);
     row("ntsync opt-in is pointless on Proton 11", Feature::NtsyncOptIn,
         {}, valve11_2, Fork::Valve, Status::Removed);
     row("ntsync opt-in on Proton 10", Feature::NtsyncOptIn,

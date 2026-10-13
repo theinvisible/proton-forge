@@ -160,6 +160,29 @@ const Requirement& requirementFor(Feature feature)
         return r;
     }();
 
+    // Controller input. PROTON_PREFER_SDL is in GE-Proton's script from 10-7
+    // (absent at 10-6) and in Proton-CachyOS; PROTON_NO_STEAMINPUT from GE
+    // 10-8, where the script acts on it on the Wayland path, while
+    // Proton-CachyOS's winebus reads it directly ("winebus: Implement
+    // PROTON_NO_STEAMINPUT support", 2026-04). Valve's Proton has neither —
+    // checked in its script and its winebus.so (11.0, Experimental).
+    static const Requirement preferSdl = [] {
+        Requirement r;
+        r.minCachyOS = QVersionNumber(0);
+        r.minGE = QVersionNumber(10, 7);
+        r.note = QStringLiteral("PROTON_PREFER_SDL needs Proton-CachyOS or GE-Proton ≥ 10-7");
+        r.forkNote = QStringLiteral("Valve's Proton has no SDL input switch — use Proton-CachyOS or GE-Proton");
+        return r;
+    }();
+    static const Requirement noSteamInput = [] {
+        Requirement r;
+        r.minCachyOS = QVersionNumber(0);
+        r.minGE = QVersionNumber(10, 8);
+        r.note = QStringLiteral("PROTON_NO_STEAMINPUT needs Proton-CachyOS, or GE-Proton ≥ 10-8 with Wayland");
+        r.forkNote = QStringLiteral("Valve's Proton cannot hide Steam's virtual controller — use Proton-CachyOS or GE-Proton");
+        return r;
+    }();
+
     switch (feature) {
         case Feature::SmoothMotion:      return smoothMotion;
         case Feature::MultiFrameGen:     return multiFrameGen;
@@ -178,6 +201,8 @@ const Requirement& requirementFor(Feature feature)
         case Feature::NtsyncDisable:     return ntsyncDisable;
         case Feature::DlssUpgrade:       return dlssUpgrade;
         case Feature::DlssUpgradeVersion: return dlssUpgradeVersion;
+        case Feature::NoSteamInput:      return noSteamInput;
+        case Feature::PreferSdl:         return preferSdl;
     }
 
     static const Requirement none{};

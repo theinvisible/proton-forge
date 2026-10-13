@@ -21,6 +21,9 @@ private:
     // NTSync: Proton default / force on (opt-in up to Proton 10) / off (11+).
     // One combo for the two DLSSSettings booleans, so they cannot both be set.
     QComboBox* m_ntsyncMode;
+    // Controller input: Proton default / without Steam Input / SDL. One combo
+    // for the two DLSSSettings booleans, as with NTSync.
+    QComboBox* m_controllerInput;
 };
 
 #endif // PROTONPAGE_H

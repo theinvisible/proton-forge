@@ -78,6 +78,10 @@ const std::vector<VarSpec>& varSpecs()
         {"PROTON_D7VK_DDRAW",               Proton},
         {"PROTON_LOG",                      Proton, &S::protonLog},
 
+        // Controller input — hand-written, see applyKnownEnvVar() for why.
+        {"PROTON_NO_STEAMINPUT",            Proton},
+        {"PROTON_PREFER_SDL",               Proton},
+
         {"MANGOHUD",                        Any},
     };
     return table;
@@ -292,6 +296,9 @@ QList<QPair<QString, QString>> managedEnv(const DLSSSettings& s, QStringList& cu
         set("PROTON_D7VK_DDRAW", one);
     }
 
+    if (s.protonNoSteamInput) set("PROTON_NO_STEAMINPUT", one);
+    if (s.protonPreferSdl) set("PROTON_PREFER_SDL", one);
+
     if (s.enableMangoHud) set("MANGOHUD", one);
 
     QList<QPair<QString, QString>> env;
@@ -392,6 +399,16 @@ bool applyKnownEnvVar(DLSSSettings& s, const QString& key, const QString& value)
     // Only 1 (graphics queue) is documented; anything else is the user's own
     // and stays in the custom params.
     if (key == "NVPRESENT_QUEUE_FAMILY" && value == "1") { s.smoothMotionGraphicsQueue = true; return true; }
+    // Controller input. "=0" is not the same as absent here, so it is not
+    // consumed: PROTON_PREFER_SDL=0 overrides a protonfix that turns SDL on
+    // for a game, and GE-Proton reads PROTON_NO_STEAMINPUT=0 under Wayland as
+    // "keep Steam Input". PROTON_USE_SDL is GE's alias for PREFER_SDL and is
+    // written back under the documented name.
+    if (key == "PROTON_NO_STEAMINPUT" && value != "0") { s.protonNoSteamInput = true; return true; }
+    if ((key == "PROTON_PREFER_SDL" || key == "PROTON_USE_SDL") && value != "0") {
+        s.protonPreferSdl = true;
+        return true;
+    }
     if (key == "PROTON_ENABLE_HDR") { s.enableProtonHDR = (value != "0"); return true; }
     // DXVK_HDR=1 alone is how Proton-CachyOS users switch HDR on. An explicit
     // DXVK_HDR=0 is not ours to model and stays a custom parameter.
@@ -658,6 +675,7 @@ EnvBuilder::ParsedLaunchOptions EnvBuilder::parseLaunchOptions(const QString& ra
     s.enableFrameRateLimit = false; s.targetFrameRate = 60; s.dxvkConfigExtra.clear();
     s.enableProtonHDR = false;
     s.protonUseD7VK = false;
+    s.protonNoSteamInput = false; s.protonPreferSdl = false;
     s.enableMangoHud = false;
 
     const QStringList tokens = tokenize(raw);

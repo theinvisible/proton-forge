@@ -6,6 +6,15 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ## [Unreleased]
 
+### Added
+
+- **Controller input** in the Proton tab: *without Steam Input*
+  (`PROTON_NO_STEAMINPUT=1`, hides Steam's virtual controller — against doubled
+  inputs, while DualSense haptics keep working) or *SDL for all controllers*
+  (`PROTON_PREFER_SDL=1`, for controllers that are not detected or misbehave).
+  Proton-CachyOS and GE-Proton (SDL from 10-7, without Steam Input from 10-8 and
+  there only with Wayland); Valve's Proton has neither, and says so.
+
 ### Fixed
 
 - **Launching from the command line ignored the executable chosen in the

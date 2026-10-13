@@ -73,6 +73,10 @@ public:
     // Proton Tweaks
     bool protonUseNTSync = false;      // PROTON_USE_NTSYNC=1 — opt-in up to Proton 10
     bool protonDisableNTSync = false;  // PROTON_NO_NTSYNC=1 — opt-out from Proton 11
+    // Controller input (GE-Proton / Proton-CachyOS). One choice in the UI;
+    // SDL implies no Steam Input, so the two are never both offered.
+    bool protonNoSteamInput = false;   // PROTON_NO_STEAMINPUT=1 — hide Steam's virtual pad
+    bool protonPreferSdl = false;      // PROTON_PREFER_SDL=1 — all controllers through SDL
     bool protonUseD7VK = false;  // PROTON_USE_D7VK=1 (GE) + PROTON_D7VK_DDRAW=1 (CachyOS) — d7vk
     bool protonLog = false;
 

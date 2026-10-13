@@ -102,6 +102,8 @@ enum class Feature {
     NtsyncDisable,
     DlssUpgrade,
     DlssUpgradeVersion,
+    NoSteamInput,
+    PreferSdl,
 };
 
 // Central, tunable capability table (defined in FeatureGate.cpp).

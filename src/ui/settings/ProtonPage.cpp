@@ -30,6 +30,31 @@ ProtonPage::ProtonPage(QWidget* parent)
     ntsyncRow->addWidget(m_ntsyncMode, 1);
     layout->addLayout(ntsyncRow);
 
+    QHBoxLayout* controllerRow = new QHBoxLayout();
+    controllerRow->addWidget(new QLabel("Controller input:", this));
+    m_controllerInput = new QComboBox(this);
+    m_controllerInput->addItem("Proton default", QString());
+    m_controllerInput->addItem("Without Steam Input (PROTON_NO_STEAMINPUT)",
+                               QStringLiteral("nosteaminput"));
+    m_controllerInput->addItem("SDL for all controllers (PROTON_PREFER_SDL)",
+                               QStringLiteral("sdl"));
+    m_controllerInput->setToolTip(
+        "How the game sees your controller.\n\n"
+        "• Proton default: Steam Input's virtual controller and direct HID access, "
+        "as Proton decides.\n"
+        "• Without Steam Input: hides Steam's virtual controller, so the game only "
+        "sees the real one — for doubled inputs or wrong button prompts. Direct HID "
+        "access (DualSense haptics, adaptive triggers) stays. Sets "
+        "PROTON_NO_STEAMINPUT=1.\n"
+        "• SDL for all controllers: routes every controller through SDL instead of "
+        "HID and Steam Input — for controllers that are not detected or misbehave. "
+        "Sets PROTON_PREFER_SDL=1.\n\n"
+        "Requires: Proton-CachyOS, or GE-Proton (SDL from 10-7; without Steam Input "
+        "from 10-8, and in GE-Proton only together with Wayland). Valve's Proton "
+        "has neither.");
+    controllerRow->addWidget(m_controllerInput, 1);
+    layout->addLayout(controllerRow);
+
     bindFlag(layout, &DLSSSettings::protonUseD7VK,
              "Use D7VK (PROTON_USE_D7VK)",
              "Translate Direct3D 7 to Vulkan via d7vk.\n\n"
@@ -48,6 +73,8 @@ ProtonPage::ProtonPage(QWidget* parent)
 
     connect(m_ntsyncMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SettingsPage::changed);
+    connect(m_controllerInput, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsPage::changed);
     pageLayout()->addWidget(group);
 }
 
@@ -58,6 +85,12 @@ void ProtonPage::load(const DLSSSettings& settings)
                          : settings.protonUseNTSync     ? QStringLiteral("on")
                                                         : QStringLiteral("default");
     m_ntsyncMode->setCurrentIndex(std::max(0, m_ntsyncMode->findData(ntsync)));
+
+    // SDL implies no Steam Input, so it wins if a string ever has both.
+    const QString controller = settings.protonPreferSdl    ? QStringLiteral("sdl")
+                             : settings.protonNoSteamInput ? QStringLiteral("nosteaminput")
+                                                           : QString();
+    m_controllerInput->setCurrentIndex(std::max(0, m_controllerInput->findData(controller)));
 }
 
 void ProtonPage::store(DLSSSettings& settings) const
@@ -66,6 +99,10 @@ void ProtonPage::store(DLSSSettings& settings) const
     const QString ntsync = m_ntsyncMode->currentData().toString();
     settings.protonUseNTSync = (ntsync == QLatin1String("on"));
     settings.protonDisableNTSync = (ntsync == QLatin1String("off"));
+
+    const QString controller = m_controllerInput->currentData().toString();
+    settings.protonNoSteamInput = (controller == QLatin1String("nosteaminput"));
+    settings.protonPreferSdl = (controller == QLatin1String("sdl"));
 }
 
 void ProtonPage::collectWarnings(const FeatureGate::Context& ctx, QStringList& lines) const
@@ -76,4 +113,9 @@ void ProtonPage::collectWarnings(const FeatureGate::Context& ctx, QStringList& l
           "NTSync", ctx, lines);
     check(m_ntsyncMode, ntsync == QLatin1String("off"), FeatureGate::Feature::NtsyncDisable,
           "NTSync off", ctx, lines);
+    const QString controller = m_controllerInput->currentData().toString();
+    check(m_controllerInput, controller == QLatin1String("nosteaminput"),
+          FeatureGate::Feature::NoSteamInput, "Controller without Steam Input", ctx, lines);
+    check(m_controllerInput, controller == QLatin1String("sdl"),
+          FeatureGate::Feature::PreferSdl, "Controller via SDL", ctx, lines);
 }

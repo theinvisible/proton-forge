@@ -72,6 +72,8 @@ const std::vector<Field>& fields()
         // Proton tweaks
         {"protonUseNTSync",             &S::protonUseNTSync},
         {"protonDisableNTSync",         &S::protonDisableNTSync},
+        {"protonNoSteamInput",          &S::protonNoSteamInput},
+        {"protonPreferSdl",             &S::protonPreferSdl},
         {"protonUseD7VK",               &S::protonUseD7VK},
         {"protonLog",                   &S::protonLog},
 

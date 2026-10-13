@@ -61,6 +61,7 @@ private slots:
     void rrPresetsCanonicalizeAgainstTheirOwnList();
     void emissionOrderIsStable();
     void plainSwitchesRoundTrip();
+    void controllerInputImport();
 
 private:
     // Every option turned on, so a test can see the full set of variables
@@ -90,6 +91,8 @@ private:
         s.disableAutoHDR = true;
         s.protonUseNTSync = true;
         s.protonDisableNTSync = true;
+        s.protonNoSteamInput = true;
+        s.protonPreferSdl = true;
         s.protonUseD7VK = true;
         s.protonLog = true;
         s.enableMangoHud = true;
@@ -159,6 +162,8 @@ void TstEnvBuilder::emitsKnownVariables_data()
     QTest::newRow("d7vk")            << "protonUseD7VK"           << "PROTON_USE_D7VK=1";
     QTest::newRow("d7vk (cachyos)")  << "protonUseD7VK"           << "PROTON_D7VK_DDRAW=1";
     QTest::newRow("proton log")      << "protonLog"               << "PROTON_LOG=1";
+    QTest::newRow("no steam input")  << "protonNoSteamInput"      << "PROTON_NO_STEAMINPUT=1";
+    QTest::newRow("prefer sdl")      << "protonPreferSdl"         << "PROTON_PREFER_SDL=1";
     // Not an env var: MANGOHUD=1 only enables the Vulkan implicit layer, so the
     // launch options carry the wrapper command that also covers OpenGL.
     QTest::newRow("mangohud")        << "enableMangoHud"          << "mangohud";
@@ -246,6 +251,14 @@ void TstEnvBuilder::roundTrips_data()
     tweaks.protonLog = true;
     tweaks.enableMangoHud = true;
     QTest::newRow("proton tweaks") << tweaks;
+
+    DLSSSettings noSteamInput;
+    noSteamInput.protonNoSteamInput = true;
+    QTest::newRow("controller: no steam input") << noSteamInput;
+
+    DLSSSettings sdl;
+    sdl.protonPreferSdl = true;
+    QTest::newRow("controller: sdl") << sdl;
 
     DLSSSettings fps;
     fps.enableFrameRateLimit = true;
@@ -340,6 +353,8 @@ void TstEnvBuilder::absenceMeansOff()
     DLSSSettings base;
     base.enableReflex = true;
     base.enableD3D12ShaderExtensions = true;
+    base.protonNoSteamInput = true;
+    base.protonPreferSdl = true;
     base.protonLog = true;
     base.enableSmoothMotion = true;
     base.enableProtonHDR = true;
@@ -351,6 +366,8 @@ void TstEnvBuilder::absenceMeansOff()
 
     QVERIFY(!parsed.enableReflex);
     QVERIFY(!parsed.enableD3D12ShaderExtensions);
+    QVERIFY(!parsed.protonNoSteamInput);
+    QVERIFY(!parsed.protonPreferSdl);
     QVERIFY(!parsed.protonLog);
     QVERIFY(!parsed.enableSmoothMotion);
     QVERIFY(!parsed.enableProtonHDR);
@@ -708,6 +725,8 @@ void TstEnvBuilder::dlssOverridesAreProtonOnly()
     QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_DRS_SETTINGS"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_VKREFLEX"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("DXVK_NVAPI_D3D12_NV_SHADER_EXTN"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("PROTON_NO_STEAMINPUT"), EnvBuilder::VarScope::ProtonOnly);
+    QCOMPARE(EnvBuilder::scopeOf("PROTON_PREFER_SDL"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("PROTON_DISABLE_NVAPI"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("VKD3D_CONFIG"), EnvBuilder::VarScope::ProtonOnly);
     QCOMPARE(EnvBuilder::scopeOf("DXVK_CONFIG"), EnvBuilder::VarScope::ProtonOnly);
@@ -997,6 +1016,8 @@ void TstEnvBuilder::emissionOrderIsStable()
         "PROTON_USE_D7VK=1 "
         "PROTON_D7VK_DDRAW=1 "
         "PROTON_LOG=1 "
+        "PROTON_NO_STEAMINPUT=1 "
+        "PROTON_PREFER_SDL=1 "
         "MANGOHUD=1 "
         "FOO=1 "
         "mangohud "
@@ -1032,6 +1053,26 @@ void TstEnvBuilder::plainSwitchesRoundTrip()
         QVERIFY2(!EnvBuilder::buildLaunchOptions(off).contains(var + "="),
                  qPrintable(var + "=0 still writes the switch"));
     }
+}
+
+void TstEnvBuilder::controllerInputImport()
+{
+    // GE's alias is understood and written back under the documented name.
+    const DLSSSettings alias = reparse("PROTON_USE_SDL=1 %command%", DLSSSettings());
+    QVERIFY(alias.protonPreferSdl);
+    QCOMPARE(alias.customLaunchParams, QStringLiteral("%command%"));
+    QCOMPARE(EnvBuilder::buildLaunchOptions(alias), QStringLiteral("PROTON_PREFER_SDL=1 %command%"));
+
+    // "=0" means something here — it overrides a protonfix, or keeps Steam
+    // Input under Wayland — so it is the user's own and stays where it was.
+    const DLSSSettings zeros =
+        reparse("PROTON_PREFER_SDL=0 PROTON_NO_STEAMINPUT=0 %command%", DLSSSettings());
+    QVERIFY(!zeros.protonPreferSdl);
+    QVERIFY(!zeros.protonNoSteamInput);
+    QVERIFY2(zeros.customLaunchParams.contains("PROTON_PREFER_SDL=0") &&
+                 zeros.customLaunchParams.contains("PROTON_NO_STEAMINPUT=0"),
+             qPrintable(zeros.customLaunchParams));
+    QVERIFY(EnvBuilder::buildLaunchOptions(zeros).contains("PROTON_NO_STEAMINPUT=0"));
 }
 
 QTEST_MAIN(TstEnvBuilder)
