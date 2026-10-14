@@ -6,6 +6,16 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-14
+
+### Action needed: games with a scaling ratio
+
+A scaling ratio saved without the mode **CUSTOM** never took effect, because
+the driver reads a ratio in no other mode. ProtonForge now writes CUSTOM with it,
+so the launch string of those games changes. If you start such a game from
+Steam, open it, close Steam and click **Write to Launcher** once. A direct
+launch from ProtonForge needs nothing, and no other game is affected.
+
 ### Added
 
 - **Controller input** in the Proton tab: *without Steam Input*
