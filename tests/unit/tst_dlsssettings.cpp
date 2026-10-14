@@ -221,8 +221,13 @@ void TstDlssSettings::presetListsMatchTheModels()
     QVERIFY(!rr.contains("RENDER_PRESET_A"));
     QVERIFY(!rr.contains("RENDER_PRESET_K"));
 
+    // Frame Generation: A, B and the Performance Mode C.
+    const QStringList fg = DLSSSettings::availableFGPresets();
+    QVERIFY(fg.contains("RENDER_PRESET_C"));
+    QVERIFY(fg.contains("RENDER_PRESET_A"));
+
     // Every list starts with "(App Default)", the value that writes nothing.
-    for (const QStringList& list : {sr, rr, DLSSSettings::availableFGPresets()})
+    for (const QStringList& list : {sr, rr, fg})
         QCOMPARE(list.first(), QString());
 }
 

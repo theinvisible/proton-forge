@@ -31,6 +31,12 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
   reads a ratio in — which Ray Reconstruction now offers as well. A Proton
   whose DXVK-NVAPI does not know the ratio yet (Valve's Proton before 10.0-2,
   GE-Proton before 10-4, Proton-CachyOS before 10.0-20250601) gets a warning.
+- **Frame Generation preset C** ("Performance Mode", beta): NVIDIA's lighter
+  frame generation model, up to 35 % faster at some cost in image quality, for
+  Frame Generation, Multi-Frame Generation and Dynamic Multi-Frame Generation on
+  RTX 40/50. NVIDIA has not said which DLSS version brings it, so choosing it
+  shows a note; a DLL that does not know it keeps its default preset — the DLSS
+  indicator shows which one is in use.
 - **Refresh Artwork** in the Library menu and in a game's right-click menu:
   downloads the cover art again and retries images that failed to load. A
   download that fails keeps the image already shown. Cover art also refreshes

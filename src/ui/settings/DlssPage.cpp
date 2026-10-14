@@ -48,6 +48,7 @@ QString presetLabel(PresetKind kind, const QString& value)
         {"RENDER_PRESET_D", "D — Transformer"},
     };
     static const QHash<QString, QString> fg = {
+        {"RENDER_PRESET_C", "C — Performance Mode (beta)"},
         {"RENDER_PRESET_B", "B — UI recomposition (DLSS 310.6.0+)"},
         {"RENDER_PRESET_A", "A — Original"},
     };
@@ -401,6 +402,9 @@ QGroupBox* DlssPage::createFrameGenerationGroup()
         "Frame Generation only exposes a couple of real presets:\n"
         "• (App Default): use the game's choice\n"
         "• Recommended (RENDER_PRESET_LATEST): the driver's pick\n"
+        "• C: Performance Mode (beta) — a lighter optical flow model, up to\n"
+        "  35% faster, some loss in image quality; RTX 40/50. NVIDIA has not\n"
+        "  said which DLSS version brings it — an older DLL ignores it\n"
         "• B: UI recomposition — keeps HUD and text cleaner (DLSS 310.6.0+)\n"
         "• A: original FG model\n\n"
         "Requires the FG override above to be enabled.");

@@ -21,6 +21,7 @@ private slots:
     void keepsTheBannerTexts();
     void nativeGameSkipsProtonOnlyOptions();
     void frameGenDetailsNeedTheOverride();
+    void fgPresetCIsFlaggedAsBeta();
     void missingVendorIsOneLine();
     void oldProtonIsOneOverridesLine();
     void linesFollowTheTabs();
@@ -109,6 +110,31 @@ void TstFeatureWarnings::frameGenDetailsNeedTheOverride()
         "Multi-Frame Generation (3x–6x): Multi-Frame Generation needs an RTX 50 GPU")));
     QVERIFY(lines.contains(QStringLiteral(
         "Dynamic Frame Generation: Dynamic Multi-Frame Generation needs an RTX 50 GPU")));
+}
+
+void TstFeatureWarnings::fgPresetCIsFlaggedAsBeta()
+{
+    // Preset C passes every gate; the line says the DLL may not know it.
+    const QString hint = QStringLiteral(
+        "FG Preset C: a beta model — which DLSS Frame Generation version supports "
+        "it is not yet known; a DLL without it uses its default preset (check "
+        "with the DLSS indicator)");
+
+    DLSSSettings s;
+    s.fgPreset = QStringLiteral("RENDER_PRESET_C");
+    FeatureWarnings::Input in = valve(10, 0, 3);
+    in.gate.gpu = GpuGeneration::Blackwell;
+    QVERIFY(!FeatureWarnings::collect(s, in).contains(hint));   // override off
+
+    s.fgOverride = true;
+    QVERIFY(FeatureWarnings::collect(s, in).contains(hint));
+
+    s.fgPreset = QStringLiteral("RENDER_PRESET_B");
+    QVERIFY(!FeatureWarnings::collect(s, in).contains(hint));
+
+    s.fgPreset = QStringLiteral("RENDER_PRESET_C");
+    in.nativeLinux = true;                                       // override is inert
+    QVERIFY(!FeatureWarnings::collect(s, in).contains(hint));
 }
 
 void TstFeatureWarnings::missingVendorIsOneLine()

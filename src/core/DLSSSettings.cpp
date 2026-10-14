@@ -226,10 +226,13 @@ QStringList DLSSSettings::availableFGModes()
 QStringList DLSSSettings::availableFGPresets()
 {
     // Frame Generation: A is the original model, B adds UI recomposition
-    // (DLSS 310.6.0).
+    // (DLSS 310.6.0), C is the "Performance Mode" (beta, October 2026) — a
+    // lighter optical flow, faster at some cost in quality. NVIDIA names no
+    // DLL version for C; a DLL that does not know it uses its default.
     return {
         "",  // Default/App controlled
         "RENDER_PRESET_LATEST",
+        "RENDER_PRESET_C",
         "RENDER_PRESET_B",
         "RENDER_PRESET_A"
     };

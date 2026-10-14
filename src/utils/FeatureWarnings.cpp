@@ -153,6 +153,15 @@ QStringList collect(const DLSSSettings& s, const Input& in)
                     "using both — Smooth Motion is meant for games without frame "
                     "generation of their own");
             }
+            // Not a gate either: NVIDIA ships preset C as a beta and names no
+            // DLSS version for it, so whether the game's DLL knows it is open.
+            if (s.fgOverride && s.fgPreset == QLatin1String("RENDER_PRESET_C") &&
+                reachesGame("DXVK_NVAPI_DRS_SETTINGS", in.nativeLinux)) {
+                lines << QStringLiteral(
+                    "FG Preset C: a beta model — which DLSS Frame Generation version "
+                    "supports it is not yet known; a DLL without it uses its default "
+                    "preset (check with the DLSS indicator)");
+            }
         }
     };
 
