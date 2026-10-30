@@ -78,6 +78,9 @@ struct Requirement {
     // From this driver on the option does nothing useful any more: the driver
     // does the job itself. Null = never.
     QVersionNumber unneededFromDriver;
+    // The same from a fork version on: the Proton does the job itself.
+    // Compared at full precision, like the fork minimums.
+    QMap<Fork, QVersionNumber> unneededFromFork;
     QString unneededNote;       // message for Unneeded; falls back to note
 };
 
@@ -98,7 +101,7 @@ enum class Status {
     WrongFork,                  // feature not available on the selected fork
     UnsupportedGpu,             // the GPU generation cannot run it
     WrongGpuVendor,             // no GPU from the vendor the feature needs
-    Unneeded,                   // the driver already does what the option asks for
+    Unneeded,                   // the driver or Proton already does what the option asks for
 };
 
 struct Result {

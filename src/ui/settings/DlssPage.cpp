@@ -507,6 +507,7 @@ QGroupBox* DlssPage::createSmoothMotionGroup()
         "Doubles the displayed frame rate in games that have no frame generation "
         "of their own. NVIDIA advises against combining it with DLSS Frame "
         "Generation — use one or the other.\n\n"
+        "Hangs at start-up and on Alt+Tab were fixed in NVIDIA driver 615.71.09.\n\n"
         "Sets NVPRESENT_ENABLE_SMOOTH_MOTION=1.");
     layout->addWidget(m_enableSmoothMotion);
 

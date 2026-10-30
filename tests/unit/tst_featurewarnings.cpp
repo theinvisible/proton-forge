@@ -22,6 +22,7 @@ private slots:
     void nativeGameSkipsProtonOnlyOptions();
     void frameGenDetailsNeedTheOverride();
     void fgPresetCIsFlaggedAsBeta();
+    void hdrIsUnneededOnNewGe();
     void missingVendorIsOneLine();
     void oldProtonIsOneOverridesLine();
     void linesFollowTheTabs();
@@ -135,6 +136,31 @@ void TstFeatureWarnings::fgPresetCIsFlaggedAsBeta()
     s.fgPreset = QStringLiteral("RENDER_PRESET_C");
     in.nativeLinux = true;                                       // override is inert
     QVERIFY(!FeatureWarnings::collect(s, in).contains(hint));
+}
+
+void TstFeatureWarnings::hdrIsUnneededOnNewGe()
+{
+    const QString line = QStringLiteral(
+        "HDR: not needed from GE-Proton 11-9, which detects HDR per monitor by itself "
+        "— Wayland and HDR enabled in the desktop are enough; GE recommends leaving "
+        "PROTON_ENABLE_HDR off");
+
+    DLSSSettings s;
+    s.enableProtonWayland = true;
+    s.enableProtonHDR = true;
+
+    FeatureWarnings::Input in;
+    in.gate.protonKnown = true;
+    in.gate.fork = Fork::GE;
+    in.gate.proton = QVersionNumber(11, 9);
+    QCOMPARE(FeatureWarnings::collect(s, in), QStringList{line});
+
+    in.gate.proton = QVersionNumber(11, 8);
+    QVERIFY(FeatureWarnings::collect(s, in).isEmpty());
+
+    in.gate.proton = QVersionNumber(11, 9);
+    in.nativeLinux = true;                  // Proton-only variable, nothing reads it
+    QVERIFY(FeatureWarnings::collect(s, in).isEmpty());
 }
 
 void TstFeatureWarnings::missingVendorIsOneLine()

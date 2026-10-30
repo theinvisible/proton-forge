@@ -271,12 +271,19 @@ const Requirement& requirementFor(Feature feature)
                                     "runs through XWayland");
         return r;
     }();
+    // GE detects HDR per monitor from 11-9 and asks for PROTON_ENABLE_HDR to
+    // be left off; it still reads it, as the legacy DXVK_HDR=1 opt-in.
     static const Requirement protonHdr = [] {
         Requirement r = protonWayland;
         r.note = QStringLiteral("HDR needs Proton's Wayland driver: GE-Proton ≥ 10-1 or "
                                 "Proton-CachyOS ≥ 10.0-20250509");
         r.forkNote = QStringLiteral("Valve's Proton has no Wayland switch — HDR works "
                                     "there only inside gamescope");
+        r.unneededFromFork[Fork::GE] = QVersionNumber(11, 9);
+        r.unneededNote = QStringLiteral("not needed from GE-Proton 11-9, which detects HDR "
+                                        "per monitor by itself — Wayland and HDR enabled in "
+                                        "the desktop are enough; GE recommends leaving "
+                                        "PROTON_ENABLE_HDR off");
         return r;
     }();
     // The Vulkan HDR layer fills a gap the NVIDIA driver closed in 595.
@@ -402,6 +409,12 @@ Result evaluate(const Requirement& req, const Context& ctx)
         // Fork-specific minimum: full precision, only when the fork is known.
         if (hasForkRules && ctx.fork != Fork::Unknown && ctx.proton < forkMin) {
             return {Status::BelowMinProton, req.note};
+        }
+
+        // Last, so a Proton that cannot run the option says so first.
+        const QVersionNumber unneededFrom = req.unneededFromFork.value(ctx.fork);
+        if (!unneededFrom.isNull() && ctx.proton >= unneededFrom) {
+            return {Status::Unneeded, req.unneededNote.isEmpty() ? req.note : req.unneededNote};
         }
     }
 

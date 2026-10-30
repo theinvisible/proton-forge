@@ -35,6 +35,7 @@ private slots:
     void unknownVendorsNeverWarn();
     void wrongGpuVendor();
     void unneededFromDriver();
+    void unneededFromFork();
     void generationFromArchitecture_data();
     void generationFromArchitecture();
     void realFeatures_data();
@@ -380,6 +381,39 @@ void TstFeatureGate::unneededFromDriver()
     QVERIFY(r.message.endsWith(QStringLiteral("(detected 615.71.9)")));
 }
 
+void TstFeatureGate::unneededFromFork()
+{
+    Requirement req;
+    req.minGE = QVersionNumber(10, 1);
+    req.minCachyOS = QVersionNumber(0);
+    req.unneededFromFork[Fork::GE] = QVersionNumber(11, 9);
+    req.note = QStringLiteral("needs GE-Proton 10-1");
+    req.unneededNote = QStringLiteral("GE does it itself");
+
+    Context ctx;
+    ctx.fork = Fork::GE;
+    QCOMPARE(evaluate(req, ctx).status, Status::Supported);   // version unknown
+
+    ctx.protonKnown = true;
+    ctx.proton = QVersionNumber(11, 8);
+    QCOMPARE(evaluate(req, ctx).status, Status::Supported);
+
+    ctx.proton = QVersionNumber(11, 9);
+    const Result r = evaluate(req, ctx);
+    QCOMPARE(r.status, Status::Unneeded);
+    QCOMPARE(r.message, QStringLiteral("GE does it itself"));
+
+    // Too old comes first: the version check outranks "unneeded".
+    req.unneededFromFork[Fork::GE] = QVersionNumber(9);
+    ctx.proton = QVersionNumber(9, 27);
+    QCOMPARE(evaluate(req, ctx).status, Status::BelowMinProton);
+
+    // Another fork has no entry and is unaffected.
+    ctx.fork = Fork::CachyOS;
+    ctx.proton = QVersionNumber(11, 0, 20261015);
+    QCOMPARE(evaluate(req, ctx).status, Status::Supported);
+}
+
 void TstFeatureGate::generationFromArchitecture_data()
 {
     QTest::addColumn<QString>("architecture");
@@ -575,6 +609,15 @@ void TstFeatureGate::realFeatures_data()
         row((what + " on CachyOS 10.0-20250509").constData(), f,
             {}, QVersionNumber(10, 0, 20250509), Fork::CachyOS, Status::Supported);
     }
+    // GE detects HDR itself from 11-9; Wayland is still needed there.
+    row("hdr on GE 11-8", Feature::ProtonHdr,
+        {}, QVersionNumber(11, 8), Fork::GE, Status::Supported);
+    row("hdr on GE 11-9", Feature::ProtonHdr,
+        {}, QVersionNumber(11, 9), Fork::GE, Status::Unneeded);
+    row("wayland on GE 11-9", Feature::ProtonWayland,
+        {}, QVersionNumber(11, 9), Fork::GE, Status::Supported);
+    row("hdr on CachyOS 11.0-20261015", Feature::ProtonHdr,
+        {}, QVersionNumber(11, 0, 20261015), Fork::CachyOS, Status::Supported);
 
     row("hdr wsi layer before driver 595", Feature::HdrWsiLayer,
         QVersionNumber(590), {}, Fork::Unknown, Status::Supported);

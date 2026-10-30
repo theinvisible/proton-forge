@@ -6,6 +6,13 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ## [Unreleased]
 
+### Changed
+
+- **HDR on GE-Proton 11-9 and newer** gets a note that the option is no longer
+  needed: GE detects HDR per monitor by itself and recommends leaving
+  `PROTON_ENABLE_HDR` off — Wayland and HDR enabled in the desktop are enough.
+  The launch string is unchanged; Proton-CachyOS still reads `DXVK_HDR`.
+
 ## [1.3.0] - 2026-10-14
 
 ### Action needed: games with a scaling ratio
