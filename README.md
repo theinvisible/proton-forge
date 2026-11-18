@@ -27,13 +27,14 @@ Steam does not have to be installed for that.
 - Multi-Frame Generation up to 6x, Dynamic Multi-Frame Generation (RTX 50), and a
   33–100 % scaling ratio slider for mode CUSTOM
 - Reflex, Smooth Motion, DLSS DLL upgrade (optionally pinned to a version),
-  D3D12 shader extensions
+  Streamline upgrade (GE-Proton), D3D12 shader extensions
 - **Compatibility warnings** checked against your GPU, NVIDIA driver and the Proton
   the game would really start with. They warn, they never block. On a native Linux
   game, options only Proton would read are greyed out and explained
 
 **HDR**
-- `PROTON_ENABLE_WAYLAND`, `PROTON_ENABLE_HDR`/`DXVK_HDR` and `ENABLE_HDR_WSI` individually
+- `PROTON_ENABLE_WAYLAND`, `PROTON_ENABLE_HDR`/`DXVK_HDR` and `ENABLE_HDR_WSI` individually,
+  plus Force HDR (`PROTON_FORCE_HDR`, GE-Proton) and an auto-HDR opt-out (`DXVK_NO_HDR`)
 - Detects the HDR state on KDE Plasma and GNOME and tells you how to turn it on
 
 **Proton**

@@ -6,6 +6,8 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-18
+
 ### Added
 
 - **Force HDR** in the HDR tab (`PROTON_FORCE_HDR=1`, GE-Proton 11-12 and
