@@ -45,6 +45,9 @@ GeneralPage::GeneralPage(QWidget* parent)
              "Reduces input latency and is the recommended companion to Frame Generation "
              "and Smooth Motion. Needed for Reflex in native Vulkan titles "
              "(e.g. Portal RTX, Path of Exile).\n\n"
+             "The layer has to be installed separately. With NVIDIA driver 615 or newer "
+             "and DXVK-NVAPI 0.9.3 (GE-Proton 11-12 and newer) Reflex works without it "
+             "and this switch is not needed.\n\n"
              "Sets DXVK_NVAPI_VKREFLEX=1.",
              "DXVK_NVAPI_VKREFLEX");
 

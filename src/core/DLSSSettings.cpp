@@ -52,6 +52,7 @@ const std::vector<Field>& fields()
         // DLSS Upgrade
         {"dlssUpgrade",                 &S::dlssUpgrade},
         {"dlssVersion",                 &S::dlssVersion},
+        {"protonStreamlineUpgrade",     &S::protonStreamlineUpgrade},
 
         // Indicators
         {"showIndicator",               &S::showIndicator},
@@ -67,6 +68,7 @@ const std::vector<Field>& fields()
         {"enableProtonWayland",         &S::enableProtonWayland},
         {"enableProtonHDR",             &S::enableProtonHDR},
         {"enableHDRWSI",                &S::enableHDRWSI},
+        {"forceProtonHDR",              &S::forceProtonHDR},
         {"disableAutoHDR",              &S::disableAutoHDR},
 
         // Proton tweaks

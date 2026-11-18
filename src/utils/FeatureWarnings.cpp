@@ -72,6 +72,8 @@ const std::vector<Rule>& rules()
          [](const S& s) { return s.dlssUpgrade && s.dlssVersion.trimmed().isEmpty(); }},
         {Section::Dlss, Feature::DlssUpgradeVersion, "DLSS version", "PROTON_DLSS_UPGRADE",
          [](const S& s) { return s.dlssUpgrade && !s.dlssVersion.trimmed().isEmpty(); }},
+        {Section::Dlss, Feature::StreamlineUpgrade, "Streamline Upgrade", "PROTON_STREAMLINE_UPGRADE",
+         [](const S& s) { return s.protonStreamlineUpgrade; }},
 
         // HDR
         {Section::Hdr, Feature::ProtonWayland, "Wayland", "PROTON_ENABLE_WAYLAND",
@@ -80,6 +82,8 @@ const std::vector<Rule>& rules()
          [](const S& s) { return s.enableProtonHDR; }},
         {Section::Hdr, Feature::HdrWsiLayer, "HDR WSI layer", "ENABLE_HDR_WSI",
          [](const S& s) { return s.enableHDRWSI; }},
+        {Section::Hdr, Feature::ForceHdr, "Force HDR", "PROTON_FORCE_HDR",
+         [](const S& s) { return s.forceProtonHDR; }},
         {Section::Hdr, Feature::DisableAutoHdr, "Disable auto-HDR", "DXVK_NO_HDR",
          [](const S& s) { return s.disableAutoHDR; }},
 
@@ -131,7 +135,7 @@ QStringList collect(const DLSSSettings& s, const Input& in)
     // option; it is one fact, so it is one line, ahead of the rest.
     QStringList wrongVendor;
 
-    // The two checks that are not one feature each, at the end of their tab.
+    // The checks that are not one feature each, at the end of their tab.
     auto endOfSection = [&](Section section) {
         if (section == Section::General) {
             // PRIME offload is gated by hardware, not driver/Proton versions:
@@ -161,6 +165,18 @@ QStringList collect(const DLSSSettings& s, const Input& in)
                     "FG Preset C: a beta model — which DLSS Frame Generation version "
                     "supports it is not yet known; a DLL without it uses its default "
                     "preset (check with the DLSS indicator)");
+            }
+        } else if (section == Section::Hdr) {
+            // GE forces HDR on Wine Wayland outputs only; under XWayland the
+            // switch is inert. Said only where Force HDR itself would work, so
+            // a wrong fork does not get a second line about the same option.
+            if (s.forceProtonHDR && !s.enableProtonWayland &&
+                reachesGame("PROTON_FORCE_HDR", in.nativeLinux) &&
+                evaluate(requirementFor(Feature::ForceHdr), in.gate).status ==
+                    Status::Supported) {
+                lines << QStringLiteral(
+                    "Force HDR: only affects Proton's Wayland driver — enable Wayland "
+                    "(PROTON_ENABLE_WAYLAND) as well");
             }
         }
     };

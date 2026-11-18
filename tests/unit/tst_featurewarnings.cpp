@@ -23,6 +23,8 @@ private slots:
     void frameGenDetailsNeedTheOverride();
     void fgPresetCIsFlaggedAsBeta();
     void hdrIsUnneededOnNewGe();
+    void forceHdrNeedsWayland();
+    void reflexIsUnneededWithoutLayer();
     void missingVendorIsOneLine();
     void oldProtonIsOneOverridesLine();
     void linesFollowTheTabs();
@@ -143,7 +145,7 @@ void TstFeatureWarnings::hdrIsUnneededOnNewGe()
     const QString line = QStringLiteral(
         "HDR: not needed from GE-Proton 11-9, which detects HDR per monitor by itself "
         "— Wayland and HDR enabled in the desktop are enough; GE recommends leaving "
-        "PROTON_ENABLE_HDR off");
+        "PROTON_ENABLE_HDR off (use Force HDR if a game offers no HDR)");
 
     DLSSSettings s;
     s.enableProtonWayland = true;
@@ -160,6 +162,52 @@ void TstFeatureWarnings::hdrIsUnneededOnNewGe()
 
     in.gate.proton = QVersionNumber(11, 9);
     in.nativeLinux = true;                  // Proton-only variable, nothing reads it
+    QVERIFY(FeatureWarnings::collect(s, in).isEmpty());
+}
+
+void TstFeatureWarnings::forceHdrNeedsWayland()
+{
+    const QString line = QStringLiteral(
+        "Force HDR: only affects Proton's Wayland driver — enable Wayland "
+        "(PROTON_ENABLE_WAYLAND) as well");
+
+    DLSSSettings s;
+    s.forceProtonHDR = true;
+
+    FeatureWarnings::Input in;
+    in.gate.protonKnown = true;
+    in.gate.fork = Fork::GE;
+    in.gate.proton = QVersionNumber(11, 12);
+    QCOMPARE(FeatureWarnings::collect(s, in), QStringList{line});
+
+    s.enableProtonWayland = true;
+    QVERIFY(FeatureWarnings::collect(s, in).isEmpty());
+
+    // On a fork without the switch, one line about that — not a second one.
+    s.enableProtonWayland = false;
+    in.gate.fork = Fork::CachyOS;
+    in.gate.proton = QVersionNumber(11, 0, 20261015);
+    const QStringList lines = FeatureWarnings::collect(s, in);
+    QCOMPARE(lines.size(), 1);
+    QVERIFY(lines.first().startsWith(QStringLiteral("Force HDR: PROTON_FORCE_HDR is GE-Proton only")));
+}
+
+void TstFeatureWarnings::reflexIsUnneededWithoutLayer()
+{
+    DLSSSettings s;
+    s.enableReflex = true;
+
+    FeatureWarnings::Input in;
+    in.gate.protonKnown = true;
+    in.gate.fork = Fork::GE;
+    in.gate.proton = QVersionNumber(11, 12);
+    in.gate.driver = QVersionNumber(620, 70, 6);
+    QCOMPARE(FeatureWarnings::collect(s, in), QStringList{QStringLiteral(
+        "Reflex: not needed with NVIDIA driver ≥ 615 and DXVK-NVAPI ≥ 0.9.3 "
+        "(GE-Proton ≥ 11-12) — Reflex works without the Vulkan layer there "
+        "(detected 620.70.6)")});
+
+    in.gate.driver = QVersionNumber(610, 57, 4);
     QVERIFY(FeatureWarnings::collect(s, in).isEmpty());
 }
 

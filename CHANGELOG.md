@@ -6,12 +6,31 @@ section here (see `RELEASE.md`). Unreleased work goes under `[Unreleased]`.
 
 ## [Unreleased]
 
+### Added
+
+- **Force HDR** in the HDR tab (`PROTON_FORCE_HDR=1`, GE-Proton 11-12 and
+  newer): offers HDR even when the desktop reports SDR — KDE Plasma with the SDR
+  brightness at the monitor's peak, or Hyprland's `cm_auto_hdr`. From GE-Proton
+  11-12, `PROTON_ENABLE_HDR=1` no longer does this. Only for monitors that really
+  are HDR, and only with Wayland enabled; ProtonForge says so when Wayland is off.
+- **Streamline Upgrade** in the DLSS tab (`PROTON_STREAMLINE_UPGRADE=1`,
+  GE-Proton 11-12 and newer): downloads a current NVIDIA Streamline for games
+  whose own copy is too old for the Frame Generation override.
+
 ### Changed
 
+- **Reflex** gets a note that the switch is not needed with NVIDIA driver 615 or
+  newer and DXVK-NVAPI 0.9.3 (GE-Proton 11-12 and newer): Reflex works there
+  without the separately installed Vulkan layer.
 - **HDR on GE-Proton 11-9 and newer** gets a note that the option is no longer
   needed: GE detects HDR per monitor by itself and recommends leaving
   `PROTON_ENABLE_HDR` off — Wayland and HDR enabled in the desktop are enough.
   The launch string is unchanged; Proton-CachyOS still reads `DXVK_HDR`.
+
+### Fixed
+
+- **Disable auto-HDR** was reported as having no effect on GE-Proton. GE-Proton
+  detects HDR automatically from 11-9 and honours `DXVK_NO_HDR` there as well.
 
 ## [1.3.0] - 2026-10-14
 

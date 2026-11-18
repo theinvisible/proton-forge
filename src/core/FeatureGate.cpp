@@ -137,6 +137,14 @@ const Requirement& requirementFor(Feature feature)
         r.vendor = GpuVendor::NVIDIA;
         r.minProton = QVersionNumber(9);
         r.note = QStringLiteral("Proton ≥ 9 (DXVK-NVAPI Reflex layer)");
+        // DXVK-NVAPI 0.9.3 drives Reflex through VK_NV_low_latency rev. 2,
+        // which drivers have from R615: no layer, no switch. Only GE ships
+        // 0.9.3 so far (11-12); add the other forks once they do.
+        r.unneededFromDriver = QVersionNumber(615);
+        r.unneededFromFork[Fork::GE] = QVersionNumber(11, 12);
+        r.unneededNote = QStringLiteral("not needed with NVIDIA driver ≥ 615 and DXVK-NVAPI "
+                                        "≥ 0.9.3 (GE-Proton ≥ 11-12) — Reflex works without "
+                                        "the Vulkan layer there");
         return r;
     }();
     static const Requirement vkd3dLowLatency = [] {
@@ -154,11 +162,15 @@ const Requirement& requirementFor(Feature feature)
         r.forkNote = QStringLiteral("d7vk is only bundled with Proton-CachyOS and GE-Proton");
         return r;
     }();
+    // GE detects HDR by itself from 11-9 and honours DXVK_NO_HDR there too.
     static const Requirement disableAutoHdr = [] {
         Requirement r;
         r.minCachyOS = QVersionNumber(11, 0, 20260601);
-        r.note = QStringLiteral("auto-HDR requires Proton-CachyOS ≥ 11.0-20260601");
-        r.forkNote = QStringLiteral("auto-HDR is Proton-CachyOS only — this option has no effect here");
+        r.minGE = QVersionNumber(11, 9);
+        r.note = QStringLiteral("auto-HDR requires Proton-CachyOS ≥ 11.0-20260601 "
+                                "or GE-Proton ≥ 11-9");
+        r.forkNote = QStringLiteral("DXVK_NO_HDR is read by Proton-CachyOS and GE-Proton "
+                                    "only — this option has no effect here");
         return r;
     }();
     static const Requirement vkd3dDescriptorHeap = [] {
@@ -283,7 +295,29 @@ const Requirement& requirementFor(Feature feature)
         r.unneededNote = QStringLiteral("not needed from GE-Proton 11-9, which detects HDR "
                                         "per monitor by itself — Wayland and HDR enabled in "
                                         "the desktop are enough; GE recommends leaving "
-                                        "PROTON_ENABLE_HDR off");
+                                        "PROTON_ENABLE_HDR off (use Force HDR if a game "
+                                        "offers no HDR)");
+        return r;
+    }();
+    // GE from 11-12: reports HDR on Wine Wayland outputs the compositor calls
+    // SDR. PROTON_ENABLE_HDR=1 stopped forcing it in the same release.
+    static const Requirement forceHdr = [] {
+        Requirement r;
+        r.minGE = QVersionNumber(11, 12);
+        r.note = QStringLiteral("PROTON_FORCE_HDR needs GE-Proton ≥ 11-12");
+        r.forkNote = QStringLiteral("PROTON_FORCE_HDR is GE-Proton only — this option "
+                                    "has no effect here");
+        return r;
+    }();
+    // GE from 11-12: fetches a current Streamline for games whose own copy is
+    // too old for the driver's DLSS overrides.
+    static const Requirement streamlineUpgrade = [] {
+        Requirement r;
+        r.vendor = GpuVendor::NVIDIA;
+        r.minGE = QVersionNumber(11, 12);
+        r.note = QStringLiteral("PROTON_STREAMLINE_UPGRADE needs GE-Proton ≥ 11-12");
+        r.forkNote = QStringLiteral("PROTON_STREAMLINE_UPGRADE is GE-Proton only — this "
+                                    "option has no effect here");
         return r;
     }();
     // The Vulkan HDR layer fills a gap the NVIDIA driver closed in 595.
@@ -324,6 +358,8 @@ const Requirement& requirementFor(Feature feature)
         case Feature::ProtonHdr:         return protonHdr;
         case Feature::HdrWsiLayer:       return hdrWsiLayer;
         case Feature::DlssScalingRatio:  return dlssScalingRatio;
+        case Feature::ForceHdr:          return forceHdr;
+        case Feature::StreamlineUpgrade: return streamlineUpgrade;
     }
 
     static const Requirement none{};
@@ -374,13 +410,6 @@ Result evaluate(const Requirement& req, const Context& ctx)
         return {Status::BelowMinDriver,
                 QStringLiteral("%1 (detected %2)").arg(req.note, ctx.driver.toString())};
     }
-    if (!req.unneededFromDriver.isNull() && !ctx.driver.isNull() &&
-        ctx.driver >= req.unneededFromDriver) {
-        return {Status::Unneeded,
-                QStringLiteral("%1 (detected %2)")
-                    .arg(req.unneededNote.isEmpty() ? req.note : req.unneededNote,
-                         ctx.driver.toString())};
-    }
 
     // Fork availability needs only the fork, not its version: a Valve build
     // whose version file is unreadable still has no d7vk.
@@ -411,10 +440,22 @@ Result evaluate(const Requirement& req, const Context& ctx)
             return {Status::BelowMinProton, req.note};
         }
 
-        // Last, so a Proton that cannot run the option says so first.
-        const QVersionNumber unneededFrom = req.unneededFromFork.value(ctx.fork);
-        if (!unneededFrom.isNull() && ctx.proton >= unneededFrom) {
-            return {Status::Unneeded, req.unneededNote.isEmpty() ? req.note : req.unneededNote};
+    }
+
+    // Last, so a driver or Proton that cannot run the option says so first.
+    const bool byDriver = !req.unneededFromDriver.isNull();
+    const bool byFork = !req.unneededFromFork.isEmpty();
+    if (byDriver || byFork) {
+        const bool driverMet = !byDriver ||
+                               (!ctx.driver.isNull() && ctx.driver >= req.unneededFromDriver);
+        const QVersionNumber forkFrom = req.unneededFromFork.value(ctx.fork);
+        const bool forkMet = !byFork || (ctx.protonKnown && !ctx.proton.isNull() &&
+                                         !forkFrom.isNull() && ctx.proton >= forkFrom);
+        if (driverMet && forkMet) {
+            QString message = req.unneededNote.isEmpty() ? req.note : req.unneededNote;
+            if (byDriver)
+                message += QStringLiteral(" (detected %1)").arg(ctx.driver.toString());
+            return {Status::Unneeded, message};
         }
     }
 

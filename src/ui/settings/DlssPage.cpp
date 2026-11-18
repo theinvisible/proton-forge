@@ -493,6 +493,18 @@ QGroupBox* DlssPage::createUpgradeGroup()
     connect(m_dlssVersion, &QLineEdit::textChanged, this, &SettingsPage::changed);
     updateVersionEnabled();
 
+    bindFlag(layout, &DLSSSettings::protonStreamlineUpgrade,
+             "Enable Streamline Upgrade (PROTON_STREAMLINE_UPGRADE)",
+             "Download a current NVIDIA Streamline (sl.*.dll) and load it instead of "
+             "the game's own copy.\n\n"
+             "For games whose Streamline is too old for the driver's DLSS overrides — "
+             "the Frame Generation override above, Multi-Frame Generation in "
+             "particular, does nothing there without it. Needs an internet "
+             "connection on first launch.\n\n"
+             "Requires: GE-Proton 11-12 or newer.\n\n"
+             "Sets PROTON_STREAMLINE_UPGRADE=1.",
+             "PROTON_STREAMLINE_UPGRADE");
+
     return group;
 }
 

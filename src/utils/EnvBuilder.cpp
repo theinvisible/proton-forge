@@ -54,6 +54,7 @@ const std::vector<VarSpec>& varSpecs()
         {"PROTON_VKD3D_LOWLATENCY",         Proton, &S::enableVkd3dLowLatency},
         {"VKD3D_CONFIG",                    Proton},
         {"PROTON_DLSS_UPGRADE",             Proton},
+        {"PROTON_STREAMLINE_UPGRADE",       Proton, &S::protonStreamlineUpgrade},
         {"PROTON_DLSS_INDICATOR",           Proton, &S::showIndicator},
         // Every DLSS SR/RR/FG override travels in this one variable.
         {"DXVK_NVAPI_DRS_SETTINGS",         Proton},
@@ -68,6 +69,7 @@ const std::vector<VarSpec>& varSpecs()
         {"PROTON_ENABLE_WAYLAND",           Proton, &S::enableProtonWayland},
         {"PROTON_ENABLE_HDR",               Proton},
         {"DXVK_HDR",                        Proton},
+        {"PROTON_FORCE_HDR",                Proton, &S::forceProtonHDR},
         {"ENABLE_HDR_WSI",                  Any,    &S::enableHDRWSI},
         {"DXVK_NO_HDR",                     Proton, &S::disableAutoHDR},
 

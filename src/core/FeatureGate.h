@@ -75,11 +75,12 @@ struct Requirement {
     // any vendor.
     std::optional<GpuVendor> vendor;
     QString vendorNote;         // message for WrongGpuVendor; default names the vendor
-    // From this driver on the option does nothing useful any more: the driver
-    // does the job itself. Null = never.
+    // From here on the option does nothing useful any more: the driver or the
+    // Proton does the job itself. Every condition that is set must hold — a
+    // driver at least unneededFromDriver, a fork with an entry here at least
+    // that version (full precision, like the fork minimums). Unknown never
+    // counts as met. None set = never.
     QVersionNumber unneededFromDriver;
-    // The same from a fork version on: the Proton does the job itself.
-    // Compared at full precision, like the fork minimums.
     QMap<Fork, QVersionNumber> unneededFromFork;
     QString unneededNote;       // message for Unneeded; falls back to note
 };
@@ -137,6 +138,8 @@ enum class Feature {
     ProtonHdr,
     HdrWsiLayer,
     DlssScalingRatio,
+    ForceHdr,
+    StreamlineUpgrade,
 };
 
 // Central, tunable capability table (defined in FeatureGate.cpp).

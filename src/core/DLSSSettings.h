@@ -48,6 +48,7 @@ public:
 
     // DLSS Upgrade (PROTON_DLSS_UPGRADE, Proton-CachyOS / GE-Proton)
     bool dlssUpgrade = false;
+    bool protonStreamlineUpgrade = false;  // PROTON_STREAMLINE_UPGRADE=1 — GE ≥ 11-12
     QString dlssVersion;  // e.g. "310.9.1"; empty = newest (PROTON_DLSS_UPGRADE=1)
 
     // Indicators
@@ -68,7 +69,8 @@ public:
     bool enableProtonWayland = false;
     bool enableProtonHDR = false;  // PROTON_ENABLE_HDR=1 (GE) + DXVK_HDR=1 (CachyOS)
     bool enableHDRWSI = false;
-    bool disableAutoHDR = false;  // DXVK_NO_HDR=1 — opt out of CachyOS auto-HDR
+    bool forceProtonHDR = false;  // PROTON_FORCE_HDR=1 — GE ≥ 11-12, Wine Wayland only
+    bool disableAutoHDR = false;  // DXVK_NO_HDR=1 — opt out of CachyOS/GE auto-HDR
 
     // Proton Tweaks
     bool protonUseNTSync = false;      // PROTON_USE_NTSYNC=1 — opt-in up to Proton 10

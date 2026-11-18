@@ -55,14 +55,32 @@ HdrPage::HdrPage(QWidget* parent)
         "to Vulkan themselves, so the quick toggle leaves it off there.");
     hdrOptionsLayout->addWidget(m_enableHDRWSI);
 
+    // NOT part of the quick toggle: an override for one game on one monitor,
+    // never something to switch on wholesale.
+    bindFlag(hdrOptionsLayout, &DLSSSettings::forceProtonHDR,
+             "Force HDR (PROTON_FORCE_HDR)",
+             "Report HDR on every monitor even when the desktop reports SDR.\n\n"
+             "For KDE Plasma with the SDR brightness set to the monitor's peak (no "
+             "HDR headroom, so games are offered SDR only), and compositors that "
+             "switch to HDR only for fullscreen HDR games, such as Hyprland's "
+             "cm_auto_hdr. Since GE-Proton 11-12, PROTON_ENABLE_HDR=1 no longer "
+             "forces HDR — this does.\n\n"
+             "Only per game and only on monitors that really are HDR: on an SDR "
+             "monitor colours look washed out and some games hang. Only affects "
+             "Proton's Wayland driver; DXVK_NO_HDR takes precedence.\n\n"
+             "Requires: GE-Proton 11-12 or newer.\n\n"
+             "Not affected by the 'Enable All HDR Options' quick toggle.\n\n"
+             "Sets PROTON_FORCE_HDR=1.",
+             "PROTON_FORCE_HDR");
+
     // NOT part of the quick toggle: a disable switch, kept outside the master
     // sync and the HDR status dialog.
     bindFlag(hdrOptionsLayout, &DLSSSettings::disableAutoHDR,
              "Disable auto-HDR (DXVK_NO_HDR)",
-             "Opt out of Proton-CachyOS's automatic HDR.\n\n"
-             "Since Proton-CachyOS 11.0-20260601, HDR is enabled automatically when "
-             "the display supports it. Enable this to force SDR for games where "
-             "auto-HDR misbehaves.\n\n"
+             "Opt out of automatic HDR.\n\n"
+             "Proton-CachyOS (since 11.0-20260601) and GE-Proton (since 11-9) "
+             "enable HDR automatically when the display supports it. Enable this "
+             "to force SDR for games where auto-HDR misbehaves.\n\n"
              "Not affected by the 'Enable All HDR Options' quick toggle.\n\n"
              "Sets DXVK_NO_HDR=1.",
              "DXVK_NO_HDR");

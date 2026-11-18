@@ -79,6 +79,7 @@ private:
         s.enableVkd3dDescriptorHeap = true;
         s.enableD3D12ShaderExtensions = true;
         s.dlssUpgrade = true;
+        s.protonStreamlineUpgrade = true;
         s.showIndicator = true;
         s.srOverride = true;
         s.rrOverride = true;
@@ -90,6 +91,7 @@ private:
         s.enableProtonWayland = true;
         s.enableProtonHDR = true;
         s.enableHDRWSI = true;
+        s.forceProtonHDR = true;
         s.disableAutoHDR = true;
         s.protonUseNTSync = true;
         s.protonDisableNTSync = true;
@@ -1044,6 +1046,7 @@ void TstEnvBuilder::emissionOrderIsStable()
         "PROTON_VKD3D_LOWLATENCY=1 "
         "VKD3D_CONFIG=descriptor_heap,dxr "
         "PROTON_DLSS_UPGRADE=310.9.1 "
+        "PROTON_STREAMLINE_UPGRADE=1 "
         "PROTON_DLSS_INDICATOR=1 "
         "DXVK_NVAPI_DRS_SETTINGS=NGX_DLSS_SR_OVERRIDE=on,NGX_DLSS_SR_MODE=custom,NGX_DLSS_SR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_K,NGX_DLSS_SR_OVERRIDE_SCALING_RATIO=66,NGX_DLSS_RR_OVERRIDE=on,NGX_DLSS_RR_MODE=custom,NGX_DLSS_RR_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_F,NGX_DLSS_RR_OVERRIDE_SCALING_RATIO=90,NGX_DLSS_FG_OVERRIDE=on,NGX_DLSSG_MULTI_FRAME_COUNT=3,NGX_DLSSG_MODE=dynamic,NGX_DLSS_FG_OVERRIDE_RENDER_PRESET_SELECTION=RENDER_PRESET_B,NGX_DLSSG_DYNAMIC_TARGET_FRAME_RATE=120,NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX=3 "
         "NVPRESENT_ENABLE_SMOOTH_MOTION=1 "
@@ -1053,6 +1056,7 @@ void TstEnvBuilder::emissionOrderIsStable()
         "PROTON_ENABLE_WAYLAND=1 "
         "PROTON_ENABLE_HDR=1 "
         "DXVK_HDR=1 "
+        "PROTON_FORCE_HDR=1 "
         "ENABLE_HDR_WSI=1 "
         "DXVK_NO_HDR=1 "
         "PROTON_USE_NTSYNC=1 "

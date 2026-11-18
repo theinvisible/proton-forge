@@ -412,6 +412,28 @@ void TstFeatureGate::unneededFromFork()
     ctx.fork = Fork::CachyOS;
     ctx.proton = QVersionNumber(11, 0, 20261015);
     QCOMPARE(evaluate(req, ctx).status, Status::Supported);
+
+    // Driver and fork together: both have to hold, and unknown holds neither.
+    Requirement both;
+    both.unneededFromDriver = QVersionNumber(615);
+    both.unneededFromFork[Fork::GE] = QVersionNumber(11, 12);
+    both.unneededNote = QStringLiteral("not needed");
+    Context c;
+    c.fork = Fork::GE;
+    c.protonKnown = true;
+    c.proton = QVersionNumber(11, 12);
+    QCOMPARE(evaluate(both, c).status, Status::Supported);   // driver unknown
+    c.driver = QVersionNumber(610, 57, 4);
+    QCOMPARE(evaluate(both, c).status, Status::Supported);
+    c.driver = QVersionNumber(620, 70, 6);
+    const Result met = evaluate(both, c);
+    QCOMPARE(met.status, Status::Unneeded);
+    QCOMPARE(met.message, QStringLiteral("not needed (detected 620.70.6)"));
+    c.proton = QVersionNumber(11, 11);
+    QCOMPARE(evaluate(both, c).status, Status::Supported);
+    c.proton = {};
+    c.protonKnown = false;
+    QCOMPARE(evaluate(both, c).status, Status::Supported);
 }
 
 void TstFeatureGate::generationFromArchitecture_data()
@@ -618,6 +640,36 @@ void TstFeatureGate::realFeatures_data()
         {}, QVersionNumber(11, 9), Fork::GE, Status::Supported);
     row("hdr on CachyOS 11.0-20261015", Feature::ProtonHdr,
         {}, QVersionNumber(11, 0, 20261015), Fork::CachyOS, Status::Supported);
+
+    // Reflex without the layer: driver 615 and DXVK-NVAPI 0.9.3 (GE 11-12).
+    row("reflex on 620 + GE 11-12", Feature::Reflex,
+        QVersionNumber(620, 70, 6), QVersionNumber(11, 12), Fork::GE, Status::Unneeded);
+    row("reflex on 610 + GE 11-12", Feature::Reflex,
+        QVersionNumber(610, 57, 4), QVersionNumber(11, 12), Fork::GE, Status::Supported);
+    row("reflex on 620 + GE 11-11", Feature::Reflex,
+        QVersionNumber(620, 70, 6), QVersionNumber(11, 11), Fork::GE, Status::Supported);
+    row("reflex on 620 + CachyOS", Feature::Reflex,
+        QVersionNumber(620, 70, 6), QVersionNumber(11, 0, 20261015), Fork::CachyOS,
+        Status::Supported);
+
+    // DXVK_NO_HDR: CachyOS's auto-HDR, and GE's from 11-9.
+    row("disable auto-hdr on GE 11-8", Feature::DisableAutoHdr,
+        {}, QVersionNumber(11, 8), Fork::GE, Status::BelowMinProton);
+    row("disable auto-hdr on GE 11-9", Feature::DisableAutoHdr,
+        {}, QVersionNumber(11, 9), Fork::GE, Status::Supported);
+    row("disable auto-hdr is not in Valve Proton", Feature::DisableAutoHdr,
+        {}, valve11_2, Fork::Valve, Status::WrongFork);
+
+    // GE 11-12 only.
+    for (Feature f : {Feature::ForceHdr, Feature::StreamlineUpgrade}) {
+        const QByteArray what = f == Feature::ForceHdr ? "force hdr" : "streamline upgrade";
+        row((what + " on GE 11-11").constData(), f,
+            {}, QVersionNumber(11, 11), Fork::GE, Status::BelowMinProton);
+        row((what + " on GE 11-12").constData(), f,
+            {}, QVersionNumber(11, 12), Fork::GE, Status::Supported);
+        row((what + " is not in CachyOS").constData(), f,
+            {}, QVersionNumber(11, 0, 20261015), Fork::CachyOS, Status::WrongFork);
+    }
 
     row("hdr wsi layer before driver 595", Feature::HdrWsiLayer,
         QVersionNumber(590), {}, Fork::Unknown, Status::Supported);
